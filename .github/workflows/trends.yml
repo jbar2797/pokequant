@@ -1,0 +1,16 @@
+name: fetch-trends
+on:
+  schedule: [{ cron: "15 9 * * *" }]  # daily at 09:15 UTC (before our 10:00 UTC Worker cron)
+  workflow_dispatch: {}
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install pytrends requests
+      - env:
+          INGEST_URL: ${{ secrets.INGEST_URL }}
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+        run: python scripts/fetch_trends.py
