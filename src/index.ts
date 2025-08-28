@@ -137,6 +137,21 @@ async function sendSignalChangeEmails(env: Env) {
   }
 }
 
+async function authPortfolio(req: Request, env: Env) {
+  const pid = req.headers.get('x-portfolio-id')?.trim();
+  const sec = req.headers.get('x-portfolio-secret')?.trim();
+  if (!pid || !sec) {
+    return { ok: false as const, status: 401, err: 'missing x-portfolio-id or x-portfolio-secret' };
+  }
+  const row = await env.DB.prepare(`SELECT secret FROM portfolios WHERE id=?`).bind(pid).all();
+  const stored = row.results?.[0]?.secret as string | undefined;
+  if (!stored || stored !== sec) {
+    return { ok: false as const, status: 403, err: 'invalid portfolio credentials' };
+  }
+  return { ok: true as const, portfolio_id: pid, secret: sec };
+}
+
+
 // One-shot pipeline to reuse in cron and admin/run-now
 async function pipelineRun(env: Env) {
   const t0 = Date.now();
@@ -178,6 +193,153 @@ export default {
 
     // Preflight for CORS
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+
+    // List universe of cards regardless of signals (for Trends bootstrap + UI fallback)
+    if (url.pathname === '/api/universe' && req.method === 'GET') {
+      const rs = await env.DB.prepare(`
+        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
+              (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
+              (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_eur
+        FROM cards c
+        ORDER BY c.set_name, c.name
+        LIMIT 250
+      `).all();
+      return json(rs.results ?? []);
+    }
+
+    // Create a new portfolio (returns id + secret)
+    // Client must store both; the secret is shown once.
+    if (url.pathname === '/portfolio/create' && req.method === 'POST') {
+      const id = crypto.randomUUID();
+      // random 16-byte hex secret
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      const secret = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+      await env.DB.prepare(`
+        INSERT INTO portfolios (id, secret, created_at) VALUES (?, ?, ?)
+      `).bind(id, secret, new Date().toISOString()).run();
+      return json({ id, secret, note: 'Store these safely. They act as your login token.' });
+    }
+
+    // Add a lot to a portfolio
+    // headers: x-portfolio-id, x-portfolio-secret
+    // body: { card_id, qty, cost_usd, acquired_at?, note? }
+    if (url.pathname === '/portfolio/add-lot' && req.method === 'POST') {
+      const auth = await authPortfolio(req, env);
+      if (!auth.ok) return json({ error: auth.err }, auth.status);
+
+      const body = await req.json().catch(()=>({}));
+      const card_id = (body?.card_id ?? '').toString().trim();
+      const qty = Number(body?.qty);
+      const cost_usd = Number(body?.cost_usd);
+      const acquired_at = (body?.acquired_at ?? new Date().toISOString().slice(0,10)).toString().trim();
+      const note = (body?.note ?? '').toString().slice(0, 200);
+
+      if (!card_id) return json({ error: 'card_id required' }, 400);
+      if (!(qty > 0)) return json({ error: 'qty must be > 0' }, 400);
+      if (!(cost_usd >= 0)) return json({ error: 'cost_usd must be >= 0' }, 400);
+
+      // Verify card exists in our DB to avoid typos
+      const exists = await env.DB.prepare(`SELECT 1 FROM cards WHERE id=? LIMIT 1`).bind(card_id).all();
+      if (!exists.results?.length) return json({ error: 'unknown card_id (not in cards table yet)' }, 400);
+
+      const lot_id = crypto.randomUUID();
+      await env.DB.prepare(`
+        INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at, note)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).bind(lot_id, auth.portfolio_id, card_id, qty, cost_usd, acquired_at, note).run();
+
+      return json({ ok: true, lot_id });
+    }
+
+      // Get portfolio P&L summary and positions
+      // headers: x-portfolio-id, x-portfolio-secret
+      if (url.pathname === '/portfolio' && req.method === 'GET') {
+        const auth = await authPortfolio(req, env);
+        if (!auth.ok) return json({ error: auth.err }, auth.status);
+
+        // Pull all lots for this portfolio
+        const lotsRes = await env.DB.prepare(`
+          SELECT id, card_id, qty, cost_usd, acquired_at, note
+          FROM lots WHERE portfolio_id=?
+        `).bind(auth.portfolio_id).all();
+        const lots = lotsRes.results ?? [];
+
+        // Group by card_id
+        const byCard = new Map<string, { qty:number, cost_usd:number, lots:any[] }>();
+        for (const l of lots) {
+          const k = l.card_id;
+          const g = byCard.get(k) ?? { qty: 0, cost_usd: 0, lots: [] };
+          g.qty += Number(l.qty) || 0;
+          g.cost_usd += Number(l.cost_usd) || 0;
+          g.lots.push(l);
+          byCard.set(k, g);
+        }
+
+        // For each card, fetch latest price and card meta
+        const rows: any[] = [];
+        for (const [card_id, agg] of byCard.entries()) {
+          const meta = await env.DB.prepare(`SELECT name, set_name, image_url FROM cards WHERE id=?`).bind(card_id).all();
+          const m = meta.results?.[0] ?? { name: card_id, set_name: '' , image_url: '' };
+
+          const px = await env.DB.prepare(`
+            SELECT price_usd, price_eur, as_of
+            FROM prices_daily WHERE card_id=? ORDER BY as_of DESC LIMIT 1
+          `).bind(card_id).all();
+          const p = px.results?.[0] ?? { price_usd: null, price_eur: null, as_of: null };
+
+          // Prefer USD; if missing, we still report EUR (but P&L uses USD only)
+          const last_usd = (p.price_usd as number | null);
+          const last_eur = (p.price_eur as number | null);
+          const as_of = p.as_of as string | null;
+
+          const market_value_usd = last_usd != null ? agg.qty * last_usd : null;
+          const pnl_usd = (last_usd != null) ? (market_value_usd! - agg.cost_usd) : null;
+          const roi_pct = (last_usd != null && agg.cost_usd > 0) ? (pnl_usd! / agg.cost_usd) * 100 : null;
+
+          rows.push({
+            card_id,
+            name: m.name,
+            set_name: m.set_name,
+            image_url: m.image_url,
+            qty: Number(agg.qty.toFixed(4)),
+            cost_usd: Number(agg.cost_usd.toFixed(2)),
+            price_usd: last_usd,
+            price_eur: last_eur,     // for display only if USD missing
+            price_as_of: as_of,
+            market_value_usd: market_value_usd != null ? Number(market_value_usd.toFixed(2)) : null,
+            pnl_usd: pnl_usd != null ? Number(pnl_usd.toFixed(2)) : null,
+            roi_pct: roi_pct != null ? Number(roi_pct.toFixed(2)) : null
+          });
+        }
+
+        // Totals
+        const total_cost = rows.reduce((a,r)=> a + (r.cost_usd || 0), 0);
+        const total_mkt  = rows.reduce((a,r)=> a + (r.market_value_usd || 0), 0);
+        const total_pnl  = Number((total_mkt - total_cost).toFixed(2));
+        const total_roi  = total_cost > 0 ? Number(((total_pnl/total_cost)*100).toFixed(2)) : null;
+
+        return json({ ok: true, totals: {
+          cost_usd: Number(total_cost.toFixed(2)),
+          market_value_usd: Number(total_mkt.toFixed(2)),
+          pnl_usd: total_pnl,
+          roi_pct: total_roi
+        }, rows });
+      }
+
+      // Export lots (backup)
+      // headers: x-portfolio-id, x-portfolio-secret
+      if (url.pathname === '/portfolio/export' && req.method === 'GET') {
+        const auth = await authPortfolio(req, env);
+        if (!auth.ok) return json({ error: auth.err }, auth.status);
+
+        const lots = await env.DB.prepare(`
+          SELECT id, card_id, qty, cost_usd, acquired_at, note
+          FROM lots WHERE portfolio_id=? ORDER BY acquired_at ASC, id ASC
+        `).bind(auth.portfolio_id).all();
+
+        return json({ ok: true, portfolio_id: auth.portfolio_id, lots: lots.results ?? [] });
+      }
 
     // Public API: list cards with latest signals
     if (url.pathname === '/api/cards' && req.method === 'GET') {

@@ -1,9 +1,9 @@
 {
   "name": "pokequant",
+  "account_id": "b68b1a92dccf8e4a772b3c54a02d9026",
   "main": "src/index.ts",
   "compatibility_date": "2025-08-28",
 
-  // Bind your D1 database here
   "d1_databases": [
     {
       "binding": "DB",
@@ -12,8 +12,5 @@
     }
   ],
 
-  // Cron trigger to run every day at 10:00 UTC
-  "triggers": {
-    "crons": ["0 10 * * *"]
-  }
+  "triggers": { "crons": ["0 10 * * *"] }
 }

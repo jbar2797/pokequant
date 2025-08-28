@@ -58,3 +58,25 @@ CREATE TABLE IF NOT EXISTS alerts (
   rule TEXT,                        -- 'signal-change' or 'price-below:<num>'
   last_notified TEXT
 );
+
+-- Sprint 6: portfolios and lots (P&L)
+CREATE TABLE IF NOT EXISTS portfolios (
+  id TEXT PRIMARY KEY,        -- random UUID
+  secret TEXT NOT NULL,       -- random hex secret (capability token)
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS lots (
+  id TEXT PRIMARY KEY,        -- random UUID
+  portfolio_id TEXT,
+  card_id TEXT,
+  qty REAL,                   -- > 0
+  cost_usd REAL,              -- total cost in USD for this lot (not per-unit)
+  acquired_at TEXT,           -- ISO date 'YYYY-MM-DD'
+  note TEXT,
+  FOREIGN KEY (portfolio_id) REFERENCES portfolios(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lots_portfolio ON lots(portfolio_id);
+CREATE INDEX IF NOT EXISTS idx_lots_card ON lots(card_id);
+
