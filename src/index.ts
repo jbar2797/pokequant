@@ -6,15 +6,32 @@ export interface Env {
   PTCG_API_KEY: string;
   RESEND_API_KEY: string;
   INGEST_TOKEN: string;
+  ADMIN_TOKEN: string;
 }
 
-/** Fetch a curated universe: high-interest rarities (English). */
+// ---------- CORS helpers ----------
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'content-type, x-ingest-token, x-admin-token',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
+};
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'content-type': 'application/json', ...CORS }
+  });
+}
+
+// ---------- Core pipeline steps ----------
 async function fetchUniverse(env: Env) {
+  // Curated rarities; exclude Japanese to reduce variant noise for MVP
   const rarities = [
-    'Special illustration rare', 'Illustration rare', 'Ultra Rare',
-    'Rare Secret', 'Rare Rainbow', 'Full Art', 'Promo'
+    'Special illustration rare','Illustration rare','Ultra Rare',
+    'Rare Secret','Rare Rainbow','Full Art','Promo'
   ];
-  const q = encodeURIComponent(rarities.map(r => `rarity:"${r}"`).join(' OR ') + ' -set.series:"Japanese"');
+  const q = encodeURIComponent(
+    rarities.map(r => `rarity:"${r}"`).join(' OR ') + ' -set.series:"Japanese"'
+  );
   const url = `https://api.pokemontcg.io/v2/cards?q=${q}&pageSize=250&orderBy=-set.releaseDate`;
   const res = await fetch(url, { headers: { 'X-Api-Key': env.PTCG_API_KEY }});
   if (!res.ok) throw new Error(`PTCG ${res.status}`);
@@ -22,7 +39,6 @@ async function fetchUniverse(env: Env) {
   return json.data ?? [];
 }
 
-/** Upsert card metadata into D1. */
 async function upsertCards(env: Env, cards: any[]) {
   const batch: D1PreparedStatement[] = [];
   for (const c of cards) {
@@ -38,14 +54,13 @@ async function upsertCards(env: Env, cards: any[]) {
   if (batch.length) await env.DB.batch(batch);
 }
 
-/** Snapshot prices once per day to build our own history. */
 async function snapshotPrices(env: Env, cards: any[]) {
   const today = new Date().toISOString().slice(0,10);
   const batch: D1PreparedStatement[] = [];
   for (const c of cards) {
     const tp = c.tcgplayer, cm = c.cardmarket;
     const usd = tp?.prices ? (() => {
-      const any = Object.values(tp.prices)[0] as any; // take first available type
+      const any = Object.values(tp.prices)[0] as any;
       return (any?.market ?? any?.mid ?? null);
     })() : null;
     const eur = cm?.prices?.trendPrice ?? cm?.prices?.avg7 ?? cm?.prices?.avg30 ?? null;
@@ -58,7 +73,6 @@ async function snapshotPrices(env: Env, cards: any[]) {
   if (batch.length) await env.DB.batch(batch);
 }
 
-/** Compute signals from history + SVI and store them for today. */
 async function computeSignals(env: Env) {
   const today = new Date().toISOString().slice(0,10);
   const cards = await env.DB.prepare(`SELECT id FROM cards`).all();
@@ -88,12 +102,11 @@ async function computeSignals(env: Env) {
   }
 }
 
-/** Email anyone subscribed whenever a card's signal changes vs yesterday. */
 async function sendSignalChangeEmails(env: Env) {
   const rows = await env.DB.prepare(`
     WITH sorted AS (
       SELECT card_id, signal, as_of,
-             LAG(signal) OVER (PARTITION BY card_id ORDER BY as_of) AS prev_signal
+            LAG(signal) OVER (PARTITION BY card_id ORDER BY as_of) AS prev_signal
       FROM signals_daily
     )
     SELECT s.card_id, s.signal, s.prev_signal, c.name, c.set_name
@@ -124,48 +137,85 @@ async function sendSignalChangeEmails(env: Env) {
   }
 }
 
+// One-shot pipeline to reuse in cron and admin/run-now
+async function pipelineRun(env: Env) {
+  const t0 = Date.now();
+  const universe = await fetchUniverse(env);
+  await upsertCards(env, universe);
+  const t1 = Date.now();
+
+  await snapshotPrices(env, universe);
+  const t2 = Date.now();
+
+  await computeSignals(env);
+  const t3 = Date.now();
+
+  await sendSignalChangeEmails(env);
+  const t4 = Date.now();
+
+  // Quick stats
+  const today = new Date().toISOString().slice(0,10);
+  const cardCount = universe.length;
+  const priceRows = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?`
+  ).bind(today).all();
+  const signalRows = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM signals_daily WHERE as_of=?`
+  ).bind(today).all();
+
+  return {
+    cardCount,
+    pricesForToday: priceRows.results?.[0]?.n ?? 0,
+    signalsForToday: signalRows.results?.[0]?.n ?? 0,
+    timingsMs: { fetchUpsert: t1-t0, prices: t2-t1, signals: t3-t2, emails: t4-t3, total: t4-t0 }
+  };
+}
+
+// ---------- HTTP handlers ----------
 export default {
-  /** Tiny JSON API + ingest endpoint */
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
 
-    // Top cards with latest signals
-    if (url.pathname === '/api/cards') {
+    // Preflight for CORS
+    if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+
+    // Public API: list cards with latest signals
+    if (url.pathname === '/api/cards' && req.method === 'GET') {
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
-               s.signal, ROUND(s.score,1) as score,
-               (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) as price_usd,
-               (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) as price_eur
+              s.signal, ROUND(s.score,1) as score,
+              (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) as price_usd,
+              (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) as price_eur
         FROM cards c
         LEFT JOIN signals_daily s ON s.card_id=c.id
         WHERE s.as_of = (SELECT MAX(as_of) FROM signals_daily)
         ORDER BY s.score DESC
         LIMIT 200
       `).all();
-      return new Response(JSON.stringify(rs.results ?? []), { headers: {'content-type':'application/json'}});
+      return json(rs.results ?? []);
     }
 
-    // Subscribe to email alerts
+    // Public API: subscribe to emails
     if (url.pathname === '/api/subscribe' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const email = (body?.email ?? '').toString().trim();
-      if (!email) return new Response('email required', { status: 400 });
+      if (!email) return json({ error: 'email required' }, 400);
       const id = crypto.randomUUID();
       await env.DB.prepare(`
         INSERT OR REPLACE INTO subscriptions (id,kind,target,created_at)
         VALUES (?,?,?,?)
       `).bind(id, 'email', email, new Date().toISOString()).run();
-      return new Response(JSON.stringify({ ok: true }), { headers: {'content-type':'application/json'}});
+      return json({ ok: true });
     }
 
-    // GitHub Action posts SVI here
+    // Ingest endpoint for GitHub Action (Google Trends SVI)
     if (url.pathname === '/ingest/trends' && req.method === 'POST') {
       if (req.headers.get('x-ingest-token') !== env.INGEST_TOKEN) {
-        return new Response('forbidden', { status: 403 });
+        return json({ error: 'forbidden' }, 403);
       }
-      const payload = await req.json();
+      const payload = await req.json().catch(()=>({}));
       const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-      if (!rows.length) return new Response(JSON.stringify({ok:true, rows:0}), { headers: {'content-type':'application/json'}});
+      if (!rows.length) return json({ ok: true, rows: 0 });
       const batch: D1PreparedStatement[] = [];
       for (const r of rows) {
         batch.push(env.DB.prepare(`
@@ -173,23 +223,96 @@ export default {
         `).bind(r.card_id, r.as_of, r.svi));
       }
       await env.DB.batch(batch);
-      return new Response(JSON.stringify({ ok: true, rows: rows.length }), { headers: {'content-type':'application/json'}});
+      return json({ ok: true, rows: rows.length });
     }
 
-    // Minimal root response
+    // NEW: Health check (counts + latest dates)
+    if (url.pathname === '/health' && req.method === 'GET') {
+    try {
+      const [
+        cards, prices, signals, svi,
+        latestPrice, latestSignal, latestSVI
+      ] = await Promise.all([
+        env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all(),
+        env.DB.prepare(`SELECT COUNT(*) AS n FROM prices_daily`).all(),
+        env.DB.prepare(`SELECT COUNT(*) AS n FROM signals_daily`).all(),
+        env.DB.prepare(`SELECT COUNT(*) AS n FROM svi_daily`).all(),
+        env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all(),
+        env.DB.prepare(`SELECT MAX(as_of) AS d FROM signals_daily`).all(),
+        env.DB.prepare(`SELECT MAX(as_of) AS d FROM svi_daily`).all(),
+      ]);
+
+      return json({
+        ok: true,
+        counts: {
+          cards:         cards.results?.[0]?.n ?? 0,
+          prices_daily:  prices.results?.[0]?.n ?? 0,
+          signals_daily: signals.results?.[0]?.n ?? 0,
+          svi_daily:     svi.results?.[0]?.n ?? 0
+        },
+        latest: {
+          prices_daily:  latestPrice.results?.[0]?.d ?? null,
+          signals_daily: latestSignal.results?.[0]?.d ?? null,
+          svi_daily:     latestSVI.results?.[0]?.d ?? null
+        }
+      });
+    } catch (err: any) {
+      // If anything goes wrong (e.g., DB not bound), we still return JSON.
+      return json({ ok: false, error: String(err) }, 500);
+    }
+  }
+
+
+    // NEW: Admin: run the nightly pipeline now
+    if (url.pathname === '/admin/run-now' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) {
+        return json({ error: 'forbidden' }, 403);
+      }
+      const out = await pipelineRun(env);
+      return json({ ok: true, ...out });
+    }
+
+    // NEW: Admin: send a test email
+    if (url.pathname === '/admin/test-email' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) {
+        return json({ error: 'forbidden' }, 403);
+      }
+      const body = await req.json().catch(()=>({}));
+      const to = (body?.to ?? '').toString().trim();
+      const targetList: string[] = to ? [to] : [];
+      // If no 'to' provided, try first subscriber:
+      if (!to) {
+        const s = await env.DB.prepare(`SELECT target FROM subscriptions WHERE kind='email' LIMIT 1`).all();
+        const first = s.results?.[0]?.target;
+        if (first) targetList.push(first);
+      }
+      if (!targetList.length) return json({ error: 'no recipient found (pass {"to":"you@example.com"})' }, 400);
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'PokeQuant <onboarding@resend.dev>',
+          to: targetList,
+          subject: 'PokeQuant — Test email',
+          html: `<p>This is a test email from PokeQuant admin.</p>`
+        })
+      });
+      return json({ ok: res.ok });
+    }
+
+    // Root
     if (url.pathname === '/' && req.method === 'GET') {
-      return new Response('PokeQuant API is running. See /api/cards', { headers: {'content-type':'text/plain'}});
+      return new Response('PokeQuant API is running. See /api/cards', { headers: CORS });
     }
 
-    return new Response('Not found', { status: 404 });
+    return new Response('Not found', { status: 404, headers: CORS });
   },
 
-  /** Nightly job: ingest universe + prices, compute signals, and notify */
+  // Nightly cron: run full pipeline
   async scheduled(_ev: ScheduledEvent, env: Env) {
-    const universe = await fetchUniverse(env);
-    await upsertCards(env, universe);
-    await snapshotPrices(env, universe);
-    await computeSignals(env);
-    await sendSignalChangeEmails(env);
+    const result = await pipelineRun(env);
+    console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d timings(ms)=%j',
+      result.cardCount, result.pricesForToday, result.signalsForToday, result.timingsMs);
   }
-}
+};
