@@ -4,6 +4,7 @@
 
 import { compositeScore } from './signal_math';
 import { z } from 'zod';
+import { runMigrations, listMigrations } from './migrations';
 // Structured logging helper
 function log(event: string, fields: Record<string, unknown> = {}) {
   try { console.log(JSON.stringify({ t: new Date().toISOString(), event, ...fields })); } catch { /* noop */ }
@@ -384,6 +385,9 @@ export default {
     }
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
+  // Ensure migrations early (before heavy queries)
+  await runMigrations(env.DB);
+
     // Health
     if (url.pathname === '/health' && req.method === 'GET') {
       try {
@@ -736,6 +740,13 @@ export default {
       } catch {
         return json({ ok:true, rows: [] });
       }
+    }
+
+    // Migrations list
+    if (url.pathname === '/admin/migrations' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rows = await listMigrations(env.DB);
+      return json({ ok:true, rows });
     }
 
     // Run alerts only (for tests / manual)

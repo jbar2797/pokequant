@@ -94,6 +94,9 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 ### `GET /admin/diag`
 - Diagnostics summary of coverage (counts of cards with sufficient history).
 
+### `GET /admin/migrations`
+- Lists applied migrations: `{ ok:true, rows:[{ id, applied_at, description }, ...] }`
+
 ## Rate Limiting
 Fixed-window counters stored in `rate_limits` D1 table. Defaults:
 - Search: 30 / 5 minutes per IP
