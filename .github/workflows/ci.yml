@@ -33,10 +33,16 @@ jobs:
       - name: Wrangler Preview (local)
         id: preview
         run: |
-          echo 'Starting local wrangler dev for smoke preview'
-          npx wrangler dev --port=8787 &
+          echo 'Starting local wrangler dev for smoke preview (background)'
+          npx wrangler dev --local --port=8787 2>&1 | tee wrangler_dev.log &
           echo $! > wrangler_pid
-          sleep 5
+          # Wait for health endpoint up to 20s
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/health || true)
+            if [ "$code" = 200 ]; then echo "Dev server responsive (health $code)"; break; fi
+            sleep 1
+            if [ $i -eq 20 ]; then echo 'Dev server failed to start'; cat wrangler_dev.log || true; exit 1; fi
+          done
       - name: Smoke (Preview)
         env:
           BASE: http://127.0.0.1:8787
