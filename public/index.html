@@ -130,6 +130,13 @@
             <button id="btnAlertBelow" class="btn border px-3 py-2 rounded text-xs">Alert if ≤</button>
           </div>
         </div>
+
+        <div class="mt-3 grid gap-2 sm:grid-cols-3">
+          <input id="manageAlertId" class="border p-2 rounded" placeholder="Alert ID">
+          <input id="manageToken" class="border p-2 rounded" placeholder="Manage token">
+          <button id="btnDeactivate" class="btn border px-3 py-2 rounded text-xs">Deactivate</button>
+        </div>
+
         <div id="mAlertMsg" class="text-xs text-gray-600 mt-2"></div>
       </div>
     </div>
@@ -253,7 +260,7 @@
       $('#mScoreSpark').innerHTML = scores.length ? sparklineSVG(scores, { width: 640, height: 96, pad: 8 }) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
       $('#mScoreMeta').textContent = scores.length ? `${scores[scores.length-1].toFixed(1)} • ${scores.length} pts` : '';
 
-      const modal = $('#cardModal'); modal.classList.remove('hidden'); modal.classList.add('flex'); document.body.classList.add('modal-open');
+      const m = $('#cardModal'); m.classList.remove('hidden'); m.classList.add('flex'); document.body.classList.add('modal-open');
       $('#mAlertMsg').textContent = '';
     } catch (e) { console.error(e); setStatus('Failed to load details: ' + e.message, 'error'); }
   }
@@ -345,7 +352,7 @@
     $('#cardModal').addEventListener('click', e => { if (e.target === $('#cardModal')) closeModal(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-    // Watchlist alert handlers
+    // Watchlist alert creation
     async function createAlert(kind) {
       const email = $('#alertEmail').value.trim();
       const price = Number($('#alertPrice').value);
@@ -360,7 +367,18 @@
         });
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        $('#mAlertMsg').textContent = 'Alert saved. Check your email for confirmation.';
+
+        // Store id+token locally to make deactivation easy
+        let store = {};
+        try { store = JSON.parse(localStorage.getItem('alerts_tokens') || '{}'); } catch {}
+        store[j.id] = j.manage_token;
+        localStorage.setItem('alerts_tokens', JSON.stringify(store));
+
+        // Pre-fill manage fields
+        $('#manageAlertId').value = j.id;
+        $('#manageToken').value   = j.manage_token;
+
+        $('#mAlertMsg').textContent = 'Alert saved. Check your email for a manage link.';
         $('#alertPrice').value = '';
       } catch (e) {
         $('#mAlertMsg').textContent = 'Failed to save alert: ' + e.message;
@@ -369,11 +387,29 @@
     $('#btnAlertAbove').addEventListener('click', () => createAlert('price_above'));
     $('#btnAlertBelow').addEventListener('click', () => createAlert('price_below'));
 
+    // Watchlist deactivation from UI
+    $('#btnDeactivate').addEventListener('click', async () => {
+      const id = $('#manageAlertId').value.trim();
+      const token = $('#manageToken').value.trim();
+      if (!id || !token) { $('#mAlertMsg').textContent = 'Enter Alert ID and Manage token.'; return; }
+      try {
+        const r = await fetch(WORKER_BASE + '/alerts/deactivate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id, token })
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+        $('#mAlertMsg').textContent = 'Alert deactivated.';
+      } catch (e) {
+        $('#mAlertMsg').textContent = 'Failed to deactivate: ' + e.message;
+      }
+    });
+
     // First load
     (async () => { await reloadCards(); })();
   });
 
-  // helper hoisted so I can call before defined
   async function reloadCards(){ setStatus('Loading cards…'); try{ const d=await loadCards(); renderCards(d); setStatus('Cards loaded.','success'); }catch(e){ console.error(e); setStatus('Failed to load cards: '+e.message,'error'); } }
   </script>
 </body>

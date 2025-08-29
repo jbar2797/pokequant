@@ -7,6 +7,7 @@ export interface Env {
   RESEND_API_KEY: string;
   INGEST_TOKEN: string;
   ADMIN_TOKEN: string;
+  PUBLIC_BASE_URL?: string; // NEW: used to build manage links in emails
 }
 
 // ---------- CORS + small helpers ----------
@@ -28,6 +29,9 @@ function isoDaysAgo(days: number): string {
 }
 function isValidEmail(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+function baseUrl(env: Env) {
+  return env.PUBLIC_BASE_URL || 'https://pokequant.jonathanbarreneche.workers.dev';
 }
 async function sendEmail(env: Env, to: string | string[], subject: string, html: string) {
   const list = Array.isArray(to) ? to : [to];
@@ -102,7 +106,6 @@ async function computeSignals(env: Env) {
     const prices = (px.results ?? []).map((r:any)=> r.p).filter((x:any)=> typeof x === 'number');
     const svis   = (svi.results ?? []).map((r:any)=> Number(r.svi) || 0);
 
-    // Allow signals when prices >= 7, even if SVI < 7 (we fall back to svi=off internally)
     if (prices.length < 7) continue;
 
     const out = compositeScore(prices, svis);
@@ -152,9 +155,6 @@ async function sendSignalChangeEmails(env: Env) {
 
 // ---------- Watchlist alerts ----------
 async function runAlerts(env: Env) {
-  // Evaluate price threshold alerts
-  const today = new Date().toISOString().slice(0,10);
-
   const alerts = await env.DB.prepare(`
     SELECT a.id, a.email, a.card_id, a.kind, a.threshold_usd, a.last_fired_at,
            c.name, c.set_name
@@ -176,26 +176,29 @@ async function runAlerts(env: Env) {
     const lastAsOf = row?.as_of as string | undefined;
     const pUSD = row?.price_usd as number | null | undefined;
 
-    // Only evaluate when we have a USD price.
     if (pUSD == null || !lastAsOf) continue;
 
     const should = (a.kind === 'price_above')
       ? (pUSD >= a.threshold_usd)
       : (pUSD <= a.threshold_usd);
 
-    // Fire once per day per alert.
     if (should && a.last_fired_at !== lastAsOf) {
+      const url = baseUrl(env);
+      const link = `${url}/alerts/deactivate?id=${a.id}&token=${encodeURIComponent(a.last_fired_at ? '' : '')}`; // not used here, we need token; fetch it
+      // Fetch token (not in SELECT to avoid sending token accidentally elsewhere)
+      const tokRow = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(a.id).all();
+      const manage = tokRow.results?.[0]?.manage_token as string | undefined;
+
+      const linkHtml = manage
+        ? `<p>Manage: <a href="${url}/alerts/deactivate?id=${a.id}&token=${manage}">Deactivate this alert</a></p>`
+        : '';
+
       const subj = `PokeQuant alert: ${a.name} ${a.kind === 'price_above' ? '≥' : '≤'} $${a.threshold_usd.toFixed(2)} (now $${pUSD.toFixed(2)})`;
       const html = `
         <p><b>${a.name}</b> (${a.set_name})</p>
         <p>Latest price: <b>$${pUSD.toFixed(2)}</b> on ${lastAsOf}</p>
         <p>Alert condition: <code>${a.kind}</code> @ $${a.threshold_usd.toFixed(2)}</p>
-        <p style="margin-top:12px;">Manage: send a POST to <code>/alerts/deactivate</code> with:</p>
-        <pre>{
-  "id": "${a.id}",
-  "token": "<your-manage-token>"
-}</pre>
-        <p>(We’ll add a one-click link later.)</p>
+        ${linkHtml}
       `;
       await sendEmail(env, a.email, subj, html);
       await env.DB.prepare(`UPDATE alerts_watch SET last_fired_at=? WHERE id=?`).bind(lastAsOf, a.id).run();
@@ -221,7 +224,6 @@ async function pipelineRun(env: Env) {
   await sendSignalChangeEmails(env);
   const t4 = Date.now();
 
-  // NEW: run price alerts after data refresh
   const alertsOut = await runAlerts(env);
   const t5 = Date.now();
 
@@ -486,7 +488,7 @@ export default {
       }
     }
 
-    // ---------- Portfolio endpoints (MVP) ----------
+    // ---------- Portfolio endpoints ----------
     if (url.pathname === '/portfolio/create' && req.method === 'POST') {
       const id = crypto.randomUUID();
       const bytes = new Uint8Array(16);
@@ -600,7 +602,6 @@ export default {
       if (kind !== 'price_above' && kind !== 'price_below') return json({ error: 'kind must be price_above or price_below' }, 400);
       if (!Number.isFinite(threshold) || threshold <= 0) return json({ error: 'threshold must be > 0' }, 400);
 
-      // Ensure card exists
       const meta = await env.DB.prepare(`SELECT name, set_name FROM cards WHERE id=?`).bind(card_id).all();
       if (!meta.results?.length) return json({ error: 'unknown card_id' }, 404);
 
@@ -613,23 +614,20 @@ export default {
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).bind(id, email, card_id, kind, threshold, new Date().toISOString(), manage).run();
 
-      // Send confirmation
+      const link = `${baseUrl(env)}/alerts/deactivate?id=${id}&token=${manage}`;
       const subj = `PokeQuant: alert created (${kind} @ $${threshold.toFixed(2)})`;
       const html = `
         <p>Your alert has been created for <b>${meta.results[0].name}</b> (${meta.results[0].set_name}).</p>
         <p>Condition: <code>${kind}</code> @ $${threshold.toFixed(2)}</p>
-        <p><b>Manage token</b> (save this): <code>${manage}</code></p>
-        <p>To deactivate, POST to <code>/alerts/deactivate</code> with:</p>
-        <pre>{
-  "id": "${id}",
-  "token": "${manage}"
-}</pre>
+        <p>Manage: <a href="${link}">Deactivate this alert</a></p>
+        <p><small>Keep this email. Anyone with the link can deactivate the alert.</small></p>
       `;
       await sendEmail(env, email, subj, html);
 
       return json({ ok: true, id, manage_token: manage });
     }
 
+    // POST deactivate (API)
     if (url.pathname === '/alerts/deactivate' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const id = (body?.id ?? '').toString().trim();
@@ -642,6 +640,31 @@ export default {
 
       await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
       return json({ ok: true });
+    }
+
+    // GET deactivate (one‑click link in emails)
+    if (url.pathname === '/alerts/deactivate' && req.method === 'GET') {
+      const id = (url.searchParams.get('id') || '').trim();
+      const token = (url.searchParams.get('token') || '').trim();
+      let msg = '';
+      if (!id || !token) {
+        msg = 'Missing id or token.';
+      } else {
+        const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
+        const m = row.results?.[0]?.manage_token as string | undefined;
+        if (!m || m !== token) {
+          msg = 'Invalid token.';
+        } else {
+          await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
+          msg = 'Alert deactivated.';
+        }
+      }
+      const html = `<!doctype html><meta charset="utf-8"><title>PokeQuant</title>
+      <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; padding:24px">
+        <h3>${msg}</h3>
+        <p><a href="${baseUrl(env)}">Back to PokeQuant</a></p>
+      </body>`;
+      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', ...CORS } });
     }
 
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
@@ -661,9 +684,8 @@ export default {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const body = await req.json().catch(()=>({}));
       const to = (body?.to ?? '').toString().trim();
-      const target = to ? [to] : (() => [])();
-      if (!target.length) return json({ error: 'no recipient provided' }, 400);
-      const res = await sendEmail(env, target, 'PokeQuant — Test email', `<p>This is a test email from PokeQuant admin.</p>`);
+      if (!to) return json({ error: 'no recipient provided' }, 400);
+      const res = await sendEmail(env, to, 'PokeQuant — Test email', `<p>This is a test email from PokeQuant admin.</p>`);
       return json({ ok: res.ok });
     }
 
