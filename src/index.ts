@@ -69,6 +69,20 @@ const RATE_LIMITS = {
   alertCreate: { limit: 10, window: 86400 },    // 10 per day per IP+email
 };
 
+// ---------- metrics (simple daily counter in D1) ----------
+async function incMetric(env: Env, metric: string) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
+    const today = new Date().toISOString().slice(0,10);
+    await env.DB.prepare(
+      `INSERT INTO metrics_daily (d, metric, count) VALUES (?, ?, 1)
+       ON CONFLICT(d,metric) DO UPDATE SET count = count + 1`
+    ).bind(today, metric).run();
+  } catch (e) {
+    log('metric_error', { metric, error: String(e) });
+  }
+}
+
 // Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
 async function ensureTestSeed(env: Env) {
   try {
@@ -339,6 +353,7 @@ export default {
       return json(rs.results ?? []);
     }
     if (url.pathname === '/api/cards' && req.method === 'GET') {
+  await incMetric(env, 'cards.list');
       const rs = await env.DB.prepare(`
         WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
@@ -356,6 +371,7 @@ export default {
 
     // Movers (up/down)
     if (url.pathname === '/api/movers' && req.method === 'GET') {
+  await incMetric(env, 'cards.movers');
       const dir = (url.searchParams.get('dir') || 'up').toLowerCase();
       const n = Math.min(50, Math.max(1, parseInt(url.searchParams.get('n') ?? '12', 10)));
       const order = dir === 'down' ? 'ASC' : 'DESC';
@@ -378,6 +394,7 @@ export default {
 
     // Single card (modal)
     if (url.pathname === '/api/card' && req.method === 'GET') {
+  await incMetric(env, 'card.detail');
       const id = (url.searchParams.get('id') || '').trim();
       let days = parseInt(url.searchParams.get('days') || '120', 10);
       if (!Number.isFinite(days) || days < 7) days = 120;
@@ -432,7 +449,7 @@ export default {
   const rlKey = `sub:${ip}`;
   const cfg = RATE_LIMITS.subscribe;
   const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429);
+  if (!rl.allowed) { await incMetric(env, 'rate_limited.subscribe'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
       const body: any = await req.json().catch(()=>({}));
       const email = (body && body.email ? String(body.email) : '').trim();
   if (!email) return err('email_required', 400);
@@ -440,6 +457,7 @@ export default {
       const id = crypto.randomUUID();
   await env.DB.prepare(`INSERT OR REPLACE INTO subscriptions (id, kind, target, created_at) VALUES (?, 'email', ?, datetime('now'))`).bind(id, email).run();
   log('subscribe', { email });
+  await incMetric(env, 'subscribe');
   return json({ ok: true });
     }
 
@@ -457,7 +475,7 @@ export default {
   const rlKey = `alert:${ip}:${email}`;
   const cfg = RATE_LIMITS.alertCreate;
   const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429);
+  if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
       const id = crypto.randomUUID();
       const tokenBytes = new Uint8Array(16); crypto.getRandomValues(tokenBytes);
       const manage_token = Array.from(tokenBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -467,7 +485,8 @@ export default {
         `INSERT INTO alerts_watch (id,email,card_id,kind,${col},active,manage_token,created_at) VALUES (?,?,?,?,?,1,?,datetime('now'))`
       ).bind(id, email, card_id, kind, threshold, manage_token).run();
       const manage_url = `${env.PUBLIC_BASE_URL || ''}/alerts/deactivate?id=${encodeURIComponent(id)}&token=${encodeURIComponent(manage_token)}`;
-      log('alert_created', { id, card_id, kind, threshold });
+  log('alert_created', { id, card_id, kind, threshold });
+  await incMetric(env, 'alert.created');
       return json({ ok: true, id, manage_token, manage_url });
     }
 
@@ -498,7 +517,7 @@ export default {
   const rlKey = `search:${ip}`;
   const cfg = RATE_LIMITS.search;
   const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429);
+  if (!rl.allowed) { await incMetric(env, 'rate_limited.search'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
       const q = (url.searchParams.get('q')||'').trim();
       const rarity = (url.searchParams.get('rarity')||'').trim();
       const setName = (url.searchParams.get('set')||'').trim();
@@ -524,6 +543,7 @@ export default {
         LIMIT ?`;
       binds.push(limit);
       const rs = await env.DB.prepare(sql).bind(...binds).all();
+  await incMetric(env, 'search.query');
       return json(rs.results || []);
     }
 
