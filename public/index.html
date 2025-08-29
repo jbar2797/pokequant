@@ -17,7 +17,6 @@
     .zebra tbody tr:nth-child(odd) { background: #fcfcfd; }
     .btn { transition: transform .06s ease; }
     .btn:active { transform: translateY(1px); }
-    /* Modal */
     .modal-open { overflow: hidden; }
   </style>
 </head>
@@ -133,7 +132,6 @@
 
   <script>
   // ====== CONFIG ======
-  // CHANGE THIS to your real Worker URL (from `wrangler deploy` output)
   const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
 
   // ====== UTILITIES ======
@@ -152,25 +150,17 @@
     );
     setTimeout(()=> setStatus(''), 3500);
   }
-  function fmtUSD(x) {
-    if (x == null || isNaN(Number(x))) return '—';
-    return '$' + Number(x).toFixed(2);
-  }
-  function fmtEUR(x) {
-    if (x == null || isNaN(Number(x))) return '—';
-    return '€' + Number(x).toFixed(2);
-  }
+  function fmtUSD(x) { if (x == null || isNaN(Number(x))) return '—'; return '$' + Number(x).toFixed(2); }
+  function fmtEUR(x) { if (x == null || isNaN(Number(x))) return '—'; return '€' + Number(x).toFixed(2); }
   function saveCreds(pid, pkey) {
     localStorage.setItem('pf_id', pid);
     localStorage.setItem('pf_key', pkey);
-    $('#pid').value = pid;
-    $('#pkey').value = pkey;
+    $('#pid').value = pid; $('#pkey').value = pkey;
   }
   function loadCreds() {
     const pid = localStorage.getItem('pf_id') || '';
     const pkey = localStorage.getItem('pf_key') || '';
-    $('#pid').value = pid;
-    $('#pkey').value = pkey;
+    $('#pid').value = pid; $('#pkey').value = pkey;
     return { pid, pkey };
   }
   function todayISO() { return new Date().toISOString().slice(0,10); }
@@ -183,14 +173,11 @@
   }
 
   async function loadCards() {
-    // Try signals list first (preferred surface)
     try {
       const data = await fetchJSON(WORKER_BASE + '/api/cards');
       if (Array.isArray(data) && data.length) return data;
     } catch (e) {}
-    // Fallback to universe (bootstrap path)
     const u = await fetchJSON(WORKER_BASE + '/api/universe');
-    // Annotate so UI looks consistent
     return (u || []).map(c => ({ ...c, signal: '—', score: '—' }));
   }
 
@@ -213,9 +200,7 @@
           <td class="p-2">
             <div class="flex gap-2 items-center">
               <img src="${c.image_url || ''}" alt="" class="w-12 h-auto rounded" />
-              <div>
-                <div class="font-medium">${c.name}</div>
-              </div>
+              <div><div class="font-medium">${c.name}</div></div>
             </div>
           </td>
           <td class="p-2">${c.set_name || ''}</td>
@@ -229,7 +214,7 @@
     }).join('');
     tbody.innerHTML = html;
 
-    // row click -> copy card id to lotCard and open details modal
+    // Row click -> copy Card ID & open details
     tbody.querySelectorAll('tr[data-cardid]').forEach(tr => {
       tr.addEventListener('click', () => {
         const id = tr.getAttribute('data-cardid');
@@ -244,23 +229,17 @@
     if (!Array.isArray(values) || values.length < 2) {
       return `<div class="text-xs text-gray-500 p-2">Not enough data yet.</div>`;
     }
-    const w = width, h = height, p = pad;
-    const n = values.length;
-
-    // Handle min==max by widening range slightly so a flat series still renders midline
+    const w = width, h = height, p = pad, n = values.length;
     let min = Math.min(...values.filter(v => Number.isFinite(v)));
     let max = Math.max(...values.filter(v => Number.isFinite(v)));
     if (!isFinite(min) || !isFinite(max)) return `<div class="text-xs text-gray-500 p-2">No numeric values.</div>`;
     if (max === min) { min -= 1; max += 1; }
     const rng = (max - min);
-
     const xs = values.map((_,i) => p + (i*(w-2*p))/(n-1));
     const ys = values.map(v => (h-p) - ((v-min)/rng)*(h-2*p));
-
     const points = xs.map((x,i)=>`${x.toFixed(2)},${ys[i].toFixed(2)}`).join(' ');
     const up = values[n-1] >= values[0];
     const stroke = up ? '#065f46' : '#991b1b';
-
     return `
       <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
         <rect x="0" y="0" width="${w}" height="${h}" fill="white" />
@@ -275,71 +254,73 @@
       const data = await fetchJSON(WORKER_BASE + '/api/card?id=' + encodeURIComponent(cardId));
       if (!data?.ok) throw new Error('No data');
 
-      // Header info
       $('#mImage').src = data.card?.image_url || '';
       $('#mTitle').textContent = `${data.card?.name || cardId}`;
       $('#mMeta').textContent = `${data.card?.set_name || ''} • ${data.card?.rarity || ''}`;
-
-      // CSV link
       $('#mCsv').href = WORKER_BASE + '/research/card-csv?id=' + encodeURIComponent(cardId) + '&days=120';
 
-      // Price series (prefer USD, fall back to EUR)
       const priceSeries = (data.prices || []).map(r => (r.usd != null ? Number(r.usd) : (r.eur != null ? Number(r.eur) : NaN))).filter(v => Number.isFinite(v));
       $('#mPriceSpark').innerHTML = sparklineSVG(priceSeries, { width: 640, height: 96, pad: 8 });
-
       const lastP = (data.prices || []).slice(-1)[0];
       const lastNum = lastP ? (lastP.usd != null ? Number(lastP.usd) : (lastP.eur != null ? Number(lastP.eur) : null)) : null;
       const lastLbl = lastP ? (lastP.usd != null ? fmtUSD(lastNum) : (lastNum!=null ? fmtEUR(lastNum) : '—')) : '—';
       $('#mPriceMeta').textContent = `${lastLbl} • ${priceSeries.length} pts`;
 
-      // Score series (0..100), if present
       const scores = (data.signals || []).map(r => r.score != null ? Number(r.score) : NaN).filter(v => Number.isFinite(v));
       $('#mScoreSpark').innerHTML = scores.length ? sparklineSVG(scores, { width: 640, height: 96, pad: 8 }) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
       $('#mScoreMeta').textContent = scores.length ? `${scores[scores.length-1].toFixed(1)} • ${scores.length} pts` : '';
 
-      // Show modal
       const modal = $('#cardModal');
-      modal.classList.remove('hidden');
-      modal.classList.add('flex');
+      modal.classList.remove('hidden'); modal.classList.add('flex');
       document.body.classList.add('modal-open');
-    } catch (e) {
-      console.error(e);
-      setStatus('Failed to load details: ' + e.message, 'error');
-    }
+    } catch (e) { console.error(e); setStatus('Failed to load details: ' + e.message, 'error'); }
   }
 
   function closeModal() {
     const modal = $('#cardModal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
+    modal.classList.add('hidden'); modal.classList.remove('flex');
     document.body.classList.remove('modal-open');
   }
 
-  // ====== EVENTS ======
+  // ====== PAGE BOOT ======
   document.addEventListener('DOMContentLoaded', () => {
-    // Load creds & set default date
+    // Prep form defaults
     $('#lotDate').value = todayISO();
     loadCreds();
 
-    // Attach listeners that require DOM elements to exist
-    $('#btnReload').addEventListener('click', load);
+    // Event wiring
+    $('#modalClose').addEventListener('click', closeModal);
+    $('#cardModal').addEventListener('click', (e) => { if (e.target === $('#cardModal')) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
+    // Cards reload helper (fixes missing load() bug)
+    async function reloadCards() {
+      setStatus('Loading cards…');
+      try {
+        const data = await loadCards();
+        renderCards(data);
+        setStatus('Cards loaded.', 'success');
+      } catch (e) {
+        console.error(e);
+        setStatus('Failed to load cards: ' + e.message, 'error');
+      }
+    }
+
+    $('#btnReload').addEventListener('click', reloadCards);
+
+    // Portfolio actions
     $('#sub').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const email = $('#email').value.trim();
-      if (!email) return;
+      const email = $('#email').value.trim(); if (!email) return;
       try {
         const r = await fetch(WORKER_BASE + '/api/subscribe', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ email })
         });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         setStatus('Subscribed! You’ll get an email when signals change.', 'success');
         $('#email').value = '';
-      } catch (e) {
-        setStatus('Subscription failed: ' + e.message, 'error');
-      }
+      } catch (e) { setStatus('Subscription failed: ' + e.message, 'error'); }
     });
 
     $('#btnCreate').addEventListener('click', async () => {
@@ -347,74 +328,45 @@
         const r = await fetch(WORKER_BASE + '/portfolio/create', { method: 'POST' });
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const j = await r.json();
-        if (j.id && j.secret) {
-          saveCreds(j.id, j.secret);
-          setStatus('Portfolio created and saved to this browser.', 'success');
-        } else {
-          throw new Error('No id/secret returned.');
-        }
-      } catch (e) {
-        setStatus('Create portfolio failed: ' + e.message, 'error');
-      }
+        if (j.id && j.secret) { saveCreds(j.id, j.secret); setStatus('Portfolio created and saved to this browser.', 'success'); }
+        else { throw new Error('No id/secret returned.'); }
+      } catch (e) { setStatus('Create portfolio failed: ' + e.message, 'error'); }
     });
 
     $('#btnSaveCreds').addEventListener('click', () => {
-      const pid = $('#pid').value.trim();
-      const pkey = $('#pkey').value.trim();
+      const pid = $('#pid').value.trim(); const pkey = $('#pkey').value.trim();
       if (!pid || !pkey) { setStatus('Enter both Portfolio ID and Secret.', 'error'); return; }
-      saveCreds(pid, pkey);
-      setStatus('Credentials saved to this browser.', 'success');
+      saveCreds(pid, pkey); setStatus('Credentials saved to this browser.', 'success');
     });
 
     $('#btnAddLot').addEventListener('click', async () => {
-      const pid = $('#pid').value.trim();
-      const pkey = $('#pkey').value.trim();
+      const pid = $('#pid').value.trim(), pkey = $('#pkey').value.trim();
       const card = $('#lotCard').value.trim();
-      const qty  = Number($('#lotQty').value);
-      const cost = Number($('#lotCost').value);
+      const qty  = Number($('#lotQty').value), cost = Number($('#lotCost').value);
       const date = $('#lotDate').value || todayISO();
-
       if (!pid || !pkey) return setStatus('Save portfolio credentials first.', 'error');
       if (!card || !(qty>0) || !(cost>=0)) return setStatus('Invalid lot fields.', 'error');
-
       try {
         const r = await fetch(WORKER_BASE + '/portfolio/add-lot', {
           method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-portfolio-id': pid,
-            'x-portfolio-secret': pkey
-          },
+          headers: { 'content-type':'application/json','x-portfolio-id':pid,'x-portfolio-secret':pkey },
           body: JSON.stringify({ card_id: card, qty, cost_usd: cost, acquired_at: date })
         });
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        setStatus('Lot added.', 'success');
-        $('#btnLoadPnL').click();
-      } catch (e) {
-        setStatus('Add lot failed: ' + e.message, 'error');
-      }
+        setStatus('Lot added.', 'success'); $('#btnLoadPnL').click();
+      } catch (e) { setStatus('Add lot failed: ' + e.message, 'error'); }
     });
 
     $('#btnLoadPnL').addEventListener('click', async () => {
-      const pid = $('#pid').value.trim();
-      const pkey = $('#pkey').value.trim();
+      const pid = $('#pid').value.trim(), pkey = $('#pkey').value.trim();
       if (!pid || !pkey) return setStatus('Save portfolio credentials first.', 'error');
-
       try {
-        const r = await fetch(WORKER_BASE + '/portfolio', {
-          headers: {
-            'x-portfolio-id': pid,
-            'x-portfolio-secret': pkey
-          }
-        });
+        const r = await fetch(WORKER_BASE + '/portfolio', { headers: { 'x-portfolio-id':pid,'x-portfolio-secret':pkey }});
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
-
-        const rows = j.rows || [];
-        const totals = j.totals || {};
-        const pnl = $('#pnl');
-        pnl.innerHTML = `
+        const rows = j.rows || [], totals = j.totals || {};
+        $('#pnl').innerHTML = `
           <div class="mb-2"><b>Totals:</b>
             Cost <b>${fmtUSD(totals.cost_usd)}</b>,
             Mkt <b>${fmtUSD(totals.market_value_usd)}</b>,
@@ -423,26 +375,17 @@
           </div>
           <div class="overflow-auto border rounded bg-white">
             <table class="min-w-full">
-              <thead>
-                <tr class="bg-gray-100 text-left text-sm">
-                  <th class="p-2">Card</th>
-                  <th class="p-2">Qty</th>
-                  <th class="p-2">Cost (USD)</th>
-                  <th class="p-2">Price</th>
-                  <th class="p-2">Market Value (USD)</th>
-                  <th class="p-2">P&L (USD)</th>
-                </tr>
-              </thead>
+              <thead><tr class="bg-gray-100 text-left text-sm">
+                <th class="p-2">Card</th><th class="p-2">Qty</th><th class="p-2">Cost (USD)</th>
+                <th class="p-2">Price</th><th class="p-2">Market Value (USD)</th><th class="p-2">P&L (USD)</th>
+              </tr></thead>
               <tbody>
                 ${rows.map(r => `
                   <tr class="border-t">
                     <td class="p-2">
                       <div class="flex gap-2 items-center">
                         <img src="${r.image_url||''}" class="w-10 h-auto rounded"/>
-                        <div>
-                          <div class="font-medium">${r.name}</div>
-                          <div class="text-gray-500 text-xs">${r.set_name||''}</div>
-                        </div>
+                        <div><div class="font-medium">${r.name}</div><div class="text-gray-500 text-xs">${r.set_name||''}</div></div>
                       </div>
                     </td>
                     <td class="p-2">${r.qty ?? '—'}</td>
@@ -455,34 +398,16 @@
                     <td class="p-2 ${r.pnl_usd>0?'text-green-700':(r.pnl_usd<0?'text-red-700':'')}">
                       ${r.pnl_usd != null ? fmtUSD(r.pnl_usd) : '—'}
                     </td>
-                  </tr>
-                `).join('')}
+                  </tr>`).join('')}
               </tbody>
             </table>
-          </div>
-        `;
+          </div>`;
         setStatus('P&L updated.', 'success');
-      } catch (e) {
-        console.error(e);
-        setStatus('Load P&L failed: ' + e.message, 'error');
-      }
+      } catch (e) { console.error(e); setStatus('Load P&L failed: ' + e.message, 'error'); }
     });
 
-    // Modal/overlay listeners
-    $('#modalClose').addEventListener('click', closeModal);
-    $('#cardModal').addEventListener('click', (e) => {
-      if (e.target === $('#cardModal')) closeModal();
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeModal();
-    });
-
-    // Initial load
-    setStatus('Loading cards…');
-    loadCards()
-      .then(renderCards)
-      .then(()=> setStatus('Cards loaded.', 'success'))
-      .catch(e => { console.error(e); setStatus('Failed to load cards: ' + e.message, 'error'); });
+    // First load
+    (async () => { await reloadCards(); })();
   });
   </script>
 </body>
