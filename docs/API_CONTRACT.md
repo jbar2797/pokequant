@@ -78,7 +78,9 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 ## Admin Endpoints (require `x-admin-token`)
 
 ### `GET /admin/metrics`
-- Returns last 3 days of internal counters: `{ ok:true, rows:[{ d, metric, count }, ...] }`
+- Returns last 3 days of internal counters plus latency summary:
+	`{ ok:true, rows:[{ d, metric, count }, ...], latency:[{ d, base_metric, p50_ms, p95_ms }, ...] }`
+	- Latency metrics recorded as exponential moving estimates; early values stabilize after several requests.
 
 ### `POST /admin/run-alerts`
 - Manually evaluate alert rules without recomputing signals.
