@@ -17,6 +17,7 @@
     .btn { transition: transform .06s ease; }
     .btn:active { transform: translateY(1px); }
     .modal-open { overflow: hidden; }
+    .chip { border:1px solid var(--line); border-radius:9999px; padding:.25rem .5rem; font-size:.75rem; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -28,6 +29,7 @@
 
     <div id="status" class="hidden mb-3 p-2 border rounded bg-yellow-50 text-yellow-900"></div>
 
+    <!-- Email subscribe -->
     <section class="mb-6">
       <h2 class="text-xl font-semibold mb-2">Email Alerts</h2>
       <form id="sub" class="flex flex-col sm:flex-row gap-2">
@@ -37,14 +39,42 @@
       <p class="text-sm text-gray-600 mt-1">We’ll email when a tracked card’s Buy/Hold/Sell signal changes.</p>
     </section>
 
+    <!-- Top Movers -->
+    <section class="mb-6">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-xl font-semibold">Top Movers (24h)</h2>
+        <button id="btnRefreshMovers" class="text-sm underline">Refresh</button>
+      </div>
+      <div id="movers" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <!-- Filled by JS -->
+      </div>
+      <p class="text-xs text-gray-500 mt-1" id="moversAsOf"></p>
+    </section>
+
+    <!-- Controls -->
+    <section class="mb-3">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
+        <input id="q" placeholder="Search name or set…" class="border p-2 rounded md:col-span-2">
+        <select id="fRarity" class="border p-2 rounded">
+          <option value="">All rarities</option>
+        </select>
+        <select id="fSet" class="border p-2 rounded">
+          <option value="">All sets</option>
+        </select>
+      </div>
+      <div class="mt-2 flex gap-2">
+        <button id="btnApply" class="btn border px-3 py-2 rounded text-sm">Apply</button>
+        <button id="btnClear" class="btn border px-3 py-2 rounded text-sm">Clear</button>
+      </div>
+    </section>
+
+    <!-- Cards -->
     <section class="mb-8">
       <div class="flex items-center justify-between">
         <h2 class="text-xl font-semibold mb-2">Cards</h2>
         <button id="btnReload" class="text-sm underline">Reload</button>
       </div>
-      <p class="text-sm text-gray-600 mb-2">
-        Tip: Click any row to copy its Card ID below (for adding a lot), or click to open details.
-      </p>
+      <p class="text-sm text-gray-600 mb-2">Click a row to copy its Card ID and open details.</p>
       <div class="overflow-auto border rounded bg-white">
         <table class="min-w-full table-sticky zebra">
           <thead>
@@ -61,23 +91,24 @@
           <tbody id="rows"></tbody>
         </table>
       </div>
+      <div id="resultInfo" class="text-xs text-gray-600 mt-2"></div>
     </section>
 
     <hr class="my-6">
 
+    <!-- Portfolio -->
     <section class="mb-6">
       <h2 class="text-xl font-semibold mb-2">Portfolio (MVP)</h2>
-
       <div class="flex flex-col md:flex-row md:items-center gap-2 mb-3">
         <button id="btnCreate" class="btn bg-black text-white px-3 py-2 rounded">Create Portfolio</button>
         <input id="pid" class="border p-2 flex-1 rounded" placeholder="Portfolio ID"/>
         <input id="pkey" class="border p-2 flex-1 rounded" placeholder="Portfolio Secret"/>
         <button id="btnSaveCreds" class="btn border px-3 py-2 rounded">Save to Browser</button>
       </div>
-      <p class="text-sm text-gray-600 mb-2">Your browser stores the ID/Secret in <em>localStorage</em>. Anyone with both can access the portfolio—keep them private.</p>
+      <p class="text-sm text-gray-600 mb-2">ID/Secret are stored in <em>localStorage</em> on this browser.</p>
 
       <div class="flex flex-col lg:flex-row lg:items-center gap-2 mb-3">
-        <input id="lotCard" class="border p-2 flex-1 rounded" placeholder="Card ID (click a row above to fill)"/>
+        <input id="lotCard" class="border p-2 flex-1 rounded" placeholder="Card ID"/>
         <input id="lotQty" class="border p-2 w-28 rounded" type="number" min="0" step="1" placeholder="Qty"/>
         <input id="lotCost" class="border p-2 w-40 rounded" type="number" min="0" step="0.01" placeholder="Cost USD"/>
         <input id="lotDate" class="border p-2 w-44 rounded" type="date"/>
@@ -162,9 +193,11 @@
   }
   function fmtUSD(x){ if(x==null||isNaN(Number(x)))return '—'; return '$'+Number(x).toFixed(2);}
   function fmtEUR(x){ if(x==null||isNaN(Number(x)))return '—'; return '€'+Number(x).toFixed(2);}
-  function saveCreds(pid,pkey){ localStorage.setItem('pf_id',pid); localStorage.setItem('pf_key',pkey); $('#pid').value=pid; $('#pkey').value=pkey; }
-  function loadCreds(){ const pid=localStorage.getItem('pf_id')||''; const pkey=localStorage.getItem('pf_key')||''; $('#pid').value=pid; $('#pkey').value=pkey; return {pid,pkey}; }
   function todayISO(){ return new Date().toISOString().slice(0,10); }
+
+  // Data caches
+  let ALL = [];          // full universe or signals list
+  let FILTERED = [];     // after search/filters
 
   async function fetchJSON(url, opts={}) { const r = await fetch(url, opts); if(!r.ok) throw new Error(r.status+' '+r.statusText); return r.json(); }
 
@@ -174,18 +207,44 @@
     return (u || []).map(c => ({ ...c, signal: '—', score: '—' }));
   }
 
-  function renderCards(data) {
+  function uniqueSorted(arr) {
+    return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=> (''+a).localeCompare(''+b));
+  }
+
+  function fillFilters(data) {
+    const rarities = uniqueSorted(data.map(x => x.rarity));
+    const sets = uniqueSorted(data.map(x => x.set_name));
+    const rSel = $('#fRarity'), sSel = $('#fSet');
+    rSel.innerHTML = '<option value="">All rarities</option>' + rarities.map(r => `<option>${r}</option>`).join('');
+    sSel.innerHTML = '<option value="">All sets</option>' + sets.map(s => `<option>${s}</option>`).join('');
+  }
+
+  function applyFilters() {
+    const q = $('#q').value.trim().toLowerCase();
+    const fr = $('#fRarity').value;
+    const fs = $('#fSet').value;
+    FILTERED = ALL.filter(c => {
+      const inText = !q || (c.name||'').toLowerCase().includes(q) || (c.set_name||'').toLowerCase().includes(q);
+      const inR = !fr || c.rarity === fr;
+      const inS = !fs || c.set_name === fs;
+      return inText && inR && inS;
+    });
+    renderCards(FILTERED);
+    $('#resultInfo').textContent = `${FILTERED.length} shown of ${ALL.length}`;
+  }
+
+  function renderCards(rows) {
     const tbody = $('#rows');
-    if (!Array.isArray(data) || !data.length) {
-      tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="7">No cards yet.</td></tr>';
+    if (!Array.isArray(rows) || !rows.length) {
+      tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="7">No cards found.</td></tr>';
       return;
     }
-    const html = data.map(c => {
+    const html = rows.map(c => {
       const signal = (c.signal || '—').toString().toUpperCase();
       let badgeClass = 'badge-hold';
-      if (signal === 'BUY') badgeClass = 'badge-buy';
+      if (signal === 'BUY')  badgeClass = 'badge-buy';
       if (signal === 'SELL') badgeClass = 'badge-sell';
-      const price = (c.price_usd != null) ? fmtUSD(c.price_usd) : (c.price_eur != null) ? fmtEUR(c.price_eur) : '—';
+      const price = (c.price_usd != null) ? fmtUSD(c.price_usd) : (c.price_eur != null ? fmtEUR(c.price_eur) : '—');
       const score = (c.score == null || c.score === '—') ? '—' : Number(c.score).toFixed(1);
       return `
         <tr class="hover-row cursor-pointer" data-cardid="${c.id}">
@@ -204,7 +263,6 @@
         </tr>`;
     }).join('');
     tbody.innerHTML = html;
-
     tbody.querySelectorAll('tr[data-cardid]').forEach(tr => {
       tr.addEventListener('click', () => {
         const id = tr.getAttribute('data-cardid');
@@ -214,10 +272,43 @@
     });
   }
 
-  function sparklineSVG(values, { width=640, height=88, pad=8 } = {}) {
-    if (!Array.isArray(values) || values.length < 2) {
-      return `<div class="text-xs text-gray-500 p-2">Not enough data yet.</div>`;
+  function moversCard(title, list) {
+    if (!Array.isArray(list) || !list.length) return `<div class="text-sm text-gray-500 px-2">No data yet.</div>`;
+    return `
+      <div class="grid gap-2">
+        <h3 class="font-semibold text-sm">${title}</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          ${list.map(x => `
+            <div class="flex items-center gap-2 p-2 border rounded bg-white">
+              <img src="${x.image_url||''}" class="w-10 h-auto rounded"/>
+              <div class="flex-1">
+                <div class="text-sm font-medium">${x.name}</div>
+                <div class="text-xs text-gray-500">${x.set_name||''}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-sm ${x.pct>=0?'text-green-700':'text-red-700'}">${x.pct>0?'+':''}${x.pct}%</div>
+                <div class="text-xs text-gray-500">${fmtUSD(x.price_now)}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+  }
+
+  async function loadMovers() {
+    try {
+      const j = await fetchJSON(WORKER_BASE + '/api/top-movers?limit=6');
+      const root = $('#movers');
+      root.innerHTML = moversCard('Gainers', j.gainers) + moversCard('Losers', j.losers);
+      $('#moversAsOf').textContent = j.as_of ? `As of ${j.as_of}` : '';
+    } catch (e) {
+      $('#movers').innerHTML = '<div class="text-sm text-gray-500">Top movers unavailable.</div>';
     }
+  }
+
+  // Modal helpers (unchanged core)
+  function sparklineSVG(values, { width=640, height=88, pad=8 } = {}) {
+    if (!Array.isArray(values) || values.length < 2) return `<div class="text-xs text-gray-500 p-2">Not enough data yet.</div>`;
     const w=width,h=height,p=pad,n=values.length;
     let min = Math.min(...values.filter(Number.isFinite)), max = Math.max(...values.filter(Number.isFinite));
     if (!isFinite(min) || !isFinite(max)) return `<div class="text-xs text-gray-500 p-2">No numeric values.</div>`;
@@ -266,35 +357,50 @@
   }
   function closeModal(){ const m=$('#cardModal'); m.classList.add('hidden'); m.classList.remove('flex'); document.body.classList.remove('modal-open'); currentCardId=null; }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    $('#lotDate').value = todayISO(); loadCreds();
+  // Boot & events
+  document.addEventListener('DOMContentLoaded', async () => {
+    $('#lotDate').value = todayISO();
 
-    async function reloadCards(){ setStatus('Loading cards…'); try{ const d=await loadCards(); renderCards(d); setStatus('Cards loaded.','success'); }catch(e){ console.error(e); setStatus('Failed to load cards: '+e.message,'error'); } }
-    $('#btnReload').addEventListener('click', reloadCards);
+    // Load movers first (cheap & visually nice)
+    loadMovers();
+    $('#btnRefreshMovers').addEventListener('click', loadMovers);
 
+    // Load cards (signals or universe), fill filters, render
+    setStatus('Loading cards…');
+    try {
+      ALL = await loadCards();
+      fillFilters(ALL);
+      applyFilters();
+      setStatus('Cards loaded.','success');
+    } catch (e) {
+      console.error(e); setStatus('Failed to load cards: ' + e.message, 'error');
+    }
+
+    $('#btnApply').addEventListener('click', applyFilters);
+    $('#btnClear').addEventListener('click', () => { $('#q').value=''; $('#fRarity').value=''; $('#fSet').value=''; applyFilters(); });
+    $('#btnReload').addEventListener('click', async () => { setStatus('Reloading…'); ALL = await loadCards(); fillFilters(ALL); applyFilters(); setStatus('Cards refreshed.','success'); });
+
+    // Subscribe
     $('#sub').addEventListener('submit', async (e)=>{
       e.preventDefault();
       const email=$('#email').value.trim(); if(!email) return;
       try{
         const r=await fetch(WORKER_BASE+'/api/subscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
-        if(!r.ok) throw new Error('HTTP '+r.status); setStatus('Subscribed! You’ll get an email when signals change.','success'); $('#email').value='';
+        if(!r.ok) throw new Error('HTTP '+r.status); setStatus('Subscribed!','success'); $('#email').value='';
       }catch(e){ setStatus('Subscription failed: '+e.message,'error'); }
     });
 
+    // Portfolio
     $('#btnCreate').addEventListener('click', async ()=>{
       try{
         const r=await fetch(WORKER_BASE+'/portfolio/create',{method:'POST'});
         if(!r.ok) throw new Error('HTTP '+r.status);
-        const j=await r.json(); if(j.id && j.secret){ saveCreds(j.id,j.secret); setStatus('Portfolio created and saved to this browser.','success'); } else throw new Error('No id/secret returned.');
+        const j=await r.json();
+        if(j.id && j.secret){ localStorage.setItem('pf_id',j.id); localStorage.setItem('pf_key',j.secret); $('#pid').value=j.id; $('#pkey').value=j.secret; setStatus('Portfolio created.','success'); }
+        else throw new Error('No id/secret returned.');
       }catch(e){ setStatus('Create portfolio failed: '+e.message,'error'); }
     });
-
-    $('#btnSaveCreds').addEventListener('click', ()=>{
-      const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
-      if(!pid||!pkey){ setStatus('Enter both Portfolio ID and Secret.','error'); return; }
-      saveCreds(pid,pkey); setStatus('Credentials saved to this browser.','success');
-    });
-
+    $('#btnSaveCreds').addEventListener('click', ()=>{ const id=$('#pid').value.trim(), k=$('#pkey').value.trim(); if(!id||!k) return setStatus('Enter both Portfolio ID and Secret.','error'); localStorage.setItem('pf_id',id); localStorage.setItem('pf_key',k); setStatus('Saved.','success'); });
     $('#btnAddLot').addEventListener('click', async ()=>{
       const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
       const card=$('#lotCard').value.trim(), qty=Number($('#lotQty').value), cost=Number($('#lotCost').value);
@@ -307,7 +413,6 @@
         setStatus('Lot added.','success'); $('#btnLoadPnL').click();
       }catch(e){ setStatus('Add lot failed: '+e.message,'error'); }
     });
-
     $('#btnLoadPnL').addEventListener('click', async ()=>{
       const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
       if(!pid||!pkey) return setStatus('Save portfolio credentials first.','error');
@@ -348,11 +453,12 @@
       }catch(e){ console.error(e); setStatus('Load P&L failed: '+e.message,'error'); }
     });
 
+    // Modal close
     $('#modalClose').addEventListener('click', closeModal);
     $('#cardModal').addEventListener('click', e => { if (e.target === $('#cardModal')) closeModal(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-    // Watchlist alert creation
+    // Alerts: create
     async function createAlert(kind) {
       const email = $('#alertEmail').value.trim();
       const price = Number($('#alertPrice').value);
@@ -367,50 +473,28 @@
         });
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
-
-        // Store id+token locally to make deactivation easy
-        let store = {};
-        try { store = JSON.parse(localStorage.getItem('alerts_tokens') || '{}'); } catch {}
+        // store id/token locally
+        let store = {}; try { store = JSON.parse(localStorage.getItem('alerts_tokens') || '{}'); } catch {}
         store[j.id] = j.manage_token;
         localStorage.setItem('alerts_tokens', JSON.stringify(store));
-
-        // Pre-fill manage fields
-        $('#manageAlertId').value = j.id;
-        $('#manageToken').value   = j.manage_token;
-
+        $('#manageAlertId').value = j.id; $('#manageToken').value = j.manage_token;
         $('#mAlertMsg').textContent = 'Alert saved. Check your email for a manage link.';
         $('#alertPrice').value = '';
-      } catch (e) {
-        $('#mAlertMsg').textContent = 'Failed to save alert: ' + e.message;
-      }
+      } catch (e) { $('#mAlertMsg').textContent = 'Failed to save alert: ' + e.message; }
     }
     $('#btnAlertAbove').addEventListener('click', () => createAlert('price_above'));
     $('#btnAlertBelow').addEventListener('click', () => createAlert('price_below'));
-
-    // Watchlist deactivation from UI
     $('#btnDeactivate').addEventListener('click', async () => {
-      const id = $('#manageAlertId').value.trim();
-      const token = $('#manageToken').value.trim();
+      const id = $('#manageAlertId').value.trim(), token = $('#manageToken').value.trim();
       if (!id || !token) { $('#mAlertMsg').textContent = 'Enter Alert ID and Manage token.'; return; }
       try {
-        const r = await fetch(WORKER_BASE + '/alerts/deactivate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id, token })
-        });
+        const r = await fetch(WORKER_BASE + '/alerts/deactivate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, token }) });
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
         $('#mAlertMsg').textContent = 'Alert deactivated.';
-      } catch (e) {
-        $('#mAlertMsg').textContent = 'Failed to deactivate: ' + e.message;
-      }
+      } catch (e) { $('#mAlertMsg').textContent = 'Failed to deactivate: ' + e.message; }
     });
-
-    // First load
-    (async () => { await reloadCards(); })();
   });
-
-  async function reloadCards(){ setStatus('Loading cards…'); try{ const d=await loadCards(); renderCards(d); setStatus('Cards loaded.','success'); }catch(e){ console.error(e); setStatus('Failed to load cards: '+e.message,'error'); } }
   </script>
 </body>
 </html>

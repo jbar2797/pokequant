@@ -7,10 +7,10 @@ export interface Env {
   RESEND_API_KEY: string;
   INGEST_TOKEN: string;
   ADMIN_TOKEN: string;
-  PUBLIC_BASE_URL?: string; // NEW: used to build manage links in emails
+  PUBLIC_BASE_URL?: string;
 }
 
-// ---------- CORS + small helpers ----------
+// ---------- CORS + helpers ----------
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -42,7 +42,7 @@ async function sendEmail(env: Env, to: string | string[], subject: string, html:
   });
 }
 
-// ---------- Core pipeline steps ----------
+// ---------- Core pipeline ----------
 async function fetchUniverse(env: Env) {
   const rarities = [
     'Special illustration rare','Illustration rare','Ultra Rare',
@@ -183,12 +183,11 @@ async function runAlerts(env: Env) {
       : (pUSD <= a.threshold_usd);
 
     if (should && a.last_fired_at !== lastAsOf) {
-      const url = baseUrl(env);
-      const link = `${url}/alerts/deactivate?id=${a.id}&token=${encodeURIComponent(a.last_fired_at ? '' : '')}`; // not used here, we need token; fetch it
-      // Fetch token (not in SELECT to avoid sending token accidentally elsewhere)
+      // fetch manage token for one-click link
       const tokRow = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(a.id).all();
       const manage = tokRow.results?.[0]?.manage_token as string | undefined;
 
+      const url = baseUrl(env);
       const linkHtml = manage
         ? `<p>Manage: <a href="${url}/alerts/deactivate?id=${a.id}&token=${manage}">Deactivate this alert</a></p>`
         : '';
@@ -246,7 +245,7 @@ async function pipelineRun(env: Env) {
   };
 }
 
-// ---------- Portfolio helpers ----------
+// ---------- Portfolio auth ----------
 async function authPortfolio(req: Request, env: Env) {
   const pid = req.headers.get('x-portfolio-id')?.trim();
   const sec = req.headers.get('x-portfolio-secret')?.trim();
@@ -264,7 +263,7 @@ export default {
 
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
-    // ---------- Card details & research ----------
+    // ----- Card details & research -----
     if (url.pathname === '/api/card' && req.method === 'GET') {
       const id = (url.searchParams.get('id') || '').trim();
       let days = parseInt(url.searchParams.get('days') || '120', 10);
@@ -397,7 +396,67 @@ export default {
       return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="signals_${days}d.csv"`, ...CORS }});
     }
 
-    // ---------- Public lists ----------
+    // ----- NEW: Top movers (24h delta using last vs previous day) -----
+    if (url.pathname === '/api/top-movers' && req.method === 'GET') {
+      // how many in each bucket (gainers/losers); default 6
+      let limit = parseInt(url.searchParams.get('limit') || '6', 10);
+      if (!Number.isFinite(limit) || limit < 1) limit = 6;
+      if (limit > 20) limit = 20; // simple guard
+
+      // latest date across all prices (for info)
+      const maxRs = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all();
+      const as_of = maxRs.results?.[0]?.d ?? null;
+
+      // We use window functions to get rn=1 (latest) and rn=2 (previous) per card.
+      const gainers = await env.DB.prepare(`
+        WITH r AS (
+          SELECT p.card_id, c.name, c.set_name, c.image_url,
+                 COALESCE(p.price_usd, p.price_eur) AS price,
+                 p.as_of,
+                 ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
+          FROM prices_daily p
+          JOIN cards c ON c.id = p.card_id
+        ),
+        l AS (SELECT * FROM r WHERE rn=1),
+        prev AS (SELECT * FROM r WHERE rn=2)
+        SELECT l.card_id, l.name, l.set_name, l.image_url,
+               l.price AS price_now, prev.price AS price_prev,
+               ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
+        FROM l JOIN prev ON prev.card_id = l.card_id
+        WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
+        ORDER BY pct DESC
+        LIMIT ?
+      `).bind(limit).all();
+
+      const losers = await env.DB.prepare(`
+        WITH r AS (
+          SELECT p.card_id, c.name, c.set_name, c.image_url,
+                 COALESCE(p.price_usd, p.price_eur) AS price,
+                 p.as_of,
+                 ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
+          FROM prices_daily p
+          JOIN cards c ON c.id = p.card_id
+        ),
+        l AS (SELECT * FROM r WHERE rn=1),
+        prev AS (SELECT * FROM r WHERE rn=2)
+        SELECT l.card_id, l.name, l.set_name, l.image_url,
+               l.price AS price_now, prev.price AS price_prev,
+               ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
+        FROM l JOIN prev ON prev.card_id = l.card_id
+        WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
+        ORDER BY pct ASC
+        LIMIT ?
+      `).bind(limit).all();
+
+      return json({
+        ok: true,
+        as_of,
+        gainers: gainers.results ?? [],
+        losers: losers.results ?? []
+      });
+    }
+
+    // ----- Public lists -----
     if (url.pathname === '/api/cards' && req.method === 'GET') {
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
@@ -425,7 +484,7 @@ export default {
       return json(rs.results ?? []);
     }
 
-    // ---------- Subscriptions ----------
+    // ----- Subscriptions -----
     if (url.pathname === '/api/subscribe' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const email = (body?.email ?? '').toString().trim();
@@ -438,7 +497,7 @@ export default {
       return json({ ok: true });
     }
 
-    // ---------- Trends ingest (GitHub Action) ----------
+    // ----- Trends ingest (GitHub Action) -----
     if (url.pathname === '/ingest/trends' && req.method === 'POST') {
       if (req.headers.get('x-ingest-token') !== env.INGEST_TOKEN) return json({ error: 'forbidden' }, 403);
       const payload = await req.json().catch(()=>({}));
@@ -454,7 +513,7 @@ export default {
       return json({ ok: true, rows: rows.length });
     }
 
-    // ---------- Health ----------
+    // ----- Health -----
     if (url.pathname === '/health' && req.method === 'GET') {
       try {
         const [
@@ -488,7 +547,7 @@ export default {
       }
     }
 
-    // ---------- Portfolio endpoints ----------
+    // ----- Portfolio -----
     if (url.pathname === '/portfolio/create' && req.method === 'POST') {
       const id = crypto.randomUUID();
       const bytes = new Uint8Array(16);
@@ -589,7 +648,7 @@ export default {
       }, rows });
     }
 
-    // ---------- Watchlist: create/deactivate & admin run ----------
+    // ----- Alerts: create/deactivate/admin -----
     if (url.pathname === '/alerts/create' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const email = (body?.email ?? '').toString().trim();
@@ -627,7 +686,6 @@ export default {
       return json({ ok: true, id, manage_token: manage });
     }
 
-    // POST deactivate (API)
     if (url.pathname === '/alerts/deactivate' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const id = (body?.id ?? '').toString().trim();
@@ -642,7 +700,6 @@ export default {
       return json({ ok: true });
     }
 
-    // GET deactivate (one‑click link in emails)
     if (url.pathname === '/alerts/deactivate' && req.method === 'GET') {
       const id = (url.searchParams.get('id') || '').trim();
       const token = (url.searchParams.get('token') || '').trim();
@@ -673,13 +730,12 @@ export default {
       return json({ ok: true, ...out });
     }
 
-    // ---------- Admin ----------
+    // ----- Admin -----
     if (url.pathname === '/admin/run-now' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const out = await pipelineRun(env);
       return json({ ok: true, ...out });
     }
-
     if (url.pathname === '/admin/test-email' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const body = await req.json().catch(()=>({}));
@@ -689,7 +745,7 @@ export default {
       return json({ ok: res.ok });
     }
 
-    // ---------- Root ----------
+    // ----- Root -----
     if (url.pathname === '/' && req.method === 'GET') {
       return new Response('PokeQuant API is running. See /api/cards', { headers: CORS });
     }
