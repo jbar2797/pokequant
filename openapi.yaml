@@ -132,6 +132,8 @@ paths:
     get: { summary: Recent metrics (admin), responses: { '200': { description: OK } } }
   /admin/run-alerts:
     post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
+  /admin/migrations:
+    get: { summary: List applied migrations (admin), responses: { '200': { description: OK } } }
 components:
   schemas:
     Error:
