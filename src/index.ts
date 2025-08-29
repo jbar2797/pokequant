@@ -5,8 +5,9 @@
 import { compositeScore } from './signal_math';
 import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
-// Structured logging helper
+// Structured logging helper (can be disabled via LOG_ENABLED=0)
 function log(event: string, fields: Record<string, unknown> = {}) {
+  if ((globalThis as any).__LOG_DISABLED) return;
   try { console.log(JSON.stringify({ t: new Date().toISOString(), event, ...fields })); } catch { /* noop */ }
 }
 
@@ -17,6 +18,7 @@ export interface Env {
   INGEST_TOKEN: string;
   ADMIN_TOKEN: string;
   PUBLIC_BASE_URL: string; // e.g., https://pokequant.pages.dev
+  LOG_ENABLED?: string; // '0' to disable structured logs
   // Optional rate limit overrides (all integers as strings)
   RL_SEARCH_LIMIT?: string;      // default 30
   RL_SEARCH_WINDOW_SEC?: string; // default 300
@@ -373,6 +375,8 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
     const t0 = Date.now();
+  // Per-request evaluation (env differs by environment / binding)
+  (globalThis as any).__LOG_DISABLED = (env.LOG_ENABLED === '0');
     function done(resp: Response, tag: string) {
       try { log('req_timing', { path: url.pathname, tag, ms: Date.now() - t0, status: resp.status }); } catch {}
   recordLatency(env, `lat.${tag}`, Date.now() - t0); // fire & forget
@@ -759,6 +763,16 @@ export default {
           latency = lrs.results || [];
         } catch { /* view may not exist yet */ }
         return json({ ok:true, rows: rs.results || [], latency });
+      } catch {
+        return json({ ok:true, rows: [] });
+      }
+    }
+
+    if (url.pathname === '/admin/latency' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      try {
+        const rs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d = date('now') ORDER BY base_metric ASC`).all();
+        return json({ ok:true, rows: rs.results || [] });
       } catch {
         return json({ ok:true, rows: [] });
       }
