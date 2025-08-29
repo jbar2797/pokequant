@@ -94,26 +94,6 @@ CREATE TABLE IF NOT EXISTS signal_components_daily (
   PRIMARY KEY (card_id, as_of)
 );
 
--- Sprint 9: Watchlist alerts (and ensure portfolio tables exist)
-
-CREATE TABLE IF NOT EXISTS portfolios (
-  id TEXT PRIMARY KEY,
-  secret TEXT NOT NULL,
-  created_at TEXT
-);
-
-CREATE TABLE IF NOT EXISTS lots (
-  id TEXT PRIMARY KEY,
-  portfolio_id TEXT NOT NULL,
-  card_id TEXT NOT NULL,
-  qty REAL NOT NULL,
-  cost_usd REAL NOT NULL,
-  acquired_at TEXT,
-  note TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_lots_portfolio ON lots(portfolio_id);
-CREATE INDEX IF NOT EXISTS idx_lots_card ON lots(card_id);
-
 -- A separate table for price alerts to avoid conflicts with any earlier 'alerts' table.
 CREATE TABLE IF NOT EXISTS alerts_watch (
   id TEXT PRIMARY KEY,
