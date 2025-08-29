@@ -10,5 +10,6 @@ describe('Admin metrics', () => {
   const j = await r.json() as any;
   expect(j.ok).toBe(true);
   expect(Array.isArray(j.rows)).toBe(true);
+  expect(j.latency === undefined || Array.isArray(j.latency)).toBe(true);
   });
 });

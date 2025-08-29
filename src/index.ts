@@ -752,7 +752,13 @@ export default {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
       try {
         const rs = await env.DB.prepare(`SELECT d, metric, count FROM metrics_daily WHERE d >= date('now','-3 day') ORDER BY d DESC, metric ASC`).all();
-        return json({ ok:true, rows: rs.results || [] });
+        // Latency summary (if view exists)
+        let latency: any[] = [];
+        try {
+          const lrs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d >= date('now','-3 day') ORDER BY d DESC, base_metric ASC`).all();
+          latency = lrs.results || [];
+        } catch { /* view may not exist yet */ }
+        return json({ ok:true, rows: rs.results || [], latency });
       } catch {
         return json({ ok:true, rows: [] });
       }
