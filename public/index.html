@@ -92,7 +92,33 @@
     </section>
   </div>
 
+  <!-- Card Details Modal (exists in DOM before script binds) -->
+  <div id="cardModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
+    <div class="bg-white max-w-2xl w-full rounded shadow-lg p-4 relative">
+      <button id="modalClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
+      <div class="flex gap-4">
+        <img id="mImage" src="" alt="" class="w-32 h-auto rounded border">
+        <div>
+          <h3 id="mTitle" class="text-lg font-semibold"></h3>
+          <div id="mMeta" class="text-sm text-gray-600"></div>
+          <div class="mt-2">
+            <a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (last 120d)</a>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4">
+        <h4 class="font-semibold mb-1 text-sm">Price (USD if available)</h4>
+        <div id="mPriceSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
+      </div>
+      <div class="mt-4">
+        <h4 class="font-semibold mb-1 text-sm">Score</h4>
+        <div id="mScoreSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
+  document.addEventListener('DOMContentLoaded', () => {
     const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
 
     const $ = sel => document.querySelector(sel);
@@ -148,7 +174,6 @@
               <div class="text-xs text-gray-500">${sub}</div>
             </div>`;
         }).join('');
-
         grid.querySelectorAll('[data-cardid]').forEach(el => {
           el.addEventListener('click', () => openDetails(el.getAttribute('data-cardid')));
         });
@@ -343,31 +368,7 @@
       await Promise.all([loadMovers(), loadCards()]);
       setStatus('Ready', 'success');
     })();
+  });
   </script>
-
-  <!-- Card Details Modal -->
-  <div id="cardModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
-    <div class="bg-white max-w-2xl w-full rounded shadow-lg p-4 relative">
-      <button id="modalClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
-      <div class="flex gap-4">
-        <img id="mImage" src="" alt="" class="w-32 h-auto rounded border">
-        <div>
-          <h3 id="mTitle" class="text-lg font-semibold"></h3>
-          <div id="mMeta" class="text-sm text-gray-600"></div>
-          <div class="mt-2">
-            <a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (last 120d)</a>
-          </div>
-        </div>
-      </div>
-      <div class="mt-4">
-        <h4 class="font-semibold mb-1 text-sm">Price (USD if available)</h4>
-        <div id="mPriceSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
-      </div>
-      <div class="mt-4">
-        <h4 class="font-semibold mb-1 text-sm">Score</h4>
-        <div id="mScoreSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
