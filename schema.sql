@@ -80,3 +80,17 @@ CREATE TABLE IF NOT EXISTS lots (
 CREATE INDEX IF NOT EXISTS idx_lots_portfolio ON lots(portfolio_id);
 CREATE INDEX IF NOT EXISTS idx_lots_card ON lots(card_id);
 
+-- Sprint 7: store per-day signal components for research/export
+CREATE TABLE IF NOT EXISTS signal_components_daily (
+  card_id TEXT,
+  as_of DATE,
+  ts7 REAL,          -- Theil–Sen slope over last 7
+  ts30 REAL,         -- Theil–Sen slope over last 30
+  dd REAL,           -- drawdown from 90d peak (0..1)
+  vol REAL,          -- MAD of daily log-returns
+  z_svi REAL,        -- z-score of recent SVI change (or 0 if SVI not used)
+  regime_break INTEGER, -- 0/1
+  PRIMARY KEY (card_id, as_of)
+);
+
+

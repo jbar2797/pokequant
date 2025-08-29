@@ -49,11 +49,6 @@ export function theilSenSlope(y: Series): number {
 // --- Huberized Local Linear Trend (Kalman) with exogenous SVI ---
 // y_t = l_t + phi * svi_t + e_t,  e_t ~ N(0,R)
 // l_t = l_{t-1} + b_{t-1} + eta_t,   b_t = b_{t-1} + zeta_t
-// We return arrays of filtered level/slope and one-step forecast stats.
-//
-// This is the same family of state-space models used in finance for trend following,
-// but robustified (Huber) for fat-tailed outliers (collectibles have them).
-// References: state-space/Kalman basics; robust filtering (Huber loss). 
 export function kalmanLLTWithSVI_series(
   y: Series, svi: Series, params?: { R?: number, Ql?: number, Qb?: number, phi?: number, huberDelta?: number }
 ) {
@@ -74,7 +69,7 @@ export function kalmanLLTWithSVI_series(
   const slopes: number[] = [];
 
   for (let t = 0; t < n; t++) {
-    // Predict: x_{t|t-1} = [1 1; 0 1] * x_{t-1}
+    // Predict
     const l_pred = l + b;
     const b_pred = b;
 
@@ -92,11 +87,10 @@ export function kalmanLLTWithSVI_series(
     const std = Math.sqrt(S || 1e-9);
     const r = v / (std || 1e-9);
 
-    // Downweight if residual is large (Huber)
-    let w = 1;
+    // Downweight outliers
     if (Math.abs(r) > delta) {
-      w = delta / Math.abs(r);
-      S = S / w; // equivalent inflation
+      const w = delta / Math.abs(r);
+      S = S / w; // inflate innovation variance
     }
 
     // Kalman gain (H=[1,0])
@@ -117,7 +111,7 @@ export function kalmanLLTWithSVI_series(
     slopes.push(b);
   }
 
-  // One-step-ahead forecast components (relative to last observation)
+  // One-step-ahead forecast relative to last observation
   const l_predN = l + b;
   const yhatN = l_predN + (params?.phi ?? 0.002) * svi[n-1];
   const expRet = yhatN - y[n-1];
@@ -139,21 +133,40 @@ export function cusumChange(xs: Series, k = 0.0, h = 5.0) {
 
 export function compositeScore(prices: Series, svi: Series) {
   const y = logify(prices);
-  const n = Math.min(y.length, svi.length);
-  const yN = y.slice(-Math.min(n, 150));         // last ~150 days max
-  const sviN = svi.slice(-yN.length);
+  const n = Math.min(y.length, Math.max(y.length, svi.length || 0));
+  const yN = y.slice(-Math.min(y.length, 150)); // last ~150 days max
 
-  if (yN.length < 7) {
-    return { score: 50, signal: 'HOLD', reasons: ['insufficient history'], edgeZ: 0, expRet: 0, expSd: 1 };
+  // --- Handle SVI gracefully ---
+  let sviN: number[];
+  let sviUsed = true;
+  if (!Array.isArray(svi) || svi.length < 7) {
+    sviUsed = false;
+    sviN = new Array(yN.length).fill(0); // exogenous regressor off
+  } else {
+    sviN = svi.slice(-(yN.length));
   }
 
-  // State-space (robust) + exogenous SVI
-  const { levels, slopes, expRet, expSd } = kalmanLLTWithSVI_series(yN, sviN, {});
+  if (yN.length < 7) {
+    return {
+      score: 50, signal: 'HOLD',
+      reasons: ['insufficient price history'],
+      edgeZ: 0, expRet: 0, expSd: 1,
+      components: { ts7: 0, ts30: 0, dd: 0, vol: 0, zSVI: 0, regimeBreak: false, sviUsed: false }
+    };
+  }
+
+  // State-space (robust) + exogenous SVI (phi=0 when sviUsed=false)
+  const { levels, slopes, expRet, expSd } =
+    kalmanLLTWithSVI_series(yN, sviN, { phi: sviUsed ? 0.002 : 0 });
+
   const edgeZ = expRet / (expSd || 1e-9);
 
-  // Demand shock: z-score of weekly SVI change
-  const sviDiff = sviN.map((v,i,arr)=> i? v - arr[i-1] : 0).slice(1);
-  const zSVI = robustZ((sviN[sviN.length-1] - (sviN[sviN.length-8] ?? sviN[sviN.length-1])), sviDiff);
+  // Demand shock: z-score of weekly SVI change (0 if not used)
+  let zSVI = 0;
+  if (sviUsed) {
+    const sviDiff = sviN.map((v,i,arr)=> i? v - arr[i-1] : 0).slice(1);
+    zSVI = robustZ((sviN[sviN.length-1] - (sviN[sviN.length-8] ?? sviN[sviN.length-1])), sviDiff);
+  }
 
   // Robust trends
   const ts7  = theilSenSlope(yN.slice(-7));
@@ -173,7 +186,7 @@ export function compositeScore(prices: Series, svi: Series) {
 
   // Blend into a logistic score; weights are tunable
   const linear = 1.2*edgeZ + 0.6*zSVI + 0.4*(ts7 + ts30) + 0.3*(1 - Math.min(dd,1)) - 0.3*(vol*10) - (changed?0.5:0);
-  const score  = 100 / (1 + Math.exp(-linear)); // squashed to 0..100
+  const score  = 100 / (1 + Math.exp(-linear)); // 0..100
   let signal   = score >= 70 ? 'BUY' : (score >= 40 ? 'HOLD' : 'SELL');
   if (changed) signal = 'HOLD'; // freeze on regime break
 
@@ -184,8 +197,12 @@ export function compositeScore(prices: Series, svi: Series) {
     `TS(30)=${ts30.toExponential(2)}`,
     `DD=${(dd*100).toFixed(1)}%`,
     `VOL≈${vol.toFixed(3)}`,
-    changed ? 'regime_break' : 'stable'
+    changed ? 'regime_break' : 'stable',
+    sviUsed ? 'svi=on' : 'svi=off'
   ];
 
-  return { score, signal, reasons, edgeZ, expRet, expSd };
+  return {
+    score, signal, reasons, edgeZ, expRet, expSd,
+    components: { ts7, ts30, dd, vol, zSVI, regimeBreak: changed, sviUsed }
+  };
 }
