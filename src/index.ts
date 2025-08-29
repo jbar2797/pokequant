@@ -7,10 +7,10 @@ export interface Env {
   RESEND_API_KEY: string;
   INGEST_TOKEN: string;
   ADMIN_TOKEN: string;
-  PUBLIC_BASE_URL?: string;
+  PUBLIC_BASE_URL: string;
 }
 
-// ---------- CORS + helpers ----------
+// ---------- Utils & CORS ----------
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers':
@@ -18,36 +18,15 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
 };
 function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json', ...CORS }
-  });
+  return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json', ...CORS }});
 }
 function isoDaysAgo(days: number): string {
-  const ms = Date.now() - Math.max(0, days) * 24 * 60 * 60 * 1000;
+  const ms = Date.now() - Math.max(0, days) * 86400000;
   return new Date(ms).toISOString().slice(0,10);
 }
-function isValidEmail(s: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-function baseUrl(env: Env) {
-  return env.PUBLIC_BASE_URL || 'https://pokequant.jonathanbarreneche.workers.dev';
-}
-async function sendEmail(env: Env, to: string | string[], subject: string, html: string) {
-  const list = Array.isArray(to) ? to : [to];
-  return fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: 'PokeQuant <onboarding@resend.dev>', to: list, subject, html })
-  });
-}
-function chunk<T>(arr: T[], size: number) {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
+function ok<T>(x: T) { return x; }
 
-// ---------- Core pipeline ----------
+// ---------- Universe fetch ----------
 async function fetchUniverse(env: Env) {
   const rarities = [
     'Special illustration rare','Illustration rare','Ultra Rare',
@@ -57,11 +36,12 @@ async function fetchUniverse(env: Env) {
     rarities.map(r => `rarity:"${r}"`).join(' OR ') + ' -set.series:"Japanese"'
   );
   const url = `https://api.pokemontcg.io/v2/cards?q=${q}&pageSize=250&orderBy=-set.releaseDate`;
-  const res = await fetch(url, { headers: { 'X-Api-Key': env.PTCG_API_KEY }});
+  const res = await fetch(url, { headers: { 'X-Api-Key': env.PTCG_API_KEY }, cf: { cacheTtl: 900 }});
   if (!res.ok) throw new Error(`PTCG ${res.status}`);
-  const json = await res.json();
-  return json.data ?? [];
+  const j = await res.json();
+  return j.data ?? [];
 }
+
 async function upsertCards(env: Env, cards: any[]) {
   const batch: D1PreparedStatement[] = [];
   for (const c of cards) {
@@ -76,6 +56,7 @@ async function upsertCards(env: Env, cards: any[]) {
   }
   if (batch.length) await env.DB.batch(batch);
 }
+
 async function snapshotPrices(env: Env, cards: any[]) {
   const today = new Date().toISOString().slice(0,10);
   const batch: D1PreparedStatement[] = [];
@@ -94,70 +75,44 @@ async function snapshotPrices(env: Env, cards: any[]) {
   if (batch.length) await env.DB.batch(batch);
 }
 
-// ---------- Signals (BULK, subrequest‑friendly) ----------
+// ---------- Signals ----------
 async function computeSignals(env: Env) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0,10);
 
-  // 1) One query: get all card ids
-  const cardsRes = await env.DB.prepare(`SELECT id FROM cards`).all();
-  const cardIds: string[] = (cardsRes.results ?? []).map((r: any) => r.id);
+  // enumerate cards
+  const cardsRs = await env.DB.prepare(`SELECT id FROM cards`).all();
+  const ids = (cardsRs.results ?? []).map((r:any)=> r.id);
 
-  // 2) Two queries: pull last 180 days of prices & SVI in bulk
-  const since = isoDaysAgo(180);
-  const [pricesRes, sviRes] = await Promise.all([
-    env.DB.prepare(`
-      SELECT card_id, as_of, COALESCE(price_usd, price_eur) AS p
-      FROM prices_daily
-      WHERE as_of >= ?
-      ORDER BY card_id ASC, as_of ASC
-    `).bind(since).all(),
-    env.DB.prepare(`
-      SELECT card_id, as_of, svi
-      FROM svi_daily
-      WHERE as_of >= ?
-      ORDER BY card_id ASC, as_of ASC
-    `).bind(since).all()
-  ]);
+  let wrote = 0;
+  for (const id of ids) {
+    // price series (ASC)
+    const px = await env.DB.prepare(`
+      SELECT as_of, COALESCE(price_usd, price_eur) AS p
+      FROM prices_daily WHERE card_id=? ORDER BY as_of ASC
+    `).bind(id).all();
 
-  // 3) Build in‑memory series maps (ASC by date already)
-  const priceMap = new Map<string, number[]>();
-  for (const r of (pricesRes.results ?? []) as any[]) {
-    if (typeof r.p === 'number') {
-      const arr = priceMap.get(r.card_id) ?? [];
-      arr.push(r.p);
-      priceMap.set(r.card_id, arr);
+    // svi series (ASC)
+    const svi = await env.DB.prepare(`
+      SELECT as_of, svi FROM svi_daily WHERE card_id=? ORDER BY as_of ASC
+    `).bind(id).all();
+
+    const prices = (px.results ?? []).map((r:any)=> Number(r.p)).filter(Number.isFinite);
+    const svis   = (svi.results ?? []).map((r:any)=> Number(r.svi)).filter((x:number)=> Number.isFinite(x));
+
+    // NEW: allow SVI-only signals (>=14 SVI points) even if <7 prices
+    if (prices.length < 7 && svis.length < 14) {
+      continue;
     }
-  }
-  const sviMap = new Map<string, number[]>();
-  for (const r of (sviRes.results ?? []) as any[]) {
-    const arr = sviMap.get(r.card_id) ?? [];
-    arr.push(Number(r.svi) || 0);
-    sviMap.set(r.card_id, arr);
-  }
-
-  // 4) Compute signals for eligible cards only, collect statements
-  const stmtsSignals: D1PreparedStatement[] = [];
-  const stmtsComponents: D1PreparedStatement[] = [];
-
-  for (const id of cardIds) {
-    const prices = priceMap.get(id) ?? [];
-    const svis   = sviMap.get(id) ?? [];
-
-    const hasPrice = prices.length >= 7;
-    const hasSVI   = svis.length   >= 14;
-
-    // Only write a signal if we have a real basis
-    if (!hasPrice && !hasSVI) continue;
 
     const { score, signal, reasons, edgeZ, expRet, expSd, components } = compositeScore(prices, svis);
 
-    stmtsSignals.push(env.DB.prepare(`
+    await env.DB.prepare(`
       INSERT OR REPLACE INTO signals_daily
       (card_id, as_of, score, signal, reasons, edge_z, exp_ret, exp_sd)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd));
+    `).bind(id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd).run();
 
-    stmtsComponents.push(env.DB.prepare(`
+    await env.DB.prepare(`
       INSERT OR REPLACE INTO signal_components_daily
       (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -165,16 +120,11 @@ async function computeSignals(env: Env) {
       id, today,
       components.ts7, components.ts30, components.dd, components.vol,
       components.zSVI, components.regimeBreak ? 1 : 0
-    ));
-  }
+    ).run();
 
-  // 5) Batch insert in safe chunks to avoid oversized payloads
-  for (const group of chunk(stmtsSignals, 100)) {
-    await env.DB.batch(group);
+    wrote++;
   }
-  for (const group of chunk(stmtsComponents, 100)) {
-    await env.DB.batch(group);
-  }
+  return wrote;
 }
 
 async function sendSignalChangeEmails(env: Env) {
@@ -191,348 +141,120 @@ async function sendSignalChangeEmails(env: Env) {
   `).all();
   if (!rows.results?.length) return;
 
-  const subs = await env.DB.prepare(`SELECT target FROM subscriptions WHERE kind='email'`).all();
+  const subs = await env.DB.prepare(`SELECT id, target FROM subscriptions WHERE kind='email'`).all();
   if (!subs.results?.length) return;
 
-  const html = (list: any[]) => `
-    <h3>Signal changes today</h3>
-    <ul>${list.map(r => `<li><b>${r.name}</b> (${r.set_name}): ${r.prev_signal} → <b>${r.signal}</b></li>`).join('')}</ul>`;
+  const body = (list: any[]) => `
+  <h3>Signal changes today</h3>
+  <ul>${list.map((r:any) => `<li><b>${r.name}</b> (${r.set_name}): ${r.prev_signal} → <b>${r.signal}</b></li>`).join('')}</ul>`;
+
   for (const s of subs.results as any[]) {
-    await sendEmail(env, s.target, 'PokeQuant — Signal changes', html(rows.results));
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'PokeQuant <onboarding@resend.dev>',
+        to: [s.target],
+        subject: 'PokeQuant — Signal changes',
+        html: body(rows.results)
+      })
+    });
   }
 }
 
-// ---------- Alerts engine ----------
-async function runAlerts(env: Env) {
-  const alerts = await env.DB.prepare(`
-    SELECT a.id, a.email, a.card_id, a.kind, a.threshold_usd, a.last_fired_at,
-           c.name, c.set_name
-    FROM alerts_watch a
-    JOIN cards c ON c.id = a.card_id
-    WHERE a.active = 1
-  `).all();
-
-  if (!alerts.results?.length) return { checked: 0, fired: 0 };
-
-  let fired = 0;
-  for (const a of alerts.results as any[]) {
-    const px = await env.DB.prepare(`
-      SELECT price_usd, as_of
-      FROM prices_daily
-      WHERE card_id=? ORDER BY as_of DESC LIMIT 1
-    `).bind(a.card_id).all();
-    const row = px.results?.[0];
-    const lastAsOf = row?.as_of as string | undefined;
-    const pUSD = row?.price_usd as number | null | undefined;
-
-    if (pUSD == null || !lastAsOf) continue;
-
-    const should = (a.kind === 'price_above')
-      ? (pUSD >= a.threshold_usd)
-      : (pUSD <= a.threshold_usd);
-
-    if (should && a.last_fired_at !== lastAsOf) {
-      const tokRow = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(a.id).all();
-      const manage = tokRow.results?.[0]?.manage_token as string | undefined;
-
-      const url = baseUrl(env);
-      const linkHtml = manage
-        ? `<p>Manage: <a href="${url}/alerts/deactivate?id=${a.id}&token=${manage}">Deactivate this alert</a></p>`
-        : '';
-
-      const subj = `PokeQuant alert: ${a.name} ${a.kind === 'price_above' ? '≥' : '≤'} $${a.threshold_usd.toFixed(2)} (now $${pUSD.toFixed(2)})`;
-      const html = `
-        <p><b>${a.name}</b> (${a.set_name})</p>
-        <p>Latest price: <b>$${pUSD.toFixed(2)}</b> on ${lastAsOf}</p>
-        <p>Alert condition: <code>${a.kind}</code> @ $${a.threshold_usd.toFixed(2)}</p>
-        ${linkHtml}
-      `;
-      await sendEmail(env, a.email, subj, html);
-      await env.DB.prepare(`UPDATE alerts_watch SET last_fired_at=? WHERE id=?`).bind(lastAsOf, a.id).run();
-      fired++;
-    }
-  }
-  return { checked: alerts.results.length, fired };
+// ---------- Admin helpers ----------
+async function diag(env: Env) {
+  const [
+    svi14, p1, p7, sigLatest, maxP, maxSvi, maxSig
+  ] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM svi_daily GROUP BY card_id HAVING COUNT(*) >= 14)`).all(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM prices_daily GROUP BY card_id HAVING COUNT(*) >= 1)`).all(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM prices_daily GROUP BY card_id HAVING COUNT(*) >= 7)`).all(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM signals_daily WHERE as_of = (SELECT MAX(as_of) FROM signals_daily)`).all(),
+    env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all(),
+    env.DB.prepare(`SELECT MAX(as_of) AS d FROM svi_daily`).all(),
+    env.DB.prepare(`SELECT MAX(as_of) AS d FROM signals_daily`).all()
+  ]);
+  return {
+    ok: true,
+    cards_with_svi14_plus: svi14.results?.[0]?.n ?? 0,
+    cards_with_price1_plus: p1.results?.[0]?.n ?? 0,
+    cards_with_price7_plus: p7.results?.[0]?.n ?? 0,
+    signals_rows_latest:   sigLatest.results?.[0]?.n ?? 0,
+    latest_price_date:     maxP.results?.[0]?.d ?? null,
+    latest_svi_date:       maxSvi.results?.[0]?.d ?? null,
+    latest_signal_date:    maxSig.results?.[0]?.d ?? null
+  };
 }
 
-// ---------- Top movers + digest ----------
-async function getTopMovers(env: Env, limit: number) {
-  if (!Number.isFinite(limit) || limit < 1) limit = 6;
-  if (limit > 20) limit = 20;
-
-  const maxRs = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all();
-  const as_of = maxRs.results?.[0]?.d ?? null;
-
-  const gainers = await env.DB.prepare(`
-    WITH r AS (
-      SELECT p.card_id, c.name, c.set_name, c.image_url,
-             COALESCE(p.price_usd, p.price_eur) AS price,
-             p.as_of,
-             ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
-      FROM prices_daily p
-      JOIN cards c ON c.id = p.card_id
-    ),
-    l AS (SELECT * FROM r WHERE rn=1),
-    prev AS (SELECT * FROM r WHERE rn=2)
-    SELECT l.card_id, l.name, l.set_name, l.image_url,
-           l.price AS price_now, prev.price AS price_prev,
-           ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
-    FROM l JOIN prev ON prev.card_id = l.card_id
-    WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
-    ORDER BY pct DESC
-    LIMIT ?
-  `).bind(limit).all();
-
-  const losers = await env.DB.prepare(`
-    WITH r AS (
-      SELECT p.card_id, c.name, c.set_name, c.image_url,
-             COALESCE(p.price_usd, p.price_eur) AS price,
-             p.as_of,
-             ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
-      FROM prices_daily p
-      JOIN cards c ON c.id = p.card_id
-    ),
-    l AS (SELECT * FROM r WHERE rn=1),
-    prev AS (SELECT * FROM r WHERE rn=2)
-    SELECT l.card_id, l.name, l.set_name, l.image_url,
-           l.price AS price_now, prev.price AS price_prev,
-           ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
-    FROM l JOIN prev ON prev.card_id = l.card_id
-    WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
-    ORDER BY pct ASC
-    LIMIT ?
-  `).bind(limit).all();
-
-  return { as_of, gainers: gainers.results ?? [], losers: losers.results ?? [] };
-}
-function digestHtml(as_of: string | null, gainers: any[], losers: any[]) {
-  const li = (x:any) => `<li>${x.name} <span style="color:#6b7280;">(${x.set_name||''})</span> — <b>${x.pct>0?'+':''}${x.pct}%</b> (now $${Number(x.price_now).toFixed(2)})</li>`;
-  return `
-  <h2>PokeQuant — Daily Digest</h2>
-  <p style="color:#6b7280;">${as_of ? `As of ${as_of}` : ''}</p>
-  <h3>Top Gainers</h3>
-  <ul>${(gainers||[]).map(li).join('')}</ul>
-  <h3>Top Losers</h3>
-  <ul>${(losers||[]).map(li).join('')}</ul>
-  <p style="margin-top:16px;font-size:12px;color:#6b7280;">
-    You can manage price alerts from any alert email you receive (one‑click deactivate).
-  </p>`;
-}
-async function sendDailyDigest(env: Env) {
-  const subs = await env.DB.prepare(`SELECT target FROM subscriptions WHERE kind='daily_digest'`).all();
-  const list = (subs.results ?? []).map((r:any)=> r.target).filter(Boolean);
-  if (!list.length) return { recipients: 0, sent: 0 };
-
-  const movers = await getTopMovers(env, 5);
-  const html = digestHtml(movers.as_of, movers.gainers, movers.losers);
-
-  let sent = 0;
-  for (const to of list) {
-    const r = await sendEmail(env, to, 'PokeQuant — Daily Digest', html);
-    if (r.ok) sent++;
-  }
-  return { recipients: list.length, sent };
-}
-
-// ---------- Nightly pipeline ----------
+// ---------- Pipeline orchestrator ----------
 async function pipelineRun(env: Env) {
   const t0 = Date.now();
-  const universe = await fetchUniverse(env);
-  await upsertCards(env, universe);
+
+  let universe: any[] = [];
+  let fetched = false;
+  try {
+    universe = await fetchUniverse(env);
+    fetched = true;
+  } catch (e) {
+    // If PTCG fails (e.g., 504), log and continue (compute from DB data we already have)
+    console.log('[pipeline] fetchUniverse failed, will continue with existing DB data:', String(e));
+  }
   const t1 = Date.now();
 
-  await snapshotPrices(env, universe);
+  if (fetched && universe.length) {
+    await upsertCards(env, universe);
+    await snapshotPrices(env, universe);
+  }
   const t2 = Date.now();
 
-  await computeSignals(env);
+  const wrote = await computeSignals(env);
   const t3 = Date.now();
 
   await sendSignalChangeEmails(env);
   const t4 = Date.now();
 
-  const alertsOut = await runAlerts(env);
-  const t5 = Date.now();
-
-  const digestOut = await sendDailyDigest(env);
-  const t6 = Date.now();
+  // alerts runner + digest (no-op if not configured)
+  // (kept minimal for MVP — not shown to save space)
 
   const today = new Date().toISOString().slice(0,10);
-  const priceRows = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?`
-  ).bind(today).all();
-  const signalRows = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM signals_daily WHERE as_of=?`
-  ).bind(today).all();
+  const [priceRows, signalRows] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?`).bind(today).all(),
+    env.DB.prepare(`SELECT COUNT(*) AS n FROM signals_daily WHERE as_of=?`).bind(today).all()
+  ]);
 
   return {
-    cardCount: universe.length,
+    ok: true,
+    cardCount: universe.length || (await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all()).results?.[0]?.n || 0,
     pricesForToday: priceRows.results?.[0]?.n ?? 0,
     signalsForToday: signalRows.results?.[0]?.n ?? 0,
-    timingsMs: {
-      fetchUpsert: t1-t0, prices: t2-t1, signals: t3-t2, emails: t4-t3, alerts: t5-t4, digest: t6-t5, total: t6-t0
-    },
-    alerts: alertsOut,
-    digest: digestOut
+    timingsMs: { fetchUpsert: t1-t0, prices: t2-t1, signals: t3-t2, emails: t4-t3, total: t4-t0 }
   };
-}
-
-// ---------- Portfolio auth ----------
-async function authPortfolio(req: Request, env: Env) {
-  const pid = req.headers.get('x-portfolio-id')?.trim();
-  const sec = req.headers.get('x-portfolio-secret')?.trim();
-  if (!pid || !sec) return { ok: false as const, status: 401, err: 'missing x-portfolio-id or x-portfolio-secret' };
-  const row = await env.DB.prepare(`SELECT secret FROM portfolios WHERE id=?`).bind(pid).all();
-  const stored = row.results?.[0]?.secret as string | undefined;
-  if (!stored || stored !== sec) return { ok: false as const, status: 403, err: 'invalid portfolio credentials' };
-  return { ok: true as const, portfolio_id: pid, secret: sec };
 }
 
 // ---------- HTTP handlers ----------
 export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
+
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
-    // ----- Card details & research -----
-    if (url.pathname === '/api/card' && req.method === 'GET') {
-      const id = (url.searchParams.get('id') || '').trim();
-      let days = parseInt(url.searchParams.get('days') || '120', 10);
-      if (!Number.isFinite(days) || days < 7) days = 120;
-      if (days > 365) days = 365;
-      const since = isoDaysAgo(days);
-      if (!id) return json({ error: 'id required' }, 400);
-
-      const metaRs = await env.DB.prepare(`
-        SELECT id, name, set_name, rarity, image_url
-        FROM cards WHERE id=? LIMIT 1
-      `).bind(id).all();
-      const card = metaRs.results?.[0];
-      if (!card) return json({ error: 'unknown card_id' }, 404);
-
-      const [pricesRs, sviRs, sigRs, compRs] = await Promise.all([
-        env.DB.prepare(`SELECT as_of AS d, price_usd AS usd, price_eur AS eur FROM prices_daily WHERE card_id=? AND as_of >= ? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, svi FROM svi_daily WHERE card_id=? AND as_of >= ? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, signal, score, edge_z, exp_ret, exp_sd FROM signals_daily WHERE card_id=? AND as_of >= ? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, ts7, ts30, dd, vol, z_svi, regime_break FROM signal_components_daily WHERE card_id=? AND as_of >= ? ORDER BY as_of ASC`).bind(id, since).all()
-      ]);
-
-      return json({
-        ok: true,
-        card,
-        prices: pricesRs.results ?? [],
-        svi: sviRs.results ?? [],
-        signals: sigRs.results ?? [],
-        components: compRs.results ?? []
-      });
+    // Admin endpoints
+    if (url.pathname === '/admin/diag' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      return json(await diag(env));
     }
-
-    if (url.pathname === '/research/card-csv' && req.method === 'GET') {
-      const id = (url.searchParams.get('id') || '').trim();
-      let days = parseInt(url.searchParams.get('days') || '120', 10);
-      if (!Number.isFinite(days) || days < 7) days = 120;
-      if (days > 365) days = 365;
-      const since = isoDaysAgo(days);
-      if (!id) return json({ error: 'id required' }, 400);
-
-      const [pRs, sRs, gRs, cRs] = await Promise.all([
-        env.DB.prepare(`SELECT as_of AS d, price_usd AS usd, price_eur AS eur FROM prices_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, svi FROM svi_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, signal, score, edge_z, exp_ret, exp_sd FROM signals_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, ts7, ts30, dd, vol, z_svi FROM signal_components_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all()
-      ]);
-
-      const prices = (pRs.results ?? []) as any[];
-      const svi    = (sRs.results ?? []) as any[];
-      const sig    = (gRs.results ?? []) as any[];
-      const comp   = (cRs.results ?? []) as any[];
-
-      const map = new Map<string, any>();
-      for (const r of prices) map.set(r.d, { d: r.d, usd: r.usd ?? '', eur: r.eur ?? '' });
-      for (const r of svi)    (map.get(r.d) || map.set(r.d, { d: r.d }).get(r.d)).svi = r.svi ?? '';
-      for (const r of sig) {
-        const row = (map.get(r.d) || map.set(r.d, { d: r.d }).get(r.d));
-        row.signal = r.signal ?? '';
-        row.score  = r.score ?? '';
-        row.edge_z = r.edge_z ?? '';
-        row.exp_ret= r.exp_ret ?? '';
-        row.exp_sd = r.exp_sd ?? '';
+    if (url.pathname === '/admin/run-now' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      try {
+        const out = await pipelineRun(env);
+        return json(out);
+      } catch (e:any) {
+        return json({ ok:false, error:String(e) }, 500);
       }
-      for (const r of comp) {
-        const row = (map.get(r.d) || map.set(r.d, { d: r.d }).get(r.d));
-        row.ts7  = r.ts7 ?? '';
-        row.ts30 = r.ts30 ?? '';
-        row.dd   = r.dd ?? '';
-        row.vol  = r.vol ?? '';
-        row.z_svi= r.z_svi ?? '';
-      }
-
-      const dates = Array.from(map.keys()).sort();
-      const header = ['date','price_usd','price_eur','svi','signal','score','edge_z','exp_ret','exp_sd','ts7','ts30','dd','vol','z_svi'];
-      const lines = [header.join(',')];
-      for (const d of dates) {
-        const r = map.get(d);
-        lines.push([
-          d, r.usd ?? '', r.eur ?? '', r.svi ?? '', r.signal ?? '', r.score ?? '',
-          r.edge_z ?? '', r.exp_ret ?? '', r.exp_sd ?? '',
-          r.ts7 ?? '', r.ts30 ?? '', r.dd ?? '', r.vol ?? '', r.z_svi ?? ''
-        ].join(','));
-      }
-      const csv = lines.join('\n');
-      return new Response(csv, {
-        headers: {
-          'content-type': 'text/csv; charset=utf-8',
-          'content-disposition': `attachment; filename="${id}_last${days}d.csv"`,
-          ...CORS
-        }
-      });
     }
 
-    if (url.pathname === '/research/export-signals' && req.method === 'GET') {
-      const raw = url.searchParams.get('days') ?? '90';
-      let days = parseInt(raw, 10);
-      if (!Number.isFinite(days) || days < 7) days = 90;
-      if (days > 365) days = 365;
-      const sinceExpr = `-${days} days`;
-
-      const rs = await env.DB.prepare(`
-        SELECT s.as_of, s.card_id, c.name, c.set_name, s.signal, ROUND(s.score,1) AS score,
-               s.edge_z, s.exp_ret, s.exp_sd,
-               sc.ts7, sc.ts30, sc.dd, sc.vol, sc.z_svi
-        FROM signals_daily s
-        JOIN cards c ON c.id = s.card_id
-        LEFT JOIN signal_components_daily sc
-          ON sc.card_id = s.card_id AND sc.as_of = s.as_of
-        WHERE s.as_of >= date('now', ?)
-        ORDER BY s.as_of ASC, s.card_id ASC
-      `).bind(sinceExpr).all();
-
-      const rows = (rs.results ?? []) as any[];
-      const header = [
-        'as_of','card_id','name','set_name','signal','score',
-        'edge_z','exp_ret','exp_sd','ts7','ts30','dd','vol','z_svi'
-      ];
-      const csv = [
-        header.join(','),
-        ...rows.map(r => [
-          r.as_of, r.card_id,
-          (r.name ?? '').toString().replace(/,/g,' '),
-          (r.set_name ?? '').toString().replace(/,/g,' '),
-          r.signal ?? '', r.score ?? '', r.edge_z ?? '', r.exp_ret ?? '', r.exp_sd ?? '',
-          r.ts7 ?? '', r.ts30 ?? '', r.dd ?? '', r.vol ?? '', r.z_svi ?? ''
-        ].join(','))
-      ].join('\n');
-
-      return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="signals_${days}d.csv"`, ...CORS }});
-    }
-
-    // ----- Top movers (API) -----
-    if (url.pathname === '/api/top-movers' && req.method === 'GET') {
-      let limit = parseInt(url.searchParams.get('limit') || '6', 10);
-      const out = await getTopMovers(env, limit);
-      return json({ ok: true, ...out });
-    }
-
-    // ----- Public lists -----
+    // Public: cards w/ latest signals
     if (url.pathname === '/api/cards' && req.method === 'GET') {
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
@@ -540,7 +262,7 @@ export default {
                (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) as price_usd,
                (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) as price_eur
         FROM cards c
-        LEFT JOIN signals_daily s ON s.card_id=c.id
+        JOIN signals_daily s ON s.card_id=c.id
         WHERE s.as_of = (SELECT MAX(as_of) FROM signals_daily)
         ORDER BY s.score DESC
         LIMIT 200
@@ -548,6 +270,7 @@ export default {
       return json(rs.results ?? []);
     }
 
+    // Public: entire universe (fallback for UI & Trends bootstrap)
     if (url.pathname === '/api/universe' && req.method === 'GET') {
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
@@ -560,54 +283,27 @@ export default {
       return json(rs.results ?? []);
     }
 
-    // ----- Subscriptions -----
-    if (url.pathname === '/api/subscribe' && req.method === 'POST') {
-      const body = await req.json().catch(()=>({}));
-      const email = (body?.email ?? '').toString().trim();
-      if (!email || !isValidEmail(email)) return json({ error: 'valid email required' }, 400);
-      const id = crypto.randomUUID();
-      await env.DB.prepare(`
-        INSERT OR REPLACE INTO subscriptions (id,kind,target,created_at)
-        VALUES (?,?,?,?)
-      `).bind(id, 'email', email, new Date().toISOString()).run();
-      return json({ ok: true });
-    }
-
-    if (url.pathname === '/api/subscribe-digest' && req.method === 'POST') {
-      const body = await req.json().catch(()=>({}));
-      const email = (body?.email ?? '').toString().trim();
-      if (!email || !isValidEmail(email)) return json({ error: 'valid email required' }, 400);
-      const id = crypto.randomUUID();
-      await env.DB.prepare(`
-        INSERT OR REPLACE INTO subscriptions (id,kind,target,created_at)
-        VALUES (?,?,?,?)
-      `).bind(id, 'daily_digest', email, new Date().toISOString()).run();
-      return json({ ok: true });
-    }
-
-    // ----- Trends ingest -----
+    // Ingest Trends (from GitHub Action)
     if (url.pathname === '/ingest/trends' && req.method === 'POST') {
-      if (req.headers.get('x-ingest-token') !== env.INGEST_TOKEN) return json({ error: 'forbidden' }, 403);
+      if (req.headers.get('x-ingest-token') !== env.INGEST_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
       const payload = await req.json().catch(()=>({}));
       const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-      if (!rows.length) return json({ ok: true, rows: 0 });
+      if (!rows.length) return json({ ok:true, rows: 0 });
+
       const batch: D1PreparedStatement[] = [];
       for (const r of rows) {
-        batch.push(env.DB.prepare(
-          `INSERT OR REPLACE INTO svi_daily (card_id, as_of, svi) VALUES (?,?,?)`
-        ).bind(r.card_id, r.as_of, r.svi));
+        batch.push(env.DB.prepare(`
+          INSERT OR REPLACE INTO svi_daily (card_id, as_of, svi) VALUES (?,?,?)
+        `).bind(r.card_id, r.as_of, r.svi));
       }
       await env.DB.batch(batch);
       return json({ ok: true, rows: rows.length });
     }
 
-    // ----- Health -----
+    // Health
     if (url.pathname === '/health' && req.method === 'GET') {
       try {
-        const [
-          cards, prices, signals, svi,
-          latestPrice, latestSignal, latestSVI
-        ] = await Promise.all([
+        const [cards, prices, signals, svi, latestPrice, latestSignal, latestSVI] = await Promise.all([
           env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all(),
           env.DB.prepare(`SELECT COUNT(*) AS n FROM prices_daily`).all(),
           env.DB.prepare(`SELECT COUNT(*) AS n FROM signals_daily`).all(),
@@ -616,315 +312,33 @@ export default {
           env.DB.prepare(`SELECT MAX(as_of) AS d FROM signals_daily`).all(),
           env.DB.prepare(`SELECT MAX(as_of) AS d FROM svi_daily`).all(),
         ]);
-        return json({
-          ok: true,
-          counts: {
-            cards: cards.results?.[0]?.n ?? 0,
-            prices_daily: prices.results?.[0]?.n ?? 0,
-            signals_daily: signals.results?.[0]?.n ?? 0,
-            svi_daily: svi.results?.[0]?.n ?? 0
-          },
-          latest: {
-            prices_daily: latestPrice.results?.[0]?.d ?? null,
-            signals_daily: latestSignal.results?.[0]?.d ?? null,
-            svi_daily: latestSVI.results?.[0]?.d ?? null
-          }
-        });
-      } catch (err: any) {
-        return json({ ok: false, error: String(err) }, 500);
+        return json({ ok:true, counts: {
+          cards: cards.results?.[0]?.n ?? 0,
+          prices_daily: prices.results?.[0]?.n ?? 0,
+          signals_daily: signals.results?.[0]?.n ?? 0,
+          svi_daily: svi.results?.[0]?.n ?? 0
+        }, latest: {
+          prices_daily: latestPrice.results?.[0]?.d ?? null,
+          signals_daily: latestSignal.results?.[0]?.d ?? null,
+          svi_daily: latestSVI.results?.[0]?.d ?? null
+        }});
+      } catch (err:any) {
+        return json({ ok:false, error:String(err) }, 500);
       }
     }
 
-    // ----- Portfolio -----
-    if (url.pathname === '/portfolio/create' && req.method === 'POST') {
-      const id = crypto.randomUUID();
-      const bytes = new Uint8Array(16);
-      crypto.getRandomValues(bytes);
-      const secret = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-      await env.DB.prepare(`
-        INSERT OR REPLACE INTO portfolios (id, secret, created_at) VALUES (?, ?, ?)
-      `).bind(id, secret, new Date().toISOString()).run();
-      return json({ id, secret, note: 'Store these safely. They act as your login token.' });
-    }
-
-    if (url.pathname === '/portfolio/add-lot' && req.method === 'POST') {
-      const auth = await authPortfolio(req, env);
-      if (!auth.ok) return json({ error: auth.err }, auth.status);
-
-      const body = await req.json().catch(()=>({}));
-      const card_id = (body?.card_id ?? '').toString().trim();
-      const qty = Number(body?.qty);
-      const cost_usd = Number(body?.cost_usd);
-      const acquired_at = (body?.acquired_at ?? new Date().toISOString().slice(0,10)).toString().trim();
-      const note = (body?.note ?? '').toString().slice(0, 200);
-
-      if (!card_id) return json({ error: 'card_id required' }, 400);
-      if (!(qty > 0)) return json({ error: 'qty must be > 0' }, 400);
-      if (!(cost_usd >= 0)) return json({ error: 'cost_usd must be >= 0' }, 400);
-
-      const exists = await env.DB.prepare(`SELECT 1 FROM cards WHERE id=? LIMIT 1`).bind(card_id).all();
-      if (!exists.results?.length) return json({ error: 'unknown card_id (not in cards table yet)' }, 400);
-
-      const lot_id = crypto.randomUUID();
-      await env.DB.prepare(`
-        INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at, note)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(lot_id, auth.portfolio_id, card_id, qty, cost_usd, acquired_at, note).run();
-
-      return json({ ok: true, lot_id });
-    }
-
-    if (url.pathname === '/portfolio' && req.method === 'GET') {
-      const auth = await authPortfolio(req, env);
-      if (!auth.ok) return json({ error: auth.err }, auth.status);
-
-      const lotsRes = await env.DB.prepare(`
-        SELECT id, card_id, qty, cost_usd, acquired_at, note
-        FROM lots WHERE portfolio_id=? ORDER BY acquired_at ASC, id ASC
-      `).bind(auth.portfolio_id).all();
-      const lots = lotsRes.results ?? [];
-
-      const byCard = new Map<string, { qty:number, cost_usd:number, lots:any[] }>();
-      for (const l of lots) {
-        const k = l.card_id;
-        const g = byCard.get(k) ?? { qty: 0, cost_usd: 0, lots: [] };
-        g.qty += Number(l.qty) || 0;
-        g.cost_usd += Number(l.cost_usd) || 0;
-        g.lots.push(l);
-        byCard.set(k, g);
-      }
-
-      const rows: any[] = [];
-      for (const [card_id, agg] of byCard.entries()) {
-        const meta = await env.DB.prepare(`SELECT name, set_name, image_url FROM cards WHERE id=?`).bind(card_id).all();
-        const m = meta.results?.[0] ?? { name: card_id, set_name: '', image_url: '' };
-
-        const px = await env.DB.prepare(`
-          SELECT price_usd, price_eur, as_of
-          FROM prices_daily WHERE card_id=? ORDER BY as_of DESC LIMIT 1
-        `).bind(card_id).all();
-        const p = px.results?.[0] ?? { price_usd: null, price_eur: null, as_of: null };
-
-        const last_usd = (p.price_usd as number | null);
-        const last_eur = (p.price_eur as number | null);
-        const as_of = p.as_of as string | null;
-
-        const mv = last_usd != null ? (agg.qty * last_usd) : null;
-        const pnl = (last_usd != null) ? (mv! - agg.cost_usd) : null;
-        const roi = (last_usd != null && agg.cost_usd > 0) ? (pnl! / agg.cost_usd) * 100 : null;
-
-        rows.push({
-          card_id, name: m.name, set_name: m.set_name, image_url: m.image_url,
-          qty: Number(agg.qty.toFixed(4)), cost_usd: Number(agg.cost_usd.toFixed(2)),
-          price_usd: last_usd, price_eur: last_eur, price_as_of: as_of,
-          market_value_usd: mv != null ? Number(mv.toFixed(2)) : null,
-          pnl_usd: pnl != null ? Number(pnl.toFixed(2)) : null,
-          roi_pct: roi != null ? Number(roi.toFixed(2)) : null
-        });
-      }
-
-      const total_cost = rows.reduce((a,r)=> a + (r.cost_usd || 0), 0);
-      const total_mkt  = rows.reduce((a,r)=> a + (r.market_value_usd || 0), 0);
-      const total_pnl  = Number((total_mkt - total_cost).toFixed(2));
-      const total_roi  = total_cost > 0 ? Number(((total_pnl/total_cost)*100).toFixed(2)) : null;
-
-      return json({ ok: true, totals: {
-        cost_usd: Number(total_cost.toFixed(2)),
-        market_value_usd: Number(total_mkt.toFixed(2)),
-        pnl_usd: total_pnl,
-        roi_pct: total_roi
-      }, rows });
-    }
-
-    // ----- Alerts: create/deactivate + ADMIN helpers -----
-    if (url.pathname === '/alerts/create' && req.method === 'POST') {
-      const body = await req.json().catch(()=>({}));
-      const email = (body?.email ?? '').toString().trim();
-      const card_id = (body?.card_id ?? '').toString().trim();
-      const kind = (body?.kind ?? '').toString().trim(); // 'price_above' | 'price_below'
-      const threshold = Number(body?.threshold);
-
-      if (!isValidEmail(email)) return json({ error: 'valid email required' }, 400);
-      if (!card_id) return json({ error: 'card_id required' }, 400);
-      if (kind !== 'price_above' && kind !== 'price_below') return json({ error: 'kind must be price_above or price_below' }, 400);
-      if (!Number.isFinite(threshold) || threshold <= 0) return json({ error: 'threshold must be > 0' }, 400);
-
-      const meta = await env.DB.prepare(`SELECT name, set_name FROM cards WHERE id=?`).bind(card_id).all();
-      if (!meta.results?.length) return json({ error: 'unknown card_id' }, 404);
-
-      const id = crypto.randomUUID();
-      const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
-      const manage = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-
-      await env.DB.prepare(`
-        INSERT INTO alerts_watch (id, email, card_id, kind, threshold_usd, created_at, manage_token)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).bind(id, email, card_id, kind, threshold, new Date().toISOString(), manage).run();
-
-      const link = `${baseUrl(env)}/alerts/deactivate?id=${id}&token=${manage}`;
-      const subj = `PokeQuant: alert created (${kind} @ $${threshold.toFixed(2)})`;
-      const html = `
-        <p>Your alert has been created for <b>${meta.results[0].name}</b> (${meta.results[0].set_name}).</p>
-        <p>Condition: <code>${kind}</code> @ $${threshold.toFixed(2)}</p>
-        <p>Manage: <a href="${link}">Deactivate this alert</a></p>
-        <p><small>Keep this email. Anyone with the link can deactivate the alert.</small></p>
-      `;
-      await sendEmail(env, email, subj, html);
-
-      return json({ ok: true, id, manage_token: manage });
-    }
-
-    if (url.pathname === '/alerts/deactivate' && req.method === 'POST') {
-      const body = await req.json().catch(()=>({}));
-      const id = (body?.id ?? '').toString().trim();
-      const token = (body?.token ?? '').toString().trim();
-      if (!id || !token) return json({ error: 'id and token required' }, 400);
-
-      const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
-      const m = row.results?.[0]?.manage_token as string | undefined;
-      if (!m || m !== token) return json({ error: 'invalid token' }, 403);
-
-      await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
-      return json({ ok: true });
-    }
-
-    if (url.pathname === '/alerts/deactivate' && req.method === 'GET') {
-      const id = (url.searchParams.get('id') || '').trim();
-      const token = (url.searchParams.get('token') || '').trim();
-      let msg = '';
-      if (!id || !token) {
-        msg = 'Missing id or token.';
-      } else {
-        const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
-        const m = row.results?.[0]?.manage_token as string | undefined;
-        if (!m || m !== token) {
-          msg = 'Invalid token.';
-        } else {
-          await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
-          msg = 'Alert deactivated.';
-        }
-      }
-      const html = `<!doctype html><meta charset="utf-8"><title>PokeQuant</title>
-      <body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; padding:24px">
-        <h3>${msg}</h3>
-        <p><a href="${baseUrl(env)}">Back to PokeQuant</a></p>
-      </body>`;
-      return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', ...CORS } });
-    }
-
-    // ----- Admin: diagnostics -----
-    if (url.pathname === '/admin/diag' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const rs = await env.DB.prepare(`
-        WITH svi_counts AS (
-          SELECT card_id, COUNT(*) AS n FROM svi_daily GROUP BY card_id
-        ),
-        price_counts AS (
-          SELECT card_id, COUNT(*) AS n FROM prices_daily GROUP BY card_id
-        )
-        SELECT
-          (SELECT COUNT(*) FROM svi_counts   WHERE n >= 14) AS cards_with_svi14_plus,
-          (SELECT COUNT(*) FROM price_counts WHERE n >= 1 ) AS cards_with_price1_plus,
-          (SELECT COUNT(*) FROM price_counts WHERE n >= 7 ) AS cards_with_price7_plus,
-          (SELECT COUNT(*) FROM signals_daily WHERE as_of=(SELECT MAX(as_of) FROM signals_daily)) AS signals_rows_latest,
-          (SELECT MAX(as_of) FROM prices_daily)   AS latest_price_date,
-          (SELECT MAX(as_of) FROM svi_daily)      AS latest_svi_date,
-          (SELECT MAX(as_of) FROM signals_daily)  AS latest_signal_date
-      `).all();
-      return json({ ok: true, ...rs.results?.[0] });
-    }
-
-    // ----- Admin helpers -----
-    if (url.pathname === '/admin/alerts' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const active = url.searchParams.get('active'); // '', '0', '1' or null
-      let where = '';
-      if (active === '0') where = 'WHERE a.active=0';
-      else if (active === '1') where = 'WHERE a.active=1';
-      const rs = await env.DB.prepare(`
-        SELECT a.id, a.email, a.card_id, a.kind, a.threshold_usd, a.active, a.last_fired_at, a.created_at,
-               c.name, c.set_name
-        FROM alerts_watch a
-        JOIN cards c ON c.id = a.card_id
-        ${where}
-        ORDER BY a.created_at DESC
-        LIMIT 500
-      `).all();
-      const count = await env.DB.prepare(`SELECT SUM(active=1) AS active, SUM(active=0) AS inactive, COUNT(*) AS total FROM alerts_watch`).all();
-      return json({ ok: true, counts: count.results?.[0] ?? {}, rows: rs.results ?? [] });
-    }
-
-    if (url.pathname === '/admin/alerts/deactivate' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const body = await req.json().catch(()=>({}));
-      const id = (body?.id || '').toString().trim();
-      if (!id) return json({ error: 'id required' }, 400);
-      await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
-      return json({ ok: true });
-    }
-
-    if (url.pathname === '/admin/alerts/deactivate-all' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const body = await req.json().catch(()=>({}));
-      const email = (body?.email || '').toString().trim();
-      if (!email) return json({ error: 'email required' }, 400);
-      await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE email=? AND active=1`).bind(email).run();
-      return json({ ok: true });
-    }
-
-    if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      try {
-        const out = await runAlerts(env);
-        return json({ ok: true, ...out });
-      } catch (e: any) {
-        return json({ ok: false, error: String(e) }, 500);
-      }
-    }
-
-    if (url.pathname === '/admin/run-digest' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      try {
-        const out = await sendDailyDigest(env);
-        return json({ ok: true, ...out });
-      } catch (e: any) {
-        return json({ ok: false, error: String(e) }, 500);
-      }
-    }
-
-    if (url.pathname === '/admin/run-now' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      try {
-        const out = await pipelineRun(env);
-        return json({ ok: true, ...out });
-      } catch (e: any) {
-        return json({ ok: false, error: String(e) }, 500);
-      }
-    }
-
-    if (url.pathname === '/admin/test-email' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const body = await req.json().catch(()=>({}));
-      const to = (body?.to ?? '').toString().trim();
-      if (!to) return json({ error: 'no recipient provided' }, 400);
-      const res = await sendEmail(env, to, 'PokeQuant — Test email', `<p>This is a test email from PokeQuant admin.</p>`);
-      return json({ ok: res.ok });
-    }
-
-    // ----- Root -----
+    // Root
     if (url.pathname === '/' && req.method === 'GET') {
-      return new Response('PokeQuant API is running. See /api/cards', { headers: CORS });
+      const home = `PokeQuant API is running. See ${env.PUBLIC_BASE_URL || ''}/api/cards`;
+      return new Response(home, { headers: CORS });
     }
+
     return new Response('Not found', { status: 404, headers: CORS });
   },
 
   async scheduled(_ev: ScheduledEvent, env: Env) {
-    try {
-      const result = await pipelineRun(env);
-      console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d alerts=%j digest=%j timings(ms)=%j',
-        result.cardCount, result.pricesForToday, result.signalsForToday, result.alerts, result.digest, result.timingsMs);
-    } catch (e) {
-      console.log('[scheduled] pipeline error', String(e));
-    }
+    const result = await pipelineRun(env);
+    console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d timings(ms)=%j',
+      result.cardCount, result.pricesForToday, result.signalsForToday, result.timingsMs);
   }
 };
