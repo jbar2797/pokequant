@@ -38,6 +38,37 @@ function isoDaysAgo(days: number) {
   return d.toISOString().slice(0,10);
 }
 
+// ---------- rate limiting (D1-backed fixed window) ----------
+interface RateLimitResult { allowed: boolean; remaining: number; limit: number; reset: number; }
+async function rateLimit(env: Env, key: string, limit: number, windowSec: number): Promise<RateLimitResult> {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, window_start INTEGER, count INTEGER);`).run();
+    const now = Math.floor(Date.now()/1000);
+    const windowStart = now - (now % windowSec);
+    await env.DB.prepare(`
+      INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
+      ON CONFLICT(key) DO UPDATE SET
+        count = CASE WHEN rate_limits.window_start = excluded.window_start THEN rate_limits.count + 1 ELSE 1 END,
+        window_start = CASE WHEN rate_limits.window_start = excluded.window_start THEN rate_limits.window_start ELSE excluded.window_start END
+    `).bind(key, windowStart).run();
+    const row = await env.DB.prepare(`SELECT window_start, count FROM rate_limits WHERE key=?`).bind(key).all();
+    const ws = Number(row.results?.[0]?.window_start) || windowStart;
+    const count = Number(row.results?.[0]?.count) || 0;
+    const reset = ws + windowSec; // epoch seconds
+    const remaining = Math.max(0, limit - count);
+    if (count > limit) return { allowed: false, remaining: 0, limit, reset };
+    return { allowed: true, remaining, limit, reset };
+  } catch (e) {
+    log('rate_limit_error', { key, error: String(e) });
+    return { allowed: true, remaining: limit, limit, reset: Math.floor(Date.now()/1000)+windowSec };
+  }
+}
+const RATE_LIMITS = {
+  search: { limit: 30, window: 300 },          // 30 per 5 min per IP
+  subscribe: { limit: 5, window: 86400 },       // 5 per day per IP
+  alertCreate: { limit: 10, window: 86400 },    // 10 per day per IP+email
+};
+
 // Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
 async function ensureTestSeed(env: Env) {
   try {
@@ -397,9 +428,15 @@ export default {
 
     // Subscribe
     if (url.pathname === '/api/subscribe' && req.method === 'POST') {
+  const ip = req.headers.get('cf-connecting-ip') || 'anon';
+  const rlKey = `sub:${ip}`;
+  const cfg = RATE_LIMITS.subscribe;
+  const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
+  if (!rl.allowed) return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429);
       const body: any = await req.json().catch(()=>({}));
       const email = (body && body.email ? String(body.email) : '').trim();
   if (!email) return err('email_required', 400);
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS subscriptions (id TEXT PRIMARY KEY, kind TEXT, target TEXT, created_at TEXT);`).run();
       const id = crypto.randomUUID();
   await env.DB.prepare(`INSERT OR REPLACE INTO subscriptions (id, kind, target, created_at) VALUES (?, 'email', ?, datetime('now'))`).bind(id, email).run();
   log('subscribe', { email });
@@ -409,6 +446,7 @@ export default {
     // Alerts create/deactivate
     if (url.pathname === '/alerts/create' && req.method === 'POST') {
       await ensureAlertsTable(env);
+  const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const body: any = await req.json().catch(()=>({}));
       const email = body && body.email ? String(body.email).trim() : '';
       const card_id = body && body.card_id ? String(body.card_id).trim() : '';
@@ -416,6 +454,10 @@ export default {
       const threshold = body && body.threshold !== undefined ? Number(body.threshold) : NaN;
   if (!email || !card_id) return err('email_and_card_id_required');
   if (!Number.isFinite(threshold)) return err('threshold_invalid');
+  const rlKey = `alert:${ip}:${email}`;
+  const cfg = RATE_LIMITS.alertCreate;
+  const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
+  if (!rl.allowed) return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429);
       const id = crypto.randomUUID();
       const tokenBytes = new Uint8Array(16); crypto.getRandomValues(tokenBytes);
       const manage_token = Array.from(tokenBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -452,6 +494,11 @@ export default {
     }
     if (url.pathname === '/api/search' && req.method === 'GET') {
       await ensureTestSeed(env);
+  const ip = req.headers.get('cf-connecting-ip') || 'anon';
+  const rlKey = `search:${ip}`;
+  const cfg = RATE_LIMITS.search;
+  const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
+  if (!rl.allowed) return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429);
       const q = (url.searchParams.get('q')||'').trim();
       const rarity = (url.searchParams.get('rarity')||'').trim();
       const setName = (url.searchParams.get('set')||'').trim();
