@@ -10,6 +10,12 @@ export interface Env {
 }
 
 // ---------- CORS helpers ----------
+
+// Utility: ISO date string for N days ago
+function isoDaysAgo(days: number): string {
+  const ms = Date.now() - Math.max(0, days) * 24 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0,10);
+}
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'content-type, x-ingest-token, x-admin-token, x-portfolio-id, x-portfolio-secret',
@@ -198,8 +204,133 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
 
-    // Preflight for CORS
+        // Preflight for CORS
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+
+    // GET /api/card?id=<card_id>&days=120
+    // Returns one card's meta + time series (prices, SVI, signals, components) for the last N days.
+    if (url.pathname === '/api/card' && req.method === 'GET') {
+      const id = (url.searchParams.get('id') || '').trim();
+      let days = parseInt(url.searchParams.get('days') || '120', 10);
+      if (!Number.isFinite(days) || days < 7) days = 120;
+      if (days > 365) days = 365;
+      const since = isoDaysAgo(days);
+
+      if (!id) return json({ error: 'id required' }, 400);
+
+      // Card metadata
+      const metaRs = await env.DB.prepare(`
+        SELECT id, name, set_name, rarity, image_url
+        FROM cards WHERE id=? LIMIT 1
+      `).bind(id).all();
+      const card = metaRs.results?.[0];
+      if (!card) return json({ error: 'unknown card_id' }, 404);
+
+      // Series (ASC by date)
+      const pricesRs = await env.DB.prepare(`
+        SELECT as_of AS d, price_usd AS usd, price_eur AS eur
+        FROM prices_daily
+        WHERE card_id=? AND as_of >= ?
+        ORDER BY as_of ASC
+      `).bind(id, since).all();
+
+      const sviRs = await env.DB.prepare(`
+        SELECT as_of AS d, svi
+        FROM svi_daily
+        WHERE card_id=? AND as_of >= ?
+        ORDER BY as_of ASC
+      `).bind(id, since).all();
+
+      const sigRs = await env.DB.prepare(`
+        SELECT as_of AS d, signal, score, edge_z, exp_ret, exp_sd
+        FROM signals_daily
+        WHERE card_id=? AND as_of >= ?
+        ORDER BY as_of ASC
+      `).bind(id, since).all();
+
+      const compRs = await env.DB.prepare(`
+        SELECT as_of AS d, ts7, ts30, dd, vol, z_svi, regime_break
+        FROM signal_components_daily
+        WHERE card_id=? AND as_of >= ?
+        ORDER BY as_of ASC
+      `).bind(id, since).all();
+
+      return json({
+        ok: true,
+        card,
+        prices: pricesRs.results ?? [],
+        svi: sviRs.results ?? [],
+        signals: sigRs.results ?? [],
+        components: compRs.results ?? []
+      });
+    }
+
+    // GET /research/card-csv?id=<card_id>&days=120
+    // CSV columns: date, price_usd, price_eur, svi, signal, score, edge_z, exp_ret, exp_sd, ts7, ts30, dd, vol, z_svi
+    if (url.pathname === '/research/card-csv' && req.method === 'GET') {
+      const id = (url.searchParams.get('id') || '').trim();
+      let days = parseInt(url.searchParams.get('days') || '120', 10);
+      if (!Number.isFinite(days) || days < 7) days = 120;
+      if (days > 365) days = 365;
+      const since = isoDaysAgo(days);
+      if (!id) return json({ error: 'id required' }, 400);
+
+      // Pull each series
+      const [pRs, sRs, gRs, cRs, mRs] = await Promise.all([
+        env.DB.prepare(`SELECT as_of AS d, price_usd AS usd, price_eur AS eur FROM prices_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
+        env.DB.prepare(`SELECT as_of AS d, svi FROM svi_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
+        env.DB.prepare(`SELECT as_of AS d, signal, score, edge_z, exp_ret, exp_sd FROM signals_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
+        env.DB.prepare(`SELECT as_of AS d, ts7, ts30, dd, vol, z_svi FROM signal_components_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
+        env.DB.prepare(`SELECT name, set_name FROM cards WHERE id=?`).bind(id).all()
+      ]);
+
+      const prices = (pRs.results ?? []) as any[];
+      const svi    = (sRs.results ?? []) as any[];
+      const sig    = (gRs.results ?? []) as any[];
+      const comp   = (cRs.results ?? []) as any[];
+
+      // Index by date
+      const map = new Map<string, any>();
+      for (const r of prices) map.set(r.d, { d: r.d, usd: r.usd ?? '', eur: r.eur ?? '' });
+      for (const r of svi)    (map.get(r.d) || map.set(r.d, { d: r.d }).get(r.d)).svi = r.svi ?? '';
+      for (const r of sig) {
+        const row = (map.get(r.d) || map.set(r.d, { d: r.d }).get(r.d));
+        row.signal = r.signal ?? '';
+        row.score  = r.score ?? '';
+        row.edge_z = r.edge_z ?? '';
+        row.exp_ret= r.exp_ret ?? '';
+        row.exp_sd = r.exp_sd ?? '';
+      }
+      for (const r of comp) {
+        const row = (map.get(r.d) || map.set(r.d, { d: r.d }).get(r.d));
+        row.ts7  = r.ts7 ?? '';
+        row.ts30 = r.ts30 ?? '';
+        row.dd   = r.dd ?? '';
+        row.vol  = r.vol ?? '';
+        row.z_svi= r.z_svi ?? '';
+      }
+
+      const dates = Array.from(map.keys()).sort(); // ASC
+      const header = ['date','price_usd','price_eur','svi','signal','score','edge_z','exp_ret','exp_sd','ts7','ts30','dd','vol','z_svi'];
+      const lines = [header.join(',')];
+      for (const d of dates) {
+        const r = map.get(d);
+        lines.push([
+          d, r.usd ?? '', r.eur ?? '', r.svi ?? '', r.signal ?? '', r.score ?? '',
+          r.edge_z ?? '', r.exp_ret ?? '', r.exp_sd ?? '',
+          r.ts7 ?? '', r.ts30 ?? '', r.dd ?? '', r.vol ?? '', r.z_svi ?? ''
+        ].join(','));
+      }
+
+      const csv = lines.join('\n');
+      return new Response(csv, {
+        headers: {
+          'content-type': 'text/csv; charset=utf-8',
+          'content-disposition': `attachment; filename="${id}_last${days}d.csv"`,
+          ...CORS
+        }
+      });
+    }
 
     // Public: list cards WITH latest signals (may be empty on early days)
     if (url.pathname === '/api/cards' && req.method === 'GET') {

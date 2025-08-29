@@ -192,12 +192,12 @@
       }).join('');
       tbody.innerHTML = html;
 
-      // row click -> copy card id to lotCard
+      // row click -> copy card id to lotCard and open details modal
       tbody.querySelectorAll('tr[data-cardid]').forEach(tr => {
         tr.addEventListener('click', () => {
           const id = tr.getAttribute('data-cardid');
           $('#lotCard').value = id || '';
-          setStatus('Card ID copied below for adding a lot.', 'success');
+          openDetails(id);
         });
       });
     }
@@ -374,6 +374,100 @@
 
     // Boot
     load();
+
+    // ====== UI HELPERS: Sparklines & Details Modal ======
+    function sparklineSVG(values, { width=560, height=70, pad=4 } = {}) {
+      if (!Array.isArray(values) || values.length < 2) {
+        return `<svg width="${width}" height="${height}"></svg>`;
+      }
+      const w = width, h = height, p = pad;
+      const n = values.length;
+      const xs = values.map((_,i) => p + (i*(w-2*p))/(n-1));
+      const min = Math.min(...values.filter(v => Number.isFinite(v)));
+      const max = Math.max(...values.filter(v => Number.isFinite(v)));
+      const rng = (max - min) || 1e-9;
+      const ys = values.map(v => (h-p) - ((v-min)/rng)*(h-2*p));
+      const path = xs.map((x,i) => (i? 'L':'M') + x.toFixed(2) + ',' + ys[i].toFixed(2)).join(' ');
+      const last = values[values.length-1];
+      const stroke = last >= values[0] ? '#065f46' : '#991b1b'; // green-ish if up, red-ish if down
+      return `
+        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+          <polyline fill="none" stroke="${stroke}" stroke-width="2" points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}" />
+        </svg>`;
+    }
+
+    async function openDetails(cardId) {
+      try {
+        const data = await fetchJSON(WORKER_BASE + '/api/card?id=' + encodeURIComponent(cardId));
+        if (!data?.ok) throw new Error('No data');
+
+        // Header info
+        $('#mImage').src = data.card?.image_url || '';
+        $('#mTitle').textContent = `${data.card?.name || cardId}`;
+        $('#mMeta').textContent = `${data.card?.set_name || ''} • ${data.card?.rarity || ''}`;
+
+        // CSV link
+        $('#mCsv').href = WORKER_BASE + '/research/card-csv?id=' + encodeURIComponent(cardId) + '&days=120';
+
+        // Price series (prefer USD, fall back to EUR)
+        const priceValues = (data.prices || []).map(r => (r.usd != null ? Number(r.usd) : (r.eur != null ? Number(r.eur) : NaN))).filter(v => Number.isFinite(v));
+        $('#mPriceSpark').innerHTML = sparklineSVG(priceValues, { width: 600, height: 80, pad: 6 });
+
+        // Score series (0..100), if present
+        const scoreValues = (data.signals || []).map(r => r.score != null ? Number(r.score) : NaN).filter(v => Number.isFinite(v));
+        $('#mScoreSpark').innerHTML = scoreValues.length ? sparklineSVG(scoreValues, { width: 600, height: 80, pad: 6 }) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
+
+        // Show modal
+        const modal = $('#cardModal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      } catch (e) {
+        console.error(e);
+        setStatus('Failed to load details: ' + e.message, 'error');
+      }
+    }
+
+    // Modal close
+    $('#modalClose').addEventListener('click', () => {
+      const modal = $('#cardModal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    });
+
+    // Enhance: clicking outside the dialog closes it
+    $('#cardModal').addEventListener('click', (e) => {
+      if (e.target === $('#cardModal')) $('#modalClose').click();
+    });
+
+    // PATCH: when building the table rows, also open details on click
+    // (replace your existing row-click handler in renderCards)
+    // Example: tbody.querySelectorAll('tr[data-cardid]').forEach(tr => tr.addEventListener('dblclick', () => openDetails(tr.getAttribute('data-cardid'))));
   </script>
+    <!-- Card Details Modal -->
+  <div id="cardModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
+    <div class="bg-white max-w-2xl w-full rounded shadow-lg p-4 relative">
+      <button id="modalClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
+      <div class="flex gap-4">
+        <img id="mImage" src="" alt="" class="w-32 h-auto rounded border">
+        <div>
+          <h3 id="mTitle" class="text-lg font-semibold"></h3>
+          <div id="mMeta" class="text-sm text-gray-600"></div>
+          <div class="mt-2">
+            <a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (last 120d)</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <h4 class="font-semibold mb-1 text-sm">Price (USD if available)</h4>
+        <div id="mPriceSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
+      </div>
+
+      <div class="mt-4">
+        <h4 class="font-semibold mb-1 text-sm">Score</h4>
+        <div id="mScoreSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
