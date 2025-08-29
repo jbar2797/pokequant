@@ -29,14 +29,24 @@
 
     <div id="status" class="hidden mb-3 p-2 border rounded bg-yellow-50 text-yellow-900"></div>
 
-    <!-- Email subscribe -->
-    <section class="mb-6">
-      <h2 class="text-xl font-semibold mb-2">Email Alerts</h2>
-      <form id="sub" class="flex flex-col sm:flex-row gap-2">
-        <input id="email" type="email" placeholder="you@domain.com" class="border p-2 flex-1 rounded" required>
-        <button class="btn bg-black text-white px-4 py-2 rounded">Subscribe</button>
-      </form>
-      <p class="text-sm text-gray-600 mt-1">We’ll email when a tracked card’s Buy/Hold/Sell signal changes.</p>
+    <!-- Email subscribe (signal changes) + Digest subscribe -->
+    <section class="mb-6 grid md:grid-cols-2 gap-4">
+      <div>
+        <h2 class="text-xl font-semibold mb-2">Signal Change Alerts</h2>
+        <form id="sub" class="flex flex-col sm:flex-row gap-2">
+          <input id="email" type="email" placeholder="you@domain.com" class="border p-2 flex-1 rounded" required>
+          <button class="btn bg-black text-white px-4 py-2 rounded">Subscribe</button>
+        </form>
+        <p class="text-sm text-gray-600 mt-1">We’ll email when any tracked card’s Buy/Hold/Sell signal changes.</p>
+      </div>
+      <div>
+        <h2 class="text-xl font-semibold mb-2">Daily Digest (Top Movers)</h2>
+        <form id="subDigest" class="flex flex-col sm:flex-row gap-2">
+          <input id="emailDigest" type="email" placeholder="you@domain.com" class="border p-2 flex-1 rounded" required>
+          <button class="btn border px-4 py-2 rounded">Subscribe</button>
+        </form>
+        <p class="text-sm text-gray-600 mt-1">One email per day with top gainers/losers from the last 24h.</p>
+      </div>
     </section>
 
     <!-- Top Movers -->
@@ -45,9 +55,7 @@
         <h2 class="text-xl font-semibold">Top Movers (24h)</h2>
         <button id="btnRefreshMovers" class="text-sm underline">Refresh</button>
       </div>
-      <div id="movers" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <!-- Filled by JS -->
-      </div>
+      <div id="movers" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
       <p class="text-xs text-gray-500 mt-1" id="moversAsOf"></p>
     </section>
 
@@ -195,30 +203,21 @@
   function fmtEUR(x){ if(x==null||isNaN(Number(x)))return '—'; return '€'+Number(x).toFixed(2);}
   function todayISO(){ return new Date().toISOString().slice(0,10); }
 
-  // Data caches
-  let ALL = [];          // full universe or signals list
-  let FILTERED = [];     // after search/filters
+  let ALL = []; let FILTERED = [];
 
   async function fetchJSON(url, opts={}) { const r = await fetch(url, opts); if(!r.ok) throw new Error(r.status+' '+r.statusText); return r.json(); }
-
   async function loadCards() {
     try { const d = await fetchJSON(WORKER_BASE + '/api/cards'); if (Array.isArray(d) && d.length) return d; } catch(e){}
     const u = await fetchJSON(WORKER_BASE + '/api/universe');
     return (u || []).map(c => ({ ...c, signal: '—', score: '—' }));
   }
-
-  function uniqueSorted(arr) {
-    return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=> (''+a).localeCompare(''+b));
-  }
-
+  function uniqueSorted(arr) { return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=> (''+a).localeCompare(''+b)); }
   function fillFilters(data) {
     const rarities = uniqueSorted(data.map(x => x.rarity));
     const sets = uniqueSorted(data.map(x => x.set_name));
-    const rSel = $('#fRarity'), sSel = $('#fSet');
-    rSel.innerHTML = '<option value="">All rarities</option>' + rarities.map(r => `<option>${r}</option>`).join('');
-    sSel.innerHTML = '<option value="">All sets</option>' + sets.map(s => `<option>${s}</option>`).join('');
+    $('#fRarity').innerHTML = '<option value="">All rarities</option>' + rarities.map(r => `<option>${r}</option>`).join('');
+    $('#fSet').innerHTML = '<option value="">All sets</option>' + sets.map(s => `<option>${s}</option>`).join('');
   }
-
   function applyFilters() {
     const q = $('#q').value.trim().toLowerCase();
     const fr = $('#fRarity').value;
@@ -232,7 +231,6 @@
     renderCards(FILTERED);
     $('#resultInfo').textContent = `${FILTERED.length} shown of ${ALL.length}`;
   }
-
   function renderCards(rows) {
     const tbody = $('#rows');
     if (!Array.isArray(rows) || !rows.length) {
@@ -294,19 +292,16 @@
         </div>
       </div>`;
   }
-
   async function loadMovers() {
     try {
       const j = await fetchJSON(WORKER_BASE + '/api/top-movers?limit=6');
-      const root = $('#movers');
-      root.innerHTML = moversCard('Gainers', j.gainers) + moversCard('Losers', j.losers);
+      $('#movers').innerHTML = moversCard('Gainers', j.gainers) + moversCard('Losers', j.losers);
       $('#moversAsOf').textContent = j.as_of ? `As of ${j.as_of}` : '';
-    } catch (e) {
+    } catch {
       $('#movers').innerHTML = '<div class="text-sm text-gray-500">Top movers unavailable.</div>';
     }
   }
 
-  // Modal helpers (unchanged core)
   function sparklineSVG(values, { width=640, height=88, pad=8 } = {}) {
     if (!Array.isArray(values) || values.length < 2) return `<div class="text-xs text-gray-500 p-2">Not enough data yet.</div>`;
     const w=width,h=height,p=pad,n=values.length;
@@ -327,12 +322,10 @@
   }
 
   let currentCardId = null;
-
   async function openDetails(cardId) {
     try {
       const data = await fetchJSON(WORKER_BASE + '/api/card?id=' + encodeURIComponent(cardId));
       if (!data?.ok) throw new Error('No data');
-
       currentCardId = cardId;
 
       $('#mImage').src = data.card?.image_url || '';
@@ -357,15 +350,12 @@
   }
   function closeModal(){ const m=$('#cardModal'); m.classList.add('hidden'); m.classList.remove('flex'); document.body.classList.remove('modal-open'); currentCardId=null; }
 
-  // Boot & events
   document.addEventListener('DOMContentLoaded', async () => {
     $('#lotDate').value = todayISO();
 
-    // Load movers first (cheap & visually nice)
     loadMovers();
     $('#btnRefreshMovers').addEventListener('click', loadMovers);
 
-    // Load cards (signals or universe), fill filters, render
     setStatus('Loading cards…');
     try {
       ALL = await loadCards();
@@ -380,14 +370,22 @@
     $('#btnClear').addEventListener('click', () => { $('#q').value=''; $('#fRarity').value=''; $('#fSet').value=''; applyFilters(); });
     $('#btnReload').addEventListener('click', async () => { setStatus('Reloading…'); ALL = await loadCards(); fillFilters(ALL); applyFilters(); setStatus('Cards refreshed.','success'); });
 
-    // Subscribe
+    // Subscriptions
     $('#sub').addEventListener('submit', async (e)=>{
       e.preventDefault();
       const email=$('#email').value.trim(); if(!email) return;
       try{
         const r=await fetch(WORKER_BASE+'/api/subscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
-        if(!r.ok) throw new Error('HTTP '+r.status); setStatus('Subscribed!','success'); $('#email').value='';
+        if(!r.ok) throw new Error('HTTP '+r.status); setStatus('Subscribed to signal change alerts!','success'); $('#email').value='';
       }catch(e){ setStatus('Subscription failed: '+e.message,'error'); }
+    });
+    $('#subDigest').addEventListener('submit', async (e)=>{
+      e.preventDefault();
+      const email=$('#emailDigest').value.trim(); if(!email) return;
+      try{
+        const r=await fetch(WORKER_BASE+'/api/subscribe-digest',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email})});
+        if(!r.ok) throw new Error('HTTP '+r.status); setStatus('Subscribed to daily digest!','success'); $('#emailDigest').value='';
+      }catch(e){ setStatus('Digest subscription failed: '+e.message,'error'); }
     });
 
     // Portfolio
@@ -458,7 +456,7 @@
     $('#cardModal').addEventListener('click', e => { if (e.target === $('#cardModal')) closeModal(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-    // Alerts: create
+    // Alerts: create/deactivate
     async function createAlert(kind) {
       const email = $('#alertEmail').value.trim();
       const price = Number($('#alertPrice').value);
@@ -473,7 +471,7 @@
         });
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        // store id/token locally
+        // store id/token locally for convenience
         let store = {}; try { store = JSON.parse(localStorage.getItem('alerts_tokens') || '{}'); } catch {}
         store[j.id] = j.manage_token;
         localStorage.setItem('alerts_tokens', JSON.stringify(store));

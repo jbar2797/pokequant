@@ -153,7 +153,7 @@ async function sendSignalChangeEmails(env: Env) {
   }
 }
 
-// ---------- Watchlist alerts ----------
+// ---------- Alerts engine ----------
 async function runAlerts(env: Env) {
   const alerts = await env.DB.prepare(`
     SELECT a.id, a.email, a.card_id, a.kind, a.threshold_usd, a.last_fired_at,
@@ -183,7 +183,6 @@ async function runAlerts(env: Env) {
       : (pUSD <= a.threshold_usd);
 
     if (should && a.last_fired_at !== lastAsOf) {
-      // fetch manage token for one-click link
       const tokRow = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(a.id).all();
       const manage = tokRow.results?.[0]?.manage_token as string | undefined;
 
@@ -207,6 +206,87 @@ async function runAlerts(env: Env) {
   return { checked: alerts.results.length, fired };
 }
 
+// ---------- Top movers ----------
+async function getTopMovers(env: Env, limit: number) {
+  if (!Number.isFinite(limit) || limit < 1) limit = 6;
+  if (limit > 20) limit = 20;
+
+  const maxRs = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all();
+  const as_of = maxRs.results?.[0]?.d ?? null;
+
+  const gainers = await env.DB.prepare(`
+    WITH r AS (
+      SELECT p.card_id, c.name, c.set_name, c.image_url,
+             COALESCE(p.price_usd, p.price_eur) AS price,
+             p.as_of,
+             ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
+      FROM prices_daily p
+      JOIN cards c ON c.id = p.card_id
+    ),
+    l AS (SELECT * FROM r WHERE rn=1),
+    prev AS (SELECT * FROM r WHERE rn=2)
+    SELECT l.card_id, l.name, l.set_name, l.image_url,
+           l.price AS price_now, prev.price AS price_prev,
+           ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
+    FROM l JOIN prev ON prev.card_id = l.card_id
+    WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
+    ORDER BY pct DESC
+    LIMIT ?
+  `).bind(limit).all();
+
+  const losers = await env.DB.prepare(`
+    WITH r AS (
+      SELECT p.card_id, c.name, c.set_name, c.image_url,
+             COALESCE(p.price_usd, p.price_eur) AS price,
+             p.as_of,
+             ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
+      FROM prices_daily p
+      JOIN cards c ON c.id = p.card_id
+    ),
+    l AS (SELECT * FROM r WHERE rn=1),
+    prev AS (SELECT * FROM r WHERE rn=2)
+    SELECT l.card_id, l.name, l.set_name, l.image_url,
+           l.price AS price_now, prev.price AS price_prev,
+           ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
+    FROM l JOIN prev ON prev.card_id = l.card_id
+    WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
+    ORDER BY pct ASC
+    LIMIT ?
+  `).bind(limit).all();
+
+  return { as_of, gainers: gainers.results ?? [], losers: losers.results ?? [] };
+}
+
+// ---------- Daily digest ----------
+function digestHtml(as_of: string | null, gainers: any[], losers: any[]) {
+  const li = (x:any) => `<li>${x.name} <span style="color:#6b7280;">(${x.set_name||''})</span> — <b>${x.pct>0?'+':''}${x.pct}%</b> (now $${Number(x.price_now).toFixed(2)})</li>`;
+  return `
+  <h2>PokeQuant — Daily Digest</h2>
+  <p style="color:#6b7280;">${as_of ? `As of ${as_of}` : ''}</p>
+  <h3>Top Gainers</h3>
+  <ul>${(gainers||[]).map(li).join('')}</ul>
+  <h3>Top Losers</h3>
+  <ul>${(losers||[]).map(li).join('')}</ul>
+  <p style="margin-top:16px;font-size:12px;color:#6b7280;">
+    You can manage price alerts from any alert email you receive (one‑click deactivate).
+  </p>`;
+}
+async function sendDailyDigest(env: Env) {
+  const subs = await env.DB.prepare(`SELECT target FROM subscriptions WHERE kind='daily_digest'`).all();
+  const list = (subs.results ?? []).map((r:any)=> r.target).filter(Boolean);
+  if (!list.length) return { recipients: 0, sent: 0 };
+
+  const movers = await getTopMovers(env, 5);
+  const html = digestHtml(movers.as_of, movers.gainers, movers.losers);
+
+  let sent = 0;
+  for (const to of list) {
+    const r = await sendEmail(env, to, 'PokeQuant — Daily Digest', html);
+    if (r.ok) sent++;
+  }
+  return { recipients: list.length, sent };
+}
+
 // ---------- One-shot nightly pipeline ----------
 async function pipelineRun(env: Env) {
   const t0 = Date.now();
@@ -226,6 +306,10 @@ async function pipelineRun(env: Env) {
   const alertsOut = await runAlerts(env);
   const t5 = Date.now();
 
+  // send digest after all computations
+  const digestOut = await sendDailyDigest(env);
+  const t6 = Date.now();
+
   const today = new Date().toISOString().slice(0,10);
   const priceRows = await env.DB.prepare(
     `SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?`
@@ -239,9 +323,10 @@ async function pipelineRun(env: Env) {
     pricesForToday: priceRows.results?.[0]?.n ?? 0,
     signalsForToday: signalRows.results?.[0]?.n ?? 0,
     timingsMs: {
-      fetchUpsert: t1-t0, prices: t2-t1, signals: t3-t2, emails: t4-t3, alerts: t5-t4, total: t5-t0
+      fetchUpsert: t1-t0, prices: t2-t1, signals: t3-t2, emails: t4-t3, alerts: t5-t4, digest: t6-t5, total: t6-t0
     },
-    alerts: alertsOut
+    alerts: alertsOut,
+    digest: digestOut
   };
 }
 
@@ -347,7 +432,6 @@ export default {
           r.ts7 ?? '', r.ts30 ?? '', r.dd ?? '', r.vol ?? '', r.z_svi ?? ''
         ].join(','));
       }
-
       const csv = lines.join('\n');
       return new Response(csv, {
         headers: {
@@ -396,64 +480,11 @@ export default {
       return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="signals_${days}d.csv"`, ...CORS }});
     }
 
-    // ----- NEW: Top movers (24h delta using last vs previous day) -----
+    // ----- Top movers (API) -----
     if (url.pathname === '/api/top-movers' && req.method === 'GET') {
-      // how many in each bucket (gainers/losers); default 6
       let limit = parseInt(url.searchParams.get('limit') || '6', 10);
-      if (!Number.isFinite(limit) || limit < 1) limit = 6;
-      if (limit > 20) limit = 20; // simple guard
-
-      // latest date across all prices (for info)
-      const maxRs = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all();
-      const as_of = maxRs.results?.[0]?.d ?? null;
-
-      // We use window functions to get rn=1 (latest) and rn=2 (previous) per card.
-      const gainers = await env.DB.prepare(`
-        WITH r AS (
-          SELECT p.card_id, c.name, c.set_name, c.image_url,
-                 COALESCE(p.price_usd, p.price_eur) AS price,
-                 p.as_of,
-                 ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
-          FROM prices_daily p
-          JOIN cards c ON c.id = p.card_id
-        ),
-        l AS (SELECT * FROM r WHERE rn=1),
-        prev AS (SELECT * FROM r WHERE rn=2)
-        SELECT l.card_id, l.name, l.set_name, l.image_url,
-               l.price AS price_now, prev.price AS price_prev,
-               ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
-        FROM l JOIN prev ON prev.card_id = l.card_id
-        WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
-        ORDER BY pct DESC
-        LIMIT ?
-      `).bind(limit).all();
-
-      const losers = await env.DB.prepare(`
-        WITH r AS (
-          SELECT p.card_id, c.name, c.set_name, c.image_url,
-                 COALESCE(p.price_usd, p.price_eur) AS price,
-                 p.as_of,
-                 ROW_NUMBER() OVER (PARTITION BY p.card_id ORDER BY p.as_of DESC) AS rn
-          FROM prices_daily p
-          JOIN cards c ON c.id = p.card_id
-        ),
-        l AS (SELECT * FROM r WHERE rn=1),
-        prev AS (SELECT * FROM r WHERE rn=2)
-        SELECT l.card_id, l.name, l.set_name, l.image_url,
-               l.price AS price_now, prev.price AS price_prev,
-               ROUND( ( (l.price - prev.price) / prev.price ) * 100.0, 2 ) AS pct
-        FROM l JOIN prev ON prev.card_id = l.card_id
-        WHERE l.price IS NOT NULL AND prev.price IS NOT NULL AND prev.price > 0
-        ORDER BY pct ASC
-        LIMIT ?
-      `).bind(limit).all();
-
-      return json({
-        ok: true,
-        as_of,
-        gainers: gainers.results ?? [],
-        losers: losers.results ?? []
-      });
+      const out = await getTopMovers(env, limit);
+      return json({ ok: true, ...out });
     }
 
     // ----- Public lists -----
@@ -494,6 +525,19 @@ export default {
         INSERT OR REPLACE INTO subscriptions (id,kind,target,created_at)
         VALUES (?,?,?,?)
       `).bind(id, 'email', email, new Date().toISOString()).run();
+      return json({ ok: true });
+    }
+
+    // NEW: digest subscription
+    if (url.pathname === '/api/subscribe-digest' && req.method === 'POST') {
+      const body = await req.json().catch(()=>({}));
+      const email = (body?.email ?? '').toString().trim();
+      if (!email || !isValidEmail(email)) return json({ error: 'valid email required' }, 400);
+      const id = crypto.randomUUID();
+      await env.DB.prepare(`
+        INSERT OR REPLACE INTO subscriptions (id,kind,target,created_at)
+        VALUES (?,?,?,?)
+      `).bind(id, 'daily_digest', email, new Date().toISOString()).run();
       return json({ ok: true });
     }
 
@@ -648,7 +692,7 @@ export default {
       }, rows });
     }
 
-    // ----- Alerts: create/deactivate/admin -----
+    // ----- Alerts: create/deactivate + ADMIN helpers -----
     if (url.pathname === '/alerts/create' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const email = (body?.email ?? '').toString().trim();
@@ -724,13 +768,55 @@ export default {
       return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', ...CORS } });
     }
 
+    // NEW: Admin alert tools
+    if (url.pathname === '/admin/alerts' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
+      const active = url.searchParams.get('active'); // '', '0', '1' or null
+      let where = '';
+      if (active === '0') where = 'WHERE a.active=0';
+      else if (active === '1') where = 'WHERE a.active=1';
+      const rs = await env.DB.prepare(`
+        SELECT a.id, a.email, a.card_id, a.kind, a.threshold_usd, a.active, a.last_fired_at, a.created_at,
+               c.name, c.set_name
+        FROM alerts_watch a
+        JOIN cards c ON c.id = a.card_id
+        ${where}
+        ORDER BY a.created_at DESC
+        LIMIT 500
+      `).all();
+      const count = await env.DB.prepare(`SELECT SUM(active=1) AS active, SUM(active=0) AS inactive, COUNT(*) AS total FROM alerts_watch`).all();
+      return json({ ok: true, counts: count.results?.[0] ?? {}, rows: rs.results ?? [] });
+    }
+
+    if (url.pathname === '/admin/alerts/deactivate' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
+      const body = await req.json().catch(()=>({}));
+      const id = (body?.id || '').toString().trim();
+      if (!id) return json({ error: 'id required' }, 400);
+      await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
+      return json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/alerts/deactivate-all' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
+      const body = await req.json().catch(()=>({}));
+      const email = (body?.email || '').toString().trim();
+      if (!email) return json({ error: 'email required' }, 400);
+      await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE email=? AND active=1`).bind(email).run();
+      return json({ ok: true });
+    }
+
+    // ----- Admin -----
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const out = await runAlerts(env);
       return json({ ok: true, ...out });
     }
-
-    // ----- Admin -----
+    if (url.pathname === '/admin/run-digest' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
+      const out = await sendDailyDigest(env);
+      return json({ ok: true, ...out });
+    }
     if (url.pathname === '/admin/run-now' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const out = await pipelineRun(env);
@@ -754,7 +840,7 @@ export default {
 
   async scheduled(_ev: ScheduledEvent, env: Env) {
     const result = await pipelineRun(env);
-    console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d alerts=%j timings(ms)=%j',
-      result.cardCount, result.pricesForToday, result.signalsForToday, result.alerts, result.timingsMs);
+    console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d alerts=%j digest=%j timings(ms)=%j',
+      result.cardCount, result.pricesForToday, result.signalsForToday, result.alerts, result.digest, result.timingsMs);
   }
 };
