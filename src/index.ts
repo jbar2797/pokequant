@@ -317,6 +317,11 @@ async function pipelineRun(env: Env) {
 export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
+    const t0 = Date.now();
+    function done(resp: Response, tag: string) {
+      try { log('req_timing', { path: url.pathname, tag, ms: Date.now() - t0, status: resp.status }); } catch {}
+      return resp;
+    }
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
     // Health
@@ -361,7 +366,7 @@ export default {
         ORDER BY c.set_name, c.name
         LIMIT 250
       `).all();
-      return json(rs.results ?? []);
+  return done(json(rs.results ?? []), 'cards.list');
     }
     if (url.pathname === '/api/cards' && req.method === 'GET') {
   await incMetric(env, 'cards.list');
@@ -377,7 +382,7 @@ export default {
         ORDER BY s.score DESC
         LIMIT 250
       `).all();
-      return json(rs.results ?? []);
+  return done(json(rs.results ?? []), 'cards.movers');
     }
 
     // Movers (up/down)
@@ -420,7 +425,7 @@ export default {
         env.DB.prepare(`SELECT as_of AS d, svi FROM svi_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
         env.DB.prepare(`SELECT as_of AS d, ts7, ts30, dd, vol, z_svi FROM signal_components_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
       ]);
-      return json({ ok: true, card: meta.results?.[0] ?? null, prices: p.results ?? [], signals: g.results ?? [], svi: v.results ?? [], components: c.results ?? [] });
+  return done(json({ ok: true, card: meta.results?.[0] ?? null, prices: p.results ?? [], signals: g.results ?? [], svi: v.results ?? [], components: c.results ?? [] }), 'card.detail');
     }
 
     // CSV export
@@ -469,7 +474,7 @@ export default {
   await env.DB.prepare(`INSERT OR REPLACE INTO subscriptions (id, kind, target, created_at) VALUES (?, 'email', ?, datetime('now'))`).bind(id, email).run();
   log('subscribe', { email });
   await incMetric(env, 'subscribe');
-  return json({ ok: true });
+  return done(json({ ok: true }), 'subscribe');
     }
 
     // Alerts create/deactivate
@@ -498,19 +503,19 @@ export default {
       const manage_url = `${env.PUBLIC_BASE_URL || ''}/alerts/deactivate?id=${encodeURIComponent(id)}&token=${encodeURIComponent(manage_token)}`;
   log('alert_created', { id, card_id, kind, threshold });
   await incMetric(env, 'alert.created');
-      return json({ ok: true, id, manage_token, manage_url });
+  return done(json({ ok: true, id, manage_token, manage_url }), 'alerts.create');
     }
 
     // --- Search & metadata endpoints (MVP completion) ---
     if (url.pathname === '/api/sets' && req.method === 'GET') {
       await ensureTestSeed(env);
       const rs = await env.DB.prepare(`SELECT set_name AS v, COUNT(*) AS n FROM cards GROUP BY set_name ORDER BY n DESC`).all();
-      return json(rs.results || []);
+  return done(json(rs.results || []), 'sets');
     }
     if (url.pathname === '/api/rarities' && req.method === 'GET') {
       await ensureTestSeed(env);
       const rs = await env.DB.prepare(`SELECT rarity AS v, COUNT(*) AS n FROM cards GROUP BY rarity ORDER BY n DESC`).all();
-      return json(rs.results || []);
+  return done(json(rs.results || []), 'rarities');
     }
     if (url.pathname === '/api/types' && req.method === 'GET') {
       await ensureTestSeed(env);
@@ -520,7 +525,7 @@ export default {
         const parts = String(r.types||'').split('|').filter(Boolean);
         for (const p of parts) out.push({ v: p });
       }
-      return json(out);
+  return done(json(out), 'types');
     }
     if (url.pathname === '/api/search' && req.method === 'GET') {
       await ensureTestSeed(env);
@@ -555,7 +560,7 @@ export default {
       binds.push(limit);
       const rs = await env.DB.prepare(sql).bind(...binds).all();
   await incMetric(env, 'search.query');
-      return json(rs.results || []);
+  return done(json(rs.results || []), 'search');
     }
 
     // --- Portfolio endpoints (capability token model) ---
