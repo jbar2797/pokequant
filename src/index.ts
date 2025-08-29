@@ -90,10 +90,11 @@ async function snapshotPrices(env: Env, cards: any[]) {
   if (batch.length) await env.DB.batch(batch);
 }
 async function computeSignals(env: Env) {
-  const today = new Date().toISOString().slice(0,10);
+  const today = new Date().toISOString().slice(0, 10);
   const cards = await env.DB.prepare(`SELECT id FROM cards`).all();
 
   for (const row of (cards.results ?? []) as any[]) {
+    // Pull full series (ASC) for this card
     const px = await env.DB.prepare(`
       SELECT as_of, COALESCE(price_usd, price_eur) AS p
       FROM prices_daily WHERE card_id=? ORDER BY as_of ASC
@@ -103,10 +104,14 @@ async function computeSignals(env: Env) {
       SELECT as_of, svi FROM svi_daily WHERE card_id=? ORDER BY as_of ASC
     `).bind(row.id).all();
 
-    const prices = (px.results ?? []).map((r:any)=> r.p).filter((x:any)=> typeof x === 'number');
-    const svis   = (svi.results ?? []).map((r:any)=> Number(r.svi) || 0);
+    const prices = (px.results ?? []).map((r: any) => r.p).filter((x: any) => typeof x === 'number');
+    const svis   = (svi.results ?? []).map((r: any) => Number(r.svi) || 0);
 
-    if (prices.length < 7) continue;
+    // NEW: allow SVI-only — let compositeScore decide based on data availability
+    if (prices.length < 1 && svis.length < 14) {
+      // Not enough of either; skip until we have at least SVI history
+      continue;
+    }
 
     const out = compositeScore(prices, svis);
     const { score, signal, reasons, edgeZ, expRet, expSd, components } = out;
@@ -117,6 +122,7 @@ async function computeSignals(env: Env) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(row.id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd).run();
 
+    // Store components for research/export (null-safe binds)
     await env.DB.prepare(`
       INSERT OR REPLACE INTO signal_components_daily
       (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break)
