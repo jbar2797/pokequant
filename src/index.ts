@@ -89,12 +89,13 @@ async function snapshotPrices(env: Env, cards: any[]) {
   }
   if (batch.length) await env.DB.batch(batch);
 }
+
+// ---- Signals (SVI‑fallback enabled) ----
 async function computeSignals(env: Env) {
   const today = new Date().toISOString().slice(0, 10);
   const cards = await env.DB.prepare(`SELECT id FROM cards`).all();
 
   for (const row of (cards.results ?? []) as any[]) {
-    // Pull full series (ASC) for this card
     const px = await env.DB.prepare(`
       SELECT as_of, COALESCE(price_usd, price_eur) AS p
       FROM prices_daily WHERE card_id=? ORDER BY as_of ASC
@@ -107,11 +108,8 @@ async function computeSignals(env: Env) {
     const prices = (px.results ?? []).map((r: any) => r.p).filter((x: any) => typeof x === 'number');
     const svis   = (svi.results ?? []).map((r: any) => Number(r.svi) || 0);
 
-    // NEW: allow SVI-only — let compositeScore decide based on data availability
-    if (prices.length < 1 && svis.length < 14) {
-      // Not enough of either; skip until we have at least SVI history
-      continue;
-    }
+    // If we have neither price nor enough SVI yet, skip this card for now.
+    if (prices.length < 1 && svis.length < 14) continue;
 
     const out = compositeScore(prices, svis);
     const { score, signal, reasons, edgeZ, expRet, expSd, components } = out;
@@ -122,7 +120,6 @@ async function computeSignals(env: Env) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(row.id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd).run();
 
-    // Store components for research/export (null-safe binds)
     await env.DB.prepare(`
       INSERT OR REPLACE INTO signal_components_daily
       (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break)
@@ -134,6 +131,7 @@ async function computeSignals(env: Env) {
     ).run();
   }
 }
+
 async function sendSignalChangeEmails(env: Env) {
   const rows = await env.DB.prepare(`
     WITH sorted AS (
@@ -312,7 +310,6 @@ async function pipelineRun(env: Env) {
   const alertsOut = await runAlerts(env);
   const t5 = Date.now();
 
-  // send digest after all computations
   const digestOut = await sendDailyDigest(env);
   const t6 = Date.now();
 
@@ -351,7 +348,6 @@ async function authPortfolio(req: Request, env: Env) {
 export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
-
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
     // ----- Card details & research -----
@@ -534,7 +530,7 @@ export default {
       return json({ ok: true });
     }
 
-    // NEW: digest subscription
+    // digest subscription
     if (url.pathname === '/api/subscribe-digest' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const email = (body?.email ?? '').toString().trim();
@@ -774,7 +770,28 @@ export default {
       return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', ...CORS } });
     }
 
-    // NEW: Admin alert tools
+    // ----- Admin: diagnostics (NEW) -----
+    if (url.pathname === '/admin/diag' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
+      const rs = await env.DB.prepare(`
+        WITH svi_counts AS (
+          SELECT card_id, COUNT(*) AS n FROM svi_daily GROUP BY card_id
+        ),
+        price_counts AS (
+          SELECT card_id, COUNT(*) AS n FROM prices_daily GROUP BY card_id
+        )
+        SELECT
+          (SELECT COUNT(*) FROM svi_counts WHERE n >= 14) AS cards_with_svi14_plus,
+          (SELECT COUNT(*) FROM price_counts WHERE n >= 1) AS cards_with_price1_plus,
+          (SELECT COUNT(*) FROM signals_daily WHERE as_of=(SELECT MAX(as_of) FROM signals_daily)) AS signals_rows_latest,
+          (SELECT MAX(as_of) FROM prices_daily) AS latest_price_date,
+          (SELECT MAX(as_of) FROM svi_daily) AS latest_svi_date,
+          (SELECT MAX(as_of) FROM signals_daily) AS latest_signal_date
+      `).all();
+      return json({ ok: true, ...rs.results?.[0] });
+    }
+
+    // ----- Admin helpers (hardened with try/catch) -----
     if (url.pathname === '/admin/alerts' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const active = url.searchParams.get('active'); // '', '0', '1' or null
@@ -812,22 +829,37 @@ export default {
       return json({ ok: true });
     }
 
-    // ----- Admin -----
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const out = await runAlerts(env);
-      return json({ ok: true, ...out });
+      try {
+        const out = await runAlerts(env);
+        return json({ ok: true, ...out });
+      } catch (e: any) {
+        return json({ ok: false, error: String(e) }, 500);
+      }
     }
+
     if (url.pathname === '/admin/run-digest' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const out = await sendDailyDigest(env);
-      return json({ ok: true, ...out });
+      try {
+        const out = await sendDailyDigest(env);
+        return json({ ok: true, ...out });
+      } catch (e: any) {
+        return json({ ok: false, error: String(e) }, 500);
+      }
     }
+
     if (url.pathname === '/admin/run-now' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
-      const out = await pipelineRun(env);
-      return json({ ok: true, ...out });
+      try {
+        const out = await pipelineRun(env);
+        return json({ ok: true, ...out });
+      } catch (e: any) {
+        // Always return JSON so jq never fails again.
+        return json({ ok: false, error: String(e) }, 500);
+      }
     }
+
     if (url.pathname === '/admin/test-email' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const body = await req.json().catch(()=>({}));
@@ -845,8 +877,12 @@ export default {
   },
 
   async scheduled(_ev: ScheduledEvent, env: Env) {
-    const result = await pipelineRun(env);
-    console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d alerts=%j digest=%j timings(ms)=%j',
-      result.cardCount, result.pricesForToday, result.signalsForToday, result.alerts, result.digest, result.timingsMs);
+    try {
+      const result = await pipelineRun(env);
+      console.log('[scheduled] cards=%d pricesToday=%d signalsToday=%d alerts=%j digest=%j timings(ms)=%j',
+        result.cardCount, result.pricesForToday, result.signalsForToday, result.alerts, result.digest, result.timingsMs);
+    } catch (e) {
+      console.log('[scheduled] pipeline error', String(e));
+    }
   }
 };
