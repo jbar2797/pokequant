@@ -74,3 +74,35 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 - Header: `x-ingest-token`
 - Body: `{ rows: [{ card_id, as_of(YYYY-MM-DD), svi(int) }, ...] }`
 - 200 JSON: `{ ok: true, rows: <inserted> }`
+
+## Admin Endpoints (require `x-admin-token`)
+
+### `GET /admin/metrics`
+- Returns last 3 days of internal counters: `{ ok:true, rows:[{ d, metric, count }, ...] }`
+
+### `POST /admin/run-alerts`
+- Manually evaluate alert rules without recomputing signals.
+- 200: `{ ok:true, checked:<n>, fired:<m> }`
+
+### `POST /admin/run-fast`
+- Recompute signals only (no upstream card fetch). 200: `{ ok:true, idsProcessed, wroteSignals }`
+
+### `POST /admin/run-now`
+- Full pipeline: fetch universe, snapshot prices, compute signals, run alerts.
+- 200: `{ ok:true, pricesForToday, signalsForToday, bulk:{...}, alerts:{...}, timingsMs:{...} }`
+
+### `GET /admin/diag`
+- Diagnostics summary of coverage (counts of cards with sufficient history).
+
+## Rate Limiting
+Fixed-window counters stored in `rate_limits` D1 table. Defaults:
+- Search: 30 / 5 minutes per IP
+- Subscribe: 5 / day per IP
+- Alert create: 10 / day per IP+email
+
+Override via environment variables (Wrangler vars):
+- `RL_SEARCH_LIMIT`, `RL_SEARCH_WINDOW_SEC`
+- `RL_SUBSCRIBE_LIMIT`, `RL_SUBSCRIBE_WINDOW_SEC`
+- `RL_ALERT_CREATE_LIMIT`, `RL_ALERT_CREATE_WINDOW_SEC`
+
+Exceeded requests return HTTP 429 and body: `{ ok:false, error:'rate_limited', retry_after:<seconds> }`.
