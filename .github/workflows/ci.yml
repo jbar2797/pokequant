@@ -25,6 +25,8 @@ jobs:
         run: npm run lint
       - name: Tests
         run: npm test
+      - name: Contract check
+        run: npm run contract
       - name: Validate OpenAPI file exists
         run: |
           test -f openapi.yaml || (echo 'openapi.yaml missing' && exit 1)
