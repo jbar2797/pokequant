@@ -1,6 +1,11 @@
 // src/signal_math.ts
-// Lightweight, transparent signal blend for MVP
+// Lightweight yet richer signal blend.
 // Inputs: prices[] (USD preferred, falls back to EUR), svis[] (Google Trends)
+// Enhancements:
+//  - Theil–Sen slopes for robustness (ts7, ts30)
+//  - Median Absolute Deviation (MAD) volatility
+//  - Robust SVI z-score using median & MAD
+//  - Drawdown & regime break retained
 // Outputs: 0..100 score, BUY/HOLD/SELL, edgeZ, expected return, sd, components
 
 type Out = {
@@ -21,13 +26,14 @@ type Out = {
 };
 
 function mean(xs: number[]) { return xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : 0; }
-function sd(xs: number[]) {
-  if (xs.length < 2) return 0;
-  const m = mean(xs); const v = xs.reduce((a,b)=>a+(b-m)*(b-m),0)/(xs.length-1); return Math.sqrt(Math.max(0, v));
-}
-function zscore(x: number, arr: number[]) {
-  const s = sd(arr); if (!Number.isFinite(s) || s === 0) return 0;
-  return (x - mean(arr)) / s;
+function median(xs: number[]) { if (!xs.length) return 0; const s=[...xs].sort((a,b)=>a-b); const m=Math.floor(s.length/2); return s.length%2? s[m] : 0.5*(s[m-1]+s[m]); }
+function mad(xs: number[]) { if (!xs.length) return 0; const m=median(xs); const dev=xs.map(x=>Math.abs(x-m)); return median(dev); }
+function sd(xs: number[]) { if (xs.length<2) return 0; const m=mean(xs); const v=xs.reduce((a,b)=>a+(b-m)*(b-m),0)/(xs.length-1); return Math.sqrt(Math.max(0,v)); }
+function robustZ(x: number, arr: number[]) { if (!arr.length) return 0; const m=median(arr); const mAD=mad(arr)||1e-9; return 0.6745*(x - m)/mAD; }
+function classicZ(x: number, arr: number[]) { const s=sd(arr); if (!Number.isFinite(s)||s===0) return 0; return (x - mean(arr))/s; }
+function theilSenSlope(series: number[]): number|null { // simple O(n^2) for small windows
+  const n=series.length; if (n<2) return null; const slopes:number[]=[]; for (let i=0;i<n;i++) for (let j=i+1;j<n;j++) { const dy=series[j]-series[i]; const dx=(j-i)||1; slopes.push(dy/dx); }
+  return median(slopes);
 }
 function last<T>(arr: T[]) { return arr.length ? arr[arr.length-1] : null; }
 function pctChange(a: number, b: number) { return (b - a) / (Math.abs(a) || 1e-9); }
@@ -41,24 +47,29 @@ export function compositeScore(prices: number[], svis: number[]): Out {
   if (prices.length >= 7) {
     const rets: number[] = [];
     for (let i=1;i<prices.length;i++) rets.push(Math.log((prices[i] || 1e-9)/(prices[i-1] || 1e-9)));
-    vol = sd(rets) * Math.sqrt(252); // annualized-ish
-    const m7 = prices.slice(-7);
-    const m30 = prices.slice(-Math.min(30, prices.length));
-    ts7 = pctChange(m7[0], m7[m7.length-1]);
-    ts30 = pctChange(m30[0], m30[m30.length-1]);
+    const annFactor = Math.sqrt(252);
+    // Robust volatility: scale MAD of returns by 1.4826 (normal consistency)
+    const madR = mad(rets);
+    vol = (madR * 1.4826) * annFactor;
+    const w7 = prices.slice(-7);
+    const w30 = prices.slice(-Math.min(30, prices.length));
+    const slope7 = theilSenSlope(w7);
+    const slope30 = theilSenSlope(w30);
+    ts7 = slope7 === null ? 0 : slope7 / (w7[0] || 1e-9); // normalize by first price
+    ts30 = slope30 === null ? 0 : slope30 / (w30[0] || 1e-9);
     // drawdown (simple)
     let peak = -Infinity, maxdd = 0;
     for (const p of prices) { peak = Math.max(peak, p); maxdd = Math.max(maxdd, (peak - p)/(peak || 1e-9)); }
     dd = maxdd;
     components.ts7 = ts7; components.ts30 = ts30; components.vol = vol; components.dd = dd;
-    reasons.push(`px_mom7=${ts7.toFixed(3)}`, `px_mom30=${ts30.toFixed(3)}`);
+    reasons.push(`ts_slope7=${ts7.toFixed(4)}`, `ts_slope30=${ts30.toFixed(4)}`);
   }
 
   // 2) SVI z-score (search interest vs its history)
   if (svis.length >= 7) {
-    const z = zscore(last(svis) as number, svis);
+    const z = robustZ(last(svis) as number, svis);
     components.zSVI = z;
-    reasons.push(`svi_z=${z.toFixed(2)}`);
+    reasons.push(`svi_rz=${z.toFixed(2)}`);
   } else {
     components.zSVI = null;
   }
@@ -67,7 +78,7 @@ export function compositeScore(prices: number[], svis: number[]): Out {
   if (prices.length >= 20) {
     const rets: number[] = [];
     for (let i=1;i<prices.length;i++) rets.push(Math.log((prices[i] || 1e-9)/(prices[i-1] || 1e-9)));
-    const z = zscore(last(rets) as number, rets.slice(0,-1));
+    const z = classicZ(last(rets) as number, rets.slice(0,-1));
     if (Math.abs(z) >= 3) { components.regimeBreak = true; reasons.push('regime_break'); }
   }
 
