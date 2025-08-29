@@ -16,6 +16,13 @@ export interface Env {
   INGEST_TOKEN: string;
   ADMIN_TOKEN: string;
   PUBLIC_BASE_URL: string; // e.g., https://pokequant.pages.dev
+  // Optional rate limit overrides (all integers as strings)
+  RL_SEARCH_LIMIT?: string;      // default 30
+  RL_SEARCH_WINDOW_SEC?: string; // default 300
+  RL_SUBSCRIBE_LIMIT?: string;   // default 5
+  RL_SUBSCRIBE_WINDOW_SEC?: string; // default 86400
+  RL_ALERT_CREATE_LIMIT?: string;   // default 10
+  RL_ALERT_CREATE_WINDOW_SEC?: string; // default 86400
 }
 
 // ---------- utils ----------
@@ -63,11 +70,15 @@ async function rateLimit(env: Env, key: string, limit: number, windowSec: number
     return { allowed: true, remaining: limit, limit, reset: Math.floor(Date.now()/1000)+windowSec };
   }
 }
-const RATE_LIMITS = {
-  search: { limit: 30, window: 300 },          // 30 per 5 min per IP
-  subscribe: { limit: 5, window: 86400 },       // 5 per day per IP
-  alertCreate: { limit: 10, window: 86400 },    // 10 per day per IP+email
-};
+function getRateLimits(env: Env) {
+  // Parse helper
+  const p = (v: string|undefined, d: number) => { const n = parseInt(v||'',10); return Number.isFinite(n) && n>0 ? n : d; };
+  return {
+    search: { limit: p(env.RL_SEARCH_LIMIT, 30), window: p(env.RL_SEARCH_WINDOW_SEC, 300) },
+    subscribe: { limit: p(env.RL_SUBSCRIBE_LIMIT, 5), window: p(env.RL_SUBSCRIBE_WINDOW_SEC, 86400) },
+    alertCreate: { limit: p(env.RL_ALERT_CREATE_LIMIT, 10), window: p(env.RL_ALERT_CREATE_WINDOW_SEC, 86400) }
+  } as const;
+}
 
 // ---------- metrics (simple daily counter in D1) ----------
 async function incMetric(env: Env, metric: string) {
@@ -447,7 +458,7 @@ export default {
     if (url.pathname === '/api/subscribe' && req.method === 'POST') {
   const ip = req.headers.get('cf-connecting-ip') || 'anon';
   const rlKey = `sub:${ip}`;
-  const cfg = RATE_LIMITS.subscribe;
+  const cfg = getRateLimits(env).subscribe;
   const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
   if (!rl.allowed) { await incMetric(env, 'rate_limited.subscribe'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
       const body: any = await req.json().catch(()=>({}));
@@ -473,7 +484,7 @@ export default {
   if (!email || !card_id) return err('email_and_card_id_required');
   if (!Number.isFinite(threshold)) return err('threshold_invalid');
   const rlKey = `alert:${ip}:${email}`;
-  const cfg = RATE_LIMITS.alertCreate;
+  const cfg = getRateLimits(env).alertCreate;
   const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
   if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
       const id = crypto.randomUUID();
@@ -515,7 +526,7 @@ export default {
       await ensureTestSeed(env);
   const ip = req.headers.get('cf-connecting-ip') || 'anon';
   const rlKey = `search:${ip}`;
-  const cfg = RATE_LIMITS.search;
+  const cfg = getRateLimits(env).search;
   const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
   if (!rl.allowed) { await incMetric(env, 'rate_limited.search'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
       const q = (url.searchParams.get('q')||'').trim();

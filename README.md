@@ -20,6 +20,13 @@ make deploy
 
 Environment variables: copy `.env.example` and set via Wrangler or Cloudflare dashboard.
 
+Rate limit overrides (optional):
+- RL_SEARCH_LIMIT / RL_SEARCH_WINDOW_SEC (default 30 per 300s)
+- RL_SUBSCRIBE_LIMIT / RL_SUBSCRIBE_WINDOW_SEC (default 5 per 86400s)
+- RL_ALERT_CREATE_LIMIT / RL_ALERT_CREATE_WINDOW_SEC (default 10 per 86400s)
+
+Provide as Wrangler vars to tune without code changes.
+
 ## API
 See `openapi.yaml` and `docs/API_CONTRACT.md`.
 
