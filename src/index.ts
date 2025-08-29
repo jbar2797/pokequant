@@ -391,6 +391,13 @@ export default {
     // Health
     if (url.pathname === '/health' && req.method === 'GET') {
       try {
+        // Defensive: ensure core tables exist (idempotent) so fresh DB doesn't 500.
+        await env.DB.batch([
+          env.DB.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, name TEXT, set_id TEXT, set_name TEXT, number TEXT, rarity TEXT, image_url TEXT, tcgplayer_url TEXT, cardmarket_url TEXT, types TEXT);`),
+          env.DB.prepare(`CREATE TABLE IF NOT EXISTS prices_daily (card_id TEXT, as_of DATE, price_usd REAL, price_eur REAL, src_updated_at TEXT, PRIMARY KEY(card_id,as_of));`),
+          env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id,as_of));`),
+          env.DB.prepare(`CREATE TABLE IF NOT EXISTS svi_daily (card_id TEXT, as_of DATE, svi INTEGER, PRIMARY KEY(card_id,as_of));`)
+        ]);
         const [cards, prices, signals, svi, lp, ls, lsv] = await Promise.all([
           env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all(),
           env.DB.prepare(`SELECT COUNT(*) AS n FROM prices_daily`).all(),
