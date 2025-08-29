@@ -45,6 +45,29 @@ function isoDaysAgo(days: number) {
   return d.toISOString().slice(0,10);
 }
 
+// ---------- performance indices (lazy, one-time per isolate) ----------
+let INDICES_DONE = false;
+async function ensureIndices(env: Env) {
+  if (INDICES_DONE) return;
+  try {
+    const tablesRes = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all();
+    const names = new Set((tablesRes.results||[]).map((r:any)=> String(r.name)));
+    const stmts: D1PreparedStatement[] = [];
+    if (names.has('prices_daily')) stmts.push(env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_prices_card_asof ON prices_daily(card_id, as_of);`));
+    if (names.has('signals_daily')) {
+      stmts.push(env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_signals_card_asof ON signals_daily(card_id, as_of);`));
+      stmts.push(env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_signals_asof ON signals_daily(as_of);`));
+    }
+    if (names.has('svi_daily')) stmts.push(env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_svi_card_asof ON svi_daily(card_id, as_of);`));
+    if (names.has('signal_components_daily')) stmts.push(env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_components_card_asof ON signal_components_daily(card_id, as_of);`));
+    if (stmts.length) await env.DB.batch(stmts);
+  } catch (e) {
+    log('ensure_indices_error', { error: String(e) });
+  } finally {
+    INDICES_DONE = true; // avoid repeated attempts even if some failed
+  }
+}
+
 // ---------- rate limiting (D1-backed fixed window) ----------
 interface RateLimitResult { allowed: boolean; remaining: number; limit: number; reset: number; }
 async function rateLimit(env: Env, key: string, limit: number, windowSec: number): Promise<RateLimitResult> {
@@ -321,6 +344,17 @@ export default {
     function done(resp: Response, tag: string) {
       try { log('req_timing', { path: url.pathname, tag, ms: Date.now() - t0, status: resp.status }); } catch {}
       return resp;
+    }
+    // Opportunistically ensure indices for first request hitting an isolate.
+    // Fire-and-forget (don't await) except for endpoints known to immediately query large tables.
+    const pathname = url.pathname;
+    const critical = pathname.startsWith('/api/cards') || pathname.startsWith('/api/movers') || pathname.startsWith('/api/search');
+    if (critical) {
+      // slight risk of adding a few ms on first query; acceptable for these endpoints
+      await ensureIndices(env);
+    } else {
+      // async, not awaited
+      ensureIndices(env); // eslint-disable-line @typescript-eslint/no-floating-promises
     }
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 

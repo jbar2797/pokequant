@@ -94,6 +94,13 @@ CREATE TABLE IF NOT EXISTS signal_components_daily (
   PRIMARY KEY (card_id, as_of)
 );
 
+-- Performance indices (applied lazily at runtime):
+-- prices_daily:    idx_prices_card_asof (card_id, as_of)
+-- signals_daily:   idx_signals_card_asof (card_id, as_of)
+-- signals_daily:   idx_signals_asof (as_of)
+-- svi_daily:       idx_svi_card_asof (card_id, as_of)
+-- signal_components_daily: idx_components_card_asof (card_id, as_of)
+
 -- A separate table for price alerts to avoid conflicts with any earlier 'alerts' table.
 CREATE TABLE IF NOT EXISTS alerts_watch (
   id TEXT PRIMARY KEY,
