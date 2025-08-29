@@ -7,17 +7,24 @@
   <!-- Tailwind (CDN, minimal for MVP) -->
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
   <style>
+    :root { --ink:#111827; --muted:#6b7280; --line:#e5e7eb; }
     .hover-row:hover { background: #f9fafb; }
     .badge { border-radius: 0.25rem; padding: 0.15rem 0.4rem; }
     .badge-buy { background: #d1fae5; color: #065f46; }   /* green-50/green-800-ish */
     .badge-hold{ background: #e5e7eb; color: #374151; }   /* gray-200/gray-700 */
     .badge-sell{ background: #fee2e2; color: #991b1b; }   /* red-100/red-800 */
+    .table-sticky thead th { position: sticky; top: 0; background: #f3f4f6; z-index: 1; }
+    .zebra tbody tr:nth-child(odd) { background: #fcfcfd; }
+    .btn { transition: transform .06s ease; }
+    .btn:active { transform: translateY(1px); }
+    /* Modal */
+    .modal-open { overflow: hidden; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div class="max-w-6xl mx-auto p-4">
     <header class="mb-4 flex items-center justify-between">
-      <h1 class="text-2xl font-bold">PokeQuant — Signals & Portfolio</h1>
+      <h1 class="text-2xl font-bold tracking-tight">PokeQuant — Signals & Portfolio</h1>
       <a class="text-sm underline" href="https://pokequant.jonathanbarreneche.workers.dev/health" target="_blank" rel="noreferrer">API Health</a>
     </header>
 
@@ -29,7 +36,7 @@
       <h2 class="text-xl font-semibold mb-2">Email Alerts</h2>
       <form id="sub" class="flex flex-col sm:flex-row gap-2">
         <input id="email" type="email" placeholder="you@domain.com" class="border p-2 flex-1 rounded" required>
-        <button class="bg-black text-white px-4 py-2 rounded">Subscribe</button>
+        <button class="btn bg-black text-white px-4 py-2 rounded">Subscribe</button>
       </form>
       <p class="text-sm text-gray-600 mt-1">We’ll email when a tracked card’s Buy/Hold/Sell signal changes.</p>
     </section>
@@ -41,10 +48,10 @@
         <button id="btnReload" class="text-sm underline">Reload</button>
       </div>
       <p class="text-sm text-gray-600 mb-2">
-        Tip: Click any row to copy its Card ID below (for adding a lot).
+        Tip: Click any row to copy its Card ID below (for adding a lot), or click to open details.
       </p>
       <div class="overflow-auto border rounded bg-white">
-        <table class="min-w-full">
+        <table class="min-w-full table-sticky zebra">
           <thead>
             <tr class="bg-gray-100 text-left text-sm">
               <th class="p-2">Card</th>
@@ -69,10 +76,10 @@
 
       <!-- Credentials -->
       <div class="flex flex-col md:flex-row md:items-center gap-2 mb-3">
-        <button id="btnCreate" class="bg-black text-white px-3 py-2 rounded">Create Portfolio</button>
+        <button id="btnCreate" class="btn bg-black text-white px-3 py-2 rounded">Create Portfolio</button>
         <input id="pid" class="border p-2 flex-1 rounded" placeholder="Portfolio ID"/>
         <input id="pkey" class="border p-2 flex-1 rounded" placeholder="Portfolio Secret"/>
-        <button id="btnSaveCreds" class="border px-3 py-2 rounded">Save to Browser</button>
+        <button id="btnSaveCreds" class="btn border px-3 py-2 rounded">Save to Browser</button>
       </div>
       <p class="text-sm text-gray-600 mb-2">Your browser stores the ID/Secret in <em>localStorage</em>. Anyone with both can access the portfolio—keep them private.</p>
 
@@ -82,8 +89,8 @@
         <input id="lotQty" class="border p-2 w-28 rounded" type="number" min="0" step="1" placeholder="Qty"/>
         <input id="lotCost" class="border p-2 w-40 rounded" type="number" min="0" step="0.01" placeholder="Cost USD"/>
         <input id="lotDate" class="border p-2 w-44 rounded" type="date"/>
-        <button id="btnAddLot" class="bg-black text-white px-3 py-2 rounded">Add Lot</button>
-        <button id="btnLoadPnL" class="border px-3 py-2 rounded">Load P&amp;L</button>
+        <button id="btnAddLot" class="btn bg-black text-white px-3 py-2 rounded">Add Lot</button>
+        <button id="btnLoadPnL" class="btn border px-3 py-2 rounded">Load P&amp;L</button>
       </div>
 
       <!-- P&L -->
@@ -91,138 +98,232 @@
     </section>
   </div>
 
+  <!-- Card Details Modal (kept BEFORE script so listeners can attach) -->
+  <div id="cardModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
+    <div class="bg-white max-w-2xl w-full rounded shadow-lg p-4 relative">
+      <button id="modalClose" class="absolute right-2 top-2 text-gray-500 hover:text-black" aria-label="Close">✕</button>
+      <div class="flex gap-4">
+        <img id="mImage" src="" alt="" class="w-32 h-auto rounded border">
+        <div>
+          <h3 id="mTitle" class="text-lg font-semibold"></h3>
+          <div id="mMeta" class="text-sm text-gray-600"></div>
+          <div class="mt-2">
+            <a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (last 120d)</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4">
+        <div class="flex items-baseline justify-between">
+          <h4 class="font-semibold mb-1 text-sm">Price (USD if available)</h4>
+          <div id="mPriceMeta" class="text-xs text-gray-500"></div>
+        </div>
+        <div id="mPriceSpark" class="w-full h-24 border rounded p-1 bg-gray-50"></div>
+      </div>
+
+      <div class="mt-4">
+        <div class="flex items-baseline justify-between">
+          <h4 class="font-semibold mb-1 text-sm">Score</h4>
+          <div id="mScoreMeta" class="text-xs text-gray-500"></div>
+        </div>
+        <div id="mScoreSpark" class="w-full h-24 border rounded p-1 bg-gray-50"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // ====== CONFIG ======
-    // CHANGE THIS to your real Worker URL (from `wrangler deploy` output)
-    const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
+  // ====== CONFIG ======
+  // CHANGE THIS to your real Worker URL (from `wrangler deploy` output)
+  const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
 
-    // ====== UTILITIES ======
-    const $ = sel => document.querySelector(sel);
-    function setStatus(msg, kind='info') {
-      const el = $('#status');
-      if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
-      el.textContent = msg;
-      el.classList.remove('hidden');
-      el.className = 'mb-3 p-2 border rounded ' + (
-        kind === 'error'
-          ? 'bg-red-50 text-red-900 border-red-200'
-          : kind === 'success'
-            ? 'bg-green-50 text-green-900 border-green-200'
-            : 'bg-yellow-50 text-yellow-900 border-yellow-200'
-      );
-      // Auto-hide after a few seconds
-      setTimeout(()=> setStatus(''), 3500);
-    }
-    function fmtUSD(x) {
-      if (x == null || isNaN(Number(x))) return '—';
-      return '$' + Number(x).toFixed(2);
-    }
-    function fmtEUR(x) {
-      if (x == null || isNaN(Number(x))) return '—';
-      return '€' + Number(x).toFixed(2);
-    }
-    function saveCreds(pid, pkey) {
-      localStorage.setItem('pf_id', pid);
-      localStorage.setItem('pf_key', pkey);
-      $('#pid').value = pid;
-      $('#pkey').value = pkey;
-    }
-    function loadCreds() {
-      const pid = localStorage.getItem('pf_id') || '';
-      const pkey = localStorage.getItem('pf_key') || '';
-      $('#pid').value = pid;
-      $('#pkey').value = pkey;
-      return { pid, pkey };
-    }
-    function todayISO() { return new Date().toISOString().slice(0,10); }
+  // ====== UTILITIES ======
+  const $ = sel => document.querySelector(sel);
+  function setStatus(msg, kind='info') {
+    const el = $('#status');
+    if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.className = 'mb-3 p-2 border rounded ' + (
+      kind === 'error'
+        ? 'bg-red-50 text-red-900 border-red-200'
+        : kind === 'success'
+          ? 'bg-green-50 text-green-900 border-green-200'
+          : 'bg-yellow-50 text-yellow-900 border-yellow-200'
+    );
+    setTimeout(()=> setStatus(''), 3500);
+  }
+  function fmtUSD(x) {
+    if (x == null || isNaN(Number(x))) return '—';
+    return '$' + Number(x).toFixed(2);
+  }
+  function fmtEUR(x) {
+    if (x == null || isNaN(Number(x))) return '—';
+    return '€' + Number(x).toFixed(2);
+  }
+  function saveCreds(pid, pkey) {
+    localStorage.setItem('pf_id', pid);
+    localStorage.setItem('pf_key', pkey);
+    $('#pid').value = pid;
+    $('#pkey').value = pkey;
+  }
+  function loadCreds() {
+    const pid = localStorage.getItem('pf_id') || '';
+    const pkey = localStorage.getItem('pf_key') || '';
+    $('#pid').value = pid;
+    $('#pkey').value = pkey;
+    return { pid, pkey };
+  }
+  function todayISO() { return new Date().toISOString().slice(0,10); }
 
-    // ====== DATA LOADING ======
-    async function fetchJSON(url, opts={}) {
-      const res = await fetch(url, opts);
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      return res.json();
-    }
+  // ====== DATA LOADING ======
+  async function fetchJSON(url, opts={}) {
+    const res = await fetch(url, opts);
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json();
+  }
 
-    async function loadCards() {
-      // Try signals list first (preferred surface)
-      try {
-        const data = await fetchJSON(WORKER_BASE + '/api/cards');
-        if (Array.isArray(data) && data.length) return data;
-      } catch (e) {
-        // ignore; we'll fall back
-      }
-      // Fallback to universe (bootstrap path)
-      const u = await fetchJSON(WORKER_BASE + '/api/universe');
-      // Annotate so UI looks consistent
-      return (u || []).map(c => ({ ...c, signal: '—', score: '—' }));
-    }
+  async function loadCards() {
+    // Try signals list first (preferred surface)
+    try {
+      const data = await fetchJSON(WORKER_BASE + '/api/cards');
+      if (Array.isArray(data) && data.length) return data;
+    } catch (e) {}
+    // Fallback to universe (bootstrap path)
+    const u = await fetchJSON(WORKER_BASE + '/api/universe');
+    // Annotate so UI looks consistent
+    return (u || []).map(c => ({ ...c, signal: '—', score: '—' }));
+  }
 
-    function renderCards(data) {
-      const tbody = $('#rows');
-      if (!Array.isArray(data) || !data.length) {
-        tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="7">No cards yet.</td></tr>';
-        return;
-      }
-      const html = data.map(c => {
-        const signal = (c.signal || '—').toString().toUpperCase();
-        let badgeClass = 'badge-hold';
-        if (signal === 'BUY')  badgeClass = 'badge-buy';
-        if (signal === 'SELL') badgeClass = 'badge-sell';
-        const price = (c.price_usd != null) ? fmtUSD(c.price_usd)
-                    : (c.price_eur != null) ? fmtEUR(c.price_eur) : '—';
-        const score = (c.score == null || c.score === '—') ? '—' : Number(c.score).toFixed(1);
-        return `
-          <tr class="hover-row cursor-pointer" data-cardid="${c.id}">
-            <td class="p-2">
-              <div class="flex gap-2 items-center">
-                <img src="${c.image_url || ''}" alt="" class="w-12 h-auto rounded" />
-                <div>
-                  <div class="font-medium">${c.name}</div>
-                </div>
+  function renderCards(data) {
+    const tbody = $('#rows');
+    if (!Array.isArray(data) || !data.length) {
+      tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="7">No cards yet.</td></tr>';
+      return;
+    }
+    const html = data.map(c => {
+      const signal = (c.signal || '—').toString().toUpperCase();
+      let badgeClass = 'badge-hold';
+      if (signal === 'BUY')  badgeClass = 'badge-buy';
+      if (signal === 'SELL') badgeClass = 'badge-sell';
+      const price = (c.price_usd != null) ? fmtUSD(c.price_usd)
+                  : (c.price_eur != null) ? fmtEUR(c.price_eur) : '—';
+      const score = (c.score == null || c.score === '—') ? '—' : Number(c.score).toFixed(1);
+      return `
+        <tr class="hover-row cursor-pointer" data-cardid="${c.id}">
+          <td class="p-2">
+            <div class="flex gap-2 items-center">
+              <img src="${c.image_url || ''}" alt="" class="w-12 h-auto rounded" />
+              <div>
+                <div class="font-medium">${c.name}</div>
               </div>
-            </td>
-            <td class="p-2">${c.set_name || ''}</td>
-            <td class="p-2">${c.rarity || ''}</td>
-            <td class="p-2">${price}</td>
-            <td class="p-2"><span class="badge ${badgeClass}">${signal}</span></td>
-            <td class="p-2">${score}</td>
-            <td class="p-2 text-xs text-gray-600">${c.id}</td>
-          </tr>
-        `;
-      }).join('');
-      tbody.innerHTML = html;
+            </div>
+          </td>
+          <td class="p-2">${c.set_name || ''}</td>
+          <td class="p-2">${c.rarity || ''}</td>
+          <td class="p-2">${price}</td>
+          <td class="p-2"><span class="badge ${badgeClass}">${signal}</span></td>
+          <td class="p-2">${score}</td>
+          <td class="p-2 text-xs text-gray-600">${c.id}</td>
+        </tr>
+      `;
+    }).join('');
+    tbody.innerHTML = html;
 
-      // row click -> copy card id to lotCard and open details modal
-      tbody.querySelectorAll('tr[data-cardid]').forEach(tr => {
-        tr.addEventListener('click', () => {
-          const id = tr.getAttribute('data-cardid');
-          $('#lotCard').value = id || '';
-          openDetails(id);
-        });
+    // row click -> copy card id to lotCard and open details modal
+    tbody.querySelectorAll('tr[data-cardid]').forEach(tr => {
+      tr.addEventListener('click', () => {
+        const id = tr.getAttribute('data-cardid');
+        $('#lotCard').value = id || '';
+        openDetails(id);
       });
-    }
+    });
+  }
 
-    async function load() {
-      // prepare default date for lot
-      $('#lotDate').value = todayISO();
-      // load creds into inputs
-      loadCreds();
-      // cards
-      setStatus('Loading cards…');
-      try {
-        const data = await loadCards();
-        renderCards(data);
-        setStatus('Cards loaded.', 'success');
-      } catch (e) {
-        console.error(e);
-        setStatus('Failed to load cards: ' + e.message, 'error');
-      }
+  // ====== UI HELPERS: Sparklines & Details Modal ======
+  function sparklineSVG(values, { width=640, height=88, pad=8 } = {}) {
+    if (!Array.isArray(values) || values.length < 2) {
+      return `<div class="text-xs text-gray-500 p-2">Not enough data yet.</div>`;
     }
+    const w = width, h = height, p = pad;
+    const n = values.length;
 
-    // ====== EVENTS ======
+    // Handle min==max by widening range slightly so a flat series still renders midline
+    let min = Math.min(...values.filter(v => Number.isFinite(v)));
+    let max = Math.max(...values.filter(v => Number.isFinite(v)));
+    if (!isFinite(min) || !isFinite(max)) return `<div class="text-xs text-gray-500 p-2">No numeric values.</div>`;
+    if (max === min) { min -= 1; max += 1; }
+    const rng = (max - min);
+
+    const xs = values.map((_,i) => p + (i*(w-2*p))/(n-1));
+    const ys = values.map(v => (h-p) - ((v-min)/rng)*(h-2*p));
+
+    const points = xs.map((x,i)=>`${x.toFixed(2)},${ys[i].toFixed(2)}`).join(' ');
+    const up = values[n-1] >= values[0];
+    const stroke = up ? '#065f46' : '#991b1b';
+
+    return `
+      <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <rect x="0" y="0" width="${w}" height="${h}" fill="white" />
+        <polyline fill="none" stroke="${stroke}" stroke-width="2" points="${points}" />
+        <circle cx="${xs[n-1].toFixed(2)}" cy="${ys[n-1].toFixed(2)}" r="2.5" fill="${stroke}" />
+      </svg>
+    `;
+  }
+
+  async function openDetails(cardId) {
+    try {
+      const data = await fetchJSON(WORKER_BASE + '/api/card?id=' + encodeURIComponent(cardId));
+      if (!data?.ok) throw new Error('No data');
+
+      // Header info
+      $('#mImage').src = data.card?.image_url || '';
+      $('#mTitle').textContent = `${data.card?.name || cardId}`;
+      $('#mMeta').textContent = `${data.card?.set_name || ''} • ${data.card?.rarity || ''}`;
+
+      // CSV link
+      $('#mCsv').href = WORKER_BASE + '/research/card-csv?id=' + encodeURIComponent(cardId) + '&days=120';
+
+      // Price series (prefer USD, fall back to EUR)
+      const priceSeries = (data.prices || []).map(r => (r.usd != null ? Number(r.usd) : (r.eur != null ? Number(r.eur) : NaN))).filter(v => Number.isFinite(v));
+      $('#mPriceSpark').innerHTML = sparklineSVG(priceSeries, { width: 640, height: 96, pad: 8 });
+
+      const lastP = (data.prices || []).slice(-1)[0];
+      const lastNum = lastP ? (lastP.usd != null ? Number(lastP.usd) : (lastP.eur != null ? Number(lastP.eur) : null)) : null;
+      const lastLbl = lastP ? (lastP.usd != null ? fmtUSD(lastNum) : (lastNum!=null ? fmtEUR(lastNum) : '—')) : '—';
+      $('#mPriceMeta').textContent = `${lastLbl} • ${priceSeries.length} pts`;
+
+      // Score series (0..100), if present
+      const scores = (data.signals || []).map(r => r.score != null ? Number(r.score) : NaN).filter(v => Number.isFinite(v));
+      $('#mScoreSpark').innerHTML = scores.length ? sparklineSVG(scores, { width: 640, height: 96, pad: 8 }) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
+      $('#mScoreMeta').textContent = scores.length ? `${scores[scores.length-1].toFixed(1)} • ${scores.length} pts` : '';
+
+      // Show modal
+      const modal = $('#cardModal');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.body.classList.add('modal-open');
+    } catch (e) {
+      console.error(e);
+      setStatus('Failed to load details: ' + e.message, 'error');
+    }
+  }
+
+  function closeModal() {
+    const modal = $('#cardModal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.classList.remove('modal-open');
+  }
+
+  // ====== EVENTS ======
+  document.addEventListener('DOMContentLoaded', () => {
+    // Load creds & set default date
+    $('#lotDate').value = todayISO();
+    loadCreds();
+
+    // Attach listeners that require DOM elements to exist
     $('#btnReload').addEventListener('click', load);
 
-    // Email subscribe
     $('#sub').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = $('#email').value.trim();
@@ -241,7 +342,6 @@
       }
     });
 
-    // Portfolio: Create
     $('#btnCreate').addEventListener('click', async () => {
       try {
         const r = await fetch(WORKER_BASE + '/portfolio/create', { method: 'POST' });
@@ -258,7 +358,6 @@
       }
     });
 
-    // Portfolio: Save creds
     $('#btnSaveCreds').addEventListener('click', () => {
       const pid = $('#pid').value.trim();
       const pkey = $('#pkey').value.trim();
@@ -267,7 +366,6 @@
       setStatus('Credentials saved to this browser.', 'success');
     });
 
-    // Portfolio: Add lot
     $('#btnAddLot').addEventListener('click', async () => {
       const pid = $('#pid').value.trim();
       const pkey = $('#pkey').value.trim();
@@ -292,14 +390,12 @@
         const j = await r.json();
         if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
         setStatus('Lot added.', 'success');
-        // Optional: refresh P&L
         $('#btnLoadPnL').click();
       } catch (e) {
         setStatus('Add lot failed: ' + e.message, 'error');
       }
     });
 
-    // Portfolio: Load P&L
     $('#btnLoadPnL').addEventListener('click', async () => {
       const pid = $('#pid').value.trim();
       const pkey = $('#pkey').value.trim();
@@ -372,102 +468,22 @@
       }
     });
 
-    // Boot
-    load();
-
-    // ====== UI HELPERS: Sparklines & Details Modal ======
-    function sparklineSVG(values, { width=560, height=70, pad=4 } = {}) {
-      if (!Array.isArray(values) || values.length < 2) {
-        return `<svg width="${width}" height="${height}"></svg>`;
-      }
-      const w = width, h = height, p = pad;
-      const n = values.length;
-      const xs = values.map((_,i) => p + (i*(w-2*p))/(n-1));
-      const min = Math.min(...values.filter(v => Number.isFinite(v)));
-      const max = Math.max(...values.filter(v => Number.isFinite(v)));
-      const rng = (max - min) || 1e-9;
-      const ys = values.map(v => (h-p) - ((v-min)/rng)*(h-2*p));
-      const path = xs.map((x,i) => (i? 'L':'M') + x.toFixed(2) + ',' + ys[i].toFixed(2)).join(' ');
-      const last = values[values.length-1];
-      const stroke = last >= values[0] ? '#065f46' : '#991b1b'; // green-ish if up, red-ish if down
-      return `
-        <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-          <polyline fill="none" stroke="${stroke}" stroke-width="2" points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}" />
-        </svg>`;
-    }
-
-    async function openDetails(cardId) {
-      try {
-        const data = await fetchJSON(WORKER_BASE + '/api/card?id=' + encodeURIComponent(cardId));
-        if (!data?.ok) throw new Error('No data');
-
-        // Header info
-        $('#mImage').src = data.card?.image_url || '';
-        $('#mTitle').textContent = `${data.card?.name || cardId}`;
-        $('#mMeta').textContent = `${data.card?.set_name || ''} • ${data.card?.rarity || ''}`;
-
-        // CSV link
-        $('#mCsv').href = WORKER_BASE + '/research/card-csv?id=' + encodeURIComponent(cardId) + '&days=120';
-
-        // Price series (prefer USD, fall back to EUR)
-        const priceValues = (data.prices || []).map(r => (r.usd != null ? Number(r.usd) : (r.eur != null ? Number(r.eur) : NaN))).filter(v => Number.isFinite(v));
-        $('#mPriceSpark').innerHTML = sparklineSVG(priceValues, { width: 600, height: 80, pad: 6 });
-
-        // Score series (0..100), if present
-        const scoreValues = (data.signals || []).map(r => r.score != null ? Number(r.score) : NaN).filter(v => Number.isFinite(v));
-        $('#mScoreSpark').innerHTML = scoreValues.length ? sparklineSVG(scoreValues, { width: 600, height: 80, pad: 6 }) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
-
-        // Show modal
-        const modal = $('#cardModal');
-        modal.classList.remove('hidden');
-        modal.classList.add('flex');
-      } catch (e) {
-        console.error(e);
-        setStatus('Failed to load details: ' + e.message, 'error');
-      }
-    }
-
-    // Modal close
-    $('#modalClose').addEventListener('click', () => {
-      const modal = $('#cardModal');
-      modal.classList.add('hidden');
-      modal.classList.remove('flex');
-    });
-
-    // Enhance: clicking outside the dialog closes it
+    // Modal/overlay listeners
+    $('#modalClose').addEventListener('click', closeModal);
     $('#cardModal').addEventListener('click', (e) => {
-      if (e.target === $('#cardModal')) $('#modalClose').click();
+      if (e.target === $('#cardModal')) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
     });
 
-    // PATCH: when building the table rows, also open details on click
-    // (replace your existing row-click handler in renderCards)
-    // Example: tbody.querySelectorAll('tr[data-cardid]').forEach(tr => tr.addEventListener('dblclick', () => openDetails(tr.getAttribute('data-cardid'))));
+    // Initial load
+    setStatus('Loading cards…');
+    loadCards()
+      .then(renderCards)
+      .then(()=> setStatus('Cards loaded.', 'success'))
+      .catch(e => { console.error(e); setStatus('Failed to load cards: ' + e.message, 'error'); });
+  });
   </script>
-    <!-- Card Details Modal -->
-  <div id="cardModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
-    <div class="bg-white max-w-2xl w-full rounded shadow-lg p-4 relative">
-      <button id="modalClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
-      <div class="flex gap-4">
-        <img id="mImage" src="" alt="" class="w-32 h-auto rounded border">
-        <div>
-          <h3 id="mTitle" class="text-lg font-semibold"></h3>
-          <div id="mMeta" class="text-sm text-gray-600"></div>
-          <div class="mt-2">
-            <a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (last 120d)</a>
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-4">
-        <h4 class="font-semibold mb-1 text-sm">Price (USD if available)</h4>
-        <div id="mPriceSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
-      </div>
-
-      <div class="mt-4">
-        <h4 class="font-semibold mb-1 text-sm">Score</h4>
-        <div id="mScoreSpark" class="w-full h-20 border rounded p-1 bg-gray-50"></div>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
