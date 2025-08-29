@@ -649,6 +649,17 @@ export default {
       });
     }
 
+    // Metrics (recent 3 days)
+    if (url.pathname === '/admin/metrics' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      try {
+        const rs = await env.DB.prepare(`SELECT d, metric, count FROM metrics_daily WHERE d >= date('now','-3 day') ORDER BY d DESC, metric ASC`).all();
+        return json({ ok:true, rows: rs.results || [] });
+      } catch {
+        return json({ ok:true, rows: [] });
+      }
+    }
+
     // NEW: fast, bulk compute only (safe warm)
     if (url.pathname === '/admin/run-fast' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);

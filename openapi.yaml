@@ -128,6 +128,8 @@ paths:
     post: { summary: Compute signals only, responses: { '200': { description: OK } } }
   /admin/run-now:
     post: { summary: Full pipeline run, responses: { '200': { description: OK } } }
+  /admin/metrics:
+    get: { summary: Recent metrics (admin), responses: { '200': { description: OK } } }
 components:
   schemas:
     Error:

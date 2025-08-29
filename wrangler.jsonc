@@ -6,7 +6,9 @@
 
   // Vars: environment variables available in your Worker
   "vars": {
-    "PUBLIC_BASE_URL": "https://pokequant.jonathanbarreneche.workers.dev"
+  "PUBLIC_BASE_URL": "https://pokequant.jonathanbarreneche.workers.dev",
+  "ADMIN_TOKEN": "test-admin",
+  "INGEST_TOKEN": "test-ingest"
   },
 
   // Bind D1 database
