@@ -1,0 +1,25 @@
+name: Smoke (prod API)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      BASE: ${{ vars.PUBLIC_BASE_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install jq & curl (already present, but ensure versions)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+      - name: Run smoke tests
+        run: |
+          chmod +x scripts/smoke.sh
+          ./scripts/smoke.sh
