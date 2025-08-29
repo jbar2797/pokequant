@@ -4,10 +4,12 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-08-28",
 
+  // Vars: environment variables available in your Worker
   "vars": {
-    "PUBLIC_BASE_URL": "https://pokequant.pages.dev"
+    "PUBLIC_BASE_URL": "https://pokequant.jonathanbarreneche.workers.dev"
   },
 
+  // Bind D1 database
   "d1_databases": [
     {
       "binding": "DB",
@@ -16,7 +18,10 @@
     }
   ],
 
+  // Cron triggers
   "triggers": {
-    "crons": ["0 10 * * *"]
+    "crons": [
+      "0 10 * * *"
+    ]
   }
 }

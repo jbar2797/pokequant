@@ -20,5 +20,10 @@ echo "✔ /api/movers"; curl -s "$BASE/api/movers?n=8" | jq 'length' >/dev/null
 echo "✔ /api/movers?dir=down"; curl -s "$BASE/api/movers?dir=down&n=8" | jq 'length' >/dev/null
 echo "✔ /api/subscribe"; curl -s -X POST "$BASE/api/subscribe" -H 'content-type: application/json' -d '{"email":"test@example.com"}' | jq '.ok' >/dev/null
 
+echo "✔ /api/sets"; curl -s "$BASE/api/sets" | jq 'length' >/dev/null
+echo "✔ /api/rarities"; curl -s "$BASE/api/rarities" | jq 'length' >/dev/null
+echo "✔ /api/types"; curl -s "$BASE/api/types" | jq 'length' >/dev/null
+echo "✔ /api/search?q=a"; curl -s "$BASE/api/search?q=a&limit=5" | jq 'length' >/dev/null
+
 echo
 echo "✔ SMOKE PASSED against ${BASE}"

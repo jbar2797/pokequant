@@ -58,12 +58,18 @@ This is the **minimal shape** clients can rely on. Adding fields is OK; removing
 
 ## `POST /alerts/create`
 - Body: `{ email, card_id, kind: 'price_below'|'price_above', threshold: number }`
-- 200: `{ ok: true, id, manage_token }`
+- Internal storage column: `threshold_usd` (older deployments may have legacy `threshold`; runtime auto-detects)
+- 200: `{ ok: true, id, manage_token, manage_url }`
+- Error examples: `{ ok:false, error:'email_and_card_id_required' }`, `{ ok:false, error:'threshold_invalid' }`
 
 ## `GET|POST /alerts/deactivate`
 - 200: `{ ok: true }` (POST) or small HTML confirmation (GET)
+- Error examples: `{ ok:false, error:'id_and_token_required' }`, `{ ok:false, error:'invalid_token' }`
 
 ## Ingest — GitHub Action only
+## Specification
+An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root. Clients should prefer that for generation; this markdown is a human summary.
+
 ### `POST /ingest/trends`
 - Header: `x-ingest-token`
 - Body: `{ rows: [{ card_id, as_of(YYYY-MM-DD), svi(int) }, ...] }`

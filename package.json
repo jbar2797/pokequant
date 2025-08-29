@@ -6,13 +6,24 @@
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
-		"test": "vitest",
+		"test": "vitest --run",
+		"typecheck": "tsc --noEmit",
+		"lint": "eslint 'src/**/*.ts'",
+		"format": "prettier -w .",
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",
 		"typescript": "^5.5.2",
 		"vitest": "~3.2.0",
-		"wrangler": "^4.33.0"
+		"wrangler": "^4.33.0",
+		"eslint": "^8.57.0",
+		"@typescript-eslint/parser": "^7.8.0",
+		"@typescript-eslint/eslint-plugin": "^7.8.0",
+		"prettier": "^3.2.0"
+	},
+	"dependencies": {
+		"zod": "^3.23.0",
+		"uuid": "^9.0.1"
 	}
 }

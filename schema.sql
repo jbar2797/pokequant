@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS cards (
   rarity TEXT,
   image_url TEXT,
   tcgplayer_url TEXT,
-  cardmarket_url TEXT
+  cardmarket_url TEXT,
+  types TEXT                -- pipe-delimited types tokens
 );
 
 -- Our canonical daily price history (we snapshot this ourselves)
@@ -119,7 +120,7 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   email TEXT NOT NULL,
   card_id TEXT NOT NULL,
   kind TEXT NOT NULL,              -- 'price_above' | 'price_below'
-  threshold_usd REAL NOT NULL,
+  threshold_usd REAL NOT NULL,     -- stored in USD; request body uses 'threshold'
   created_at TEXT,
   last_fired_at TEXT,
   active INTEGER DEFAULT 1,

@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: PokeQuant API
+  version: 0.1.0
+  description: Generated minimal spec for current MVP endpoints.
+servers:
+  - url: https://pokequant.jonathanbarreneche.workers.dev
+paths:
+  /health:
+    get:
+      summary: Health and latest dates
+      responses:
+        '200': { description: OK }
+  /api/universe:
+    get:
+      summary: Universe listing
+      responses: { '200': { description: OK } }
+  /api/cards:
+    get:
+      summary: Cards with latest signals
+      responses: { '200': { description: OK } }
+  /api/movers:
+    get:
+      summary: Top movers
+      parameters:
+        - in: query
+          name: dir
+          schema: { type: string, enum: [up, down] }
+        - in: query
+          name: n
+          schema: { type: integer, minimum: 1, maximum: 50 }
+      responses: { '200': { description: OK } }
+  /api/card:
+    get:
+      summary: Single card timeseries
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: days
+          schema: { type: integer }
+      responses: { '200': { description: OK } }
+  /research/card-csv:
+    get:
+      summary: Card CSV export
+      responses: { '200': { description: CSV } }
+  /api/subscribe:
+    post:
+      summary: Subscribe email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+              required: [email]
+      responses: { '200': { description: OK } }
+  /api/sets:
+    get: { summary: List sets, responses: { '200': { description: OK } } }
+  /api/rarities:
+    get: { summary: List rarities, responses: { '200': { description: OK } } }
+  /api/types:
+    get: { summary: List types, responses: { '200': { description: OK } } }
+  /api/search:
+    get:
+      summary: Search cards
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+      responses: { '200': { description: OK } }
+  /portfolio/create:
+    post:
+      summary: Create portfolio
+      responses: { '200': { description: OK } }
+  /portfolio/add-lot:
+    post:
+      summary: Add portfolio lot
+      responses: { '200': { description: OK } }
+  /portfolio:
+    get:
+      summary: Get portfolio
+      responses: { '200': { description: OK } }
+  /portfolio/export:
+    get:
+      summary: Export portfolio
+      responses: { '200': { description: OK } }
+  /alerts/create:
+    post:
+      summary: Create price alert
+      responses: { '200': { description: OK } }
+  /alerts/deactivate:
+    get: { summary: Deactivate alert, responses: { '200': { description: OK } } }
+    post: { summary: Deactivate alert (POST), responses: { '200': { description: OK } } }
+  /ingest/trends:
+    post:
+      summary: Ingest SVI trends (secure)
+      responses: { '200': { description: OK } }
+  /admin/run-fast:
+    post: { summary: Compute signals only, responses: { '200': { description: OK } } }
+  /admin/run-now:
+    post: { summary: Full pipeline run, responses: { '200': { description: OK } } }
+components: {}

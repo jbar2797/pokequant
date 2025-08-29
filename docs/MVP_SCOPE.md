@@ -32,6 +32,8 @@ This file is the **source of truth** for our MVP. Anything marked ✅ must exist
   - `GET  /portfolio` (same headers)
   - `GET  /portfolio/export` (same headers)
 - ✅ Ingest (from GH Actions): `POST /ingest/trends` (header: `x-ingest-token`)
+- ✅ Search endpoints: `/api/search`, `/api/sets`, `/api/rarities`, `/api/types`
+- ✅ OpenAPI spec (`openapi.yaml`) kept in sync
 
 > **Note:** Price alerts endpoints were prototyped earlier; we’ll formalize them after MVP core is locked.
 
