@@ -28,4 +28,21 @@ describe('Alerts', () => {
     const second = await secondRun.json() as any;
     expect(second.fired).toBe(1);
   });
+
+  it('can deactivate an alert via GET link', async () => {
+    // Seed card and price
+    const adminHeaders = { 'x-admin-token': 'test-admin' };
+    await SELF.fetch('https://example.com/admin/test-seed', { method:'POST', headers: adminHeaders, body: JSON.stringify({ cards:[{ id:'cardB', price_usd: 50 }] }) });
+    // Create alert
+    const create = await SELF.fetch('https://example.com/alerts/create', { method:'POST', body: JSON.stringify({ email:'b@test', card_id:'cardB', threshold: 40 }) });
+    const cj:any = await create.json();
+    expect(cj.ok).toBe(true);
+    const deactivateUrl = cj.manage_url;
+    expect(deactivateUrl).toContain('/alerts/deactivate');
+    // Call GET deactivate
+    const deact = await SELF.fetch(deactivateUrl, { method:'GET' });
+    expect(deact.status).toBe(200);
+    const html = await deact.text();
+    expect(html.toLowerCase()).toContain('alert deactivated');
+  });
 });

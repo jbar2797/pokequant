@@ -116,6 +116,31 @@ async function incMetric(env: Env, metric: string) {
     log('metric_error', { metric, error: String(e) });
   }
 }
+// Record latency using exponential smoothing for approximate p50/p95 stored as separate metrics.
+async function recordLatency(env: Env, tag: string, ms: number) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
+    const today = new Date().toISOString().slice(0,10);
+    const p50Key = `${tag}.p50`; // reuse count column to store value * 1000 (int)
+    const p95Key = `${tag}.p95`;
+    const alpha50 = 0.2, alpha95 = 0.1;
+    const fetchVal = async (k:string) => {
+      const r = await env.DB.prepare(`SELECT count FROM metrics_daily WHERE d=? AND metric=?`).bind(today, k).all();
+      return Number(r.results?.[0]?.count) || 0;
+    };
+    const cur50 = await fetchVal(p50Key);
+    const cur95 = await fetchVal(p95Key);
+    const new50 = cur50 === 0 ? ms*1000 : Math.round((1-alpha50)*cur50 + alpha50*ms*1000);
+    const estP95 = Math.max(ms*1000, cur95 === 0 ? ms*1000 : Math.round((1-alpha95)*cur95 + alpha95*ms*1000* (ms*1000>cur95?1:0.5)));
+    const upsert = async (k:string, v:number) => {
+      await env.DB.prepare(`INSERT INTO metrics_daily (d,metric,count) VALUES (?,?,?) ON CONFLICT(d,metric) DO UPDATE SET count=?`).bind(today,k,v,v).run();
+    };
+    await upsert(p50Key, new50);
+    await upsert(p95Key, estP95);
+  } catch (e) {
+    log('metric_latency_error', { tag, error: String(e) });
+  }
+}
 
 // Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
 async function ensureTestSeed(env: Env) {
@@ -343,6 +368,7 @@ export default {
     const t0 = Date.now();
     function done(resp: Response, tag: string) {
       try { log('req_timing', { path: url.pathname, tag, ms: Date.now() - t0, status: resp.status }); } catch {}
+  recordLatency(env, `lat.${tag}`, Date.now() - t0); // fire & forget
       return resp;
     }
     // Opportunistically ensure indices for first request hitting an isolate.
