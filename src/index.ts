@@ -99,7 +99,7 @@ async function computeSignals(env: Env) {
     const prices = (px.results ?? []).map((r:any)=> Number(r.p)).filter(Number.isFinite);
     const svis   = (svi.results ?? []).map((r:any)=> Number(r.svi)).filter((x:number)=> Number.isFinite(x));
 
-    // NEW: allow SVI-only signals (>=14 SVI points) even if <7 prices
+    // Allow SVI-only signals if SVI >= 14, even if prices < 7
     if (prices.length < 7 && svis.length < 14) {
       continue;
     }
@@ -214,9 +214,6 @@ async function pipelineRun(env: Env) {
   await sendSignalChangeEmails(env);
   const t4 = Date.now();
 
-  // alerts runner + digest (no-op if not configured)
-  // (kept minimal for MVP — not shown to save space)
-
   const today = new Date().toISOString().slice(0,10);
   const [priceRows, signalRows] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?`).bind(today).all(),
@@ -267,6 +264,31 @@ export default {
         ORDER BY s.score DESC
         LIMIT 200
       `).all();
+      return json(rs.results ?? []);
+    }
+
+    // NEW: Public — top movers by 7d price momentum (fallback to score)
+    // GET /api/movers?n=24
+    if (url.pathname === '/api/movers' && req.method === 'GET') {
+      let n = parseInt(url.searchParams.get('n') || '24', 10);
+      if (!Number.isFinite(n) || n < 4) n = 24;
+      if (n > 60) n = 60;
+
+      const rs = await env.DB.prepare(`
+        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
+               s.signal, ROUND(s.score,1) AS score,
+               sc.ts7, sc.z_svi,
+               (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
+               (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_eur
+        FROM signals_daily s
+        JOIN cards c ON c.id = s.card_id
+        LEFT JOIN signal_components_daily sc
+               ON sc.card_id = s.card_id AND sc.as_of = s.as_of
+        WHERE s.as_of = (SELECT MAX(as_of) FROM signals_daily)
+        ORDER BY COALESCE(sc.ts7, 0) DESC, s.score DESC
+        LIMIT ?
+      `).bind(n).all();
+
       return json(rs.results ?? []);
     }
 
