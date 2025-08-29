@@ -41,6 +41,11 @@ async function sendEmail(env: Env, to: string | string[], subject: string, html:
     body: JSON.stringify({ from: 'PokeQuant <onboarding@resend.dev>', to: list, subject, html })
   });
 }
+function chunk<T>(arr: T[], size: number) {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 // ---------- Core pipeline ----------
 async function fetchUniverse(env: Env) {
@@ -81,7 +86,6 @@ async function snapshotPrices(env: Env, cards: any[]) {
       return (any?.market ?? any?.mid ?? null);
     })() : null;
     const eur = cm?.prices?.trendPrice ?? cm?.prices?.avg7 ?? cm?.prices?.avg30 ?? null;
-
     batch.push(env.DB.prepare(`
       INSERT OR REPLACE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at)
       VALUES (?, ?, ?, ?, ?)
@@ -90,45 +94,86 @@ async function snapshotPrices(env: Env, cards: any[]) {
   if (batch.length) await env.DB.batch(batch);
 }
 
-// ---- Signals (SVI‑fallback enabled) ----
+// ---------- Signals (BULK, subrequest‑friendly) ----------
 async function computeSignals(env: Env) {
   const today = new Date().toISOString().slice(0, 10);
-  const cards = await env.DB.prepare(`SELECT id FROM cards`).all();
 
-  for (const row of (cards.results ?? []) as any[]) {
-    const px = await env.DB.prepare(`
-      SELECT as_of, COALESCE(price_usd, price_eur) AS p
-      FROM prices_daily WHERE card_id=? ORDER BY as_of ASC
-    `).bind(row.id).all();
+  // 1) One query: get all card ids
+  const cardsRes = await env.DB.prepare(`SELECT id FROM cards`).all();
+  const cardIds: string[] = (cardsRes.results ?? []).map((r: any) => r.id);
 
-    const svi = await env.DB.prepare(`
-      SELECT as_of, svi FROM svi_daily WHERE card_id=? ORDER BY as_of ASC
-    `).bind(row.id).all();
+  // 2) Two queries: pull last 180 days of prices & SVI in bulk
+  const since = isoDaysAgo(180);
+  const [pricesRes, sviRes] = await Promise.all([
+    env.DB.prepare(`
+      SELECT card_id, as_of, COALESCE(price_usd, price_eur) AS p
+      FROM prices_daily
+      WHERE as_of >= ?
+      ORDER BY card_id ASC, as_of ASC
+    `).bind(since).all(),
+    env.DB.prepare(`
+      SELECT card_id, as_of, svi
+      FROM svi_daily
+      WHERE as_of >= ?
+      ORDER BY card_id ASC, as_of ASC
+    `).bind(since).all()
+  ]);
 
-    const prices = (px.results ?? []).map((r: any) => r.p).filter((x: any) => typeof x === 'number');
-    const svis   = (svi.results ?? []).map((r: any) => Number(r.svi) || 0);
+  // 3) Build in‑memory series maps (ASC by date already)
+  const priceMap = new Map<string, number[]>();
+  for (const r of (pricesRes.results ?? []) as any[]) {
+    if (typeof r.p === 'number') {
+      const arr = priceMap.get(r.card_id) ?? [];
+      arr.push(r.p);
+      priceMap.set(r.card_id, arr);
+    }
+  }
+  const sviMap = new Map<string, number[]>();
+  for (const r of (sviRes.results ?? []) as any[]) {
+    const arr = sviMap.get(r.card_id) ?? [];
+    arr.push(Number(r.svi) || 0);
+    sviMap.set(r.card_id, arr);
+  }
 
-    // If we have neither price nor enough SVI yet, skip this card for now.
-    if (prices.length < 1 && svis.length < 14) continue;
+  // 4) Compute signals for eligible cards only, collect statements
+  const stmtsSignals: D1PreparedStatement[] = [];
+  const stmtsComponents: D1PreparedStatement[] = [];
 
-    const out = compositeScore(prices, svis);
-    const { score, signal, reasons, edgeZ, expRet, expSd, components } = out;
+  for (const id of cardIds) {
+    const prices = priceMap.get(id) ?? [];
+    const svis   = sviMap.get(id) ?? [];
 
-    await env.DB.prepare(`
+    const hasPrice = prices.length >= 7;
+    const hasSVI   = svis.length   >= 14;
+
+    // Only write a signal if we have a real basis
+    if (!hasPrice && !hasSVI) continue;
+
+    const { score, signal, reasons, edgeZ, expRet, expSd, components } = compositeScore(prices, svis);
+
+    stmtsSignals.push(env.DB.prepare(`
       INSERT OR REPLACE INTO signals_daily
       (card_id, as_of, score, signal, reasons, edge_z, exp_ret, exp_sd)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(row.id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd).run();
+    `).bind(id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd));
 
-    await env.DB.prepare(`
+    stmtsComponents.push(env.DB.prepare(`
       INSERT OR REPLACE INTO signal_components_daily
       (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
-      row.id, today,
+      id, today,
       components.ts7, components.ts30, components.dd, components.vol,
       components.zSVI, components.regimeBreak ? 1 : 0
-    ).run();
+    ));
+  }
+
+  // 5) Batch insert in safe chunks to avoid oversized payloads
+  for (const group of chunk(stmtsSignals, 100)) {
+    await env.DB.batch(group);
+  }
+  for (const group of chunk(stmtsComponents, 100)) {
+    await env.DB.batch(group);
   }
 }
 
@@ -210,7 +255,7 @@ async function runAlerts(env: Env) {
   return { checked: alerts.results.length, fired };
 }
 
-// ---------- Top movers ----------
+// ---------- Top movers + digest ----------
 async function getTopMovers(env: Env, limit: number) {
   if (!Number.isFinite(limit) || limit < 1) limit = 6;
   if (limit > 20) limit = 20;
@@ -260,8 +305,6 @@ async function getTopMovers(env: Env, limit: number) {
 
   return { as_of, gainers: gainers.results ?? [], losers: losers.results ?? [] };
 }
-
-// ---------- Daily digest ----------
 function digestHtml(as_of: string | null, gainers: any[], losers: any[]) {
   const li = (x:any) => `<li>${x.name} <span style="color:#6b7280;">(${x.set_name||''})</span> — <b>${x.pct>0?'+':''}${x.pct}%</b> (now $${Number(x.price_now).toFixed(2)})</li>`;
   return `
@@ -291,7 +334,7 @@ async function sendDailyDigest(env: Env) {
   return { recipients: list.length, sent };
 }
 
-// ---------- One-shot nightly pipeline ----------
+// ---------- Nightly pipeline ----------
 async function pipelineRun(env: Env) {
   const t0 = Date.now();
   const universe = await fetchUniverse(env);
@@ -530,7 +573,6 @@ export default {
       return json({ ok: true });
     }
 
-    // digest subscription
     if (url.pathname === '/api/subscribe-digest' && req.method === 'POST') {
       const body = await req.json().catch(()=>({}));
       const email = (body?.email ?? '').toString().trim();
@@ -543,7 +585,7 @@ export default {
       return json({ ok: true });
     }
 
-    // ----- Trends ingest (GitHub Action) -----
+    // ----- Trends ingest -----
     if (url.pathname === '/ingest/trends' && req.method === 'POST') {
       if (req.headers.get('x-ingest-token') !== env.INGEST_TOKEN) return json({ error: 'forbidden' }, 403);
       const payload = await req.json().catch(()=>({}));
@@ -770,7 +812,7 @@ export default {
       return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', ...CORS } });
     }
 
-    // ----- Admin: diagnostics (NEW) -----
+    // ----- Admin: diagnostics -----
     if (url.pathname === '/admin/diag' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const rs = await env.DB.prepare(`
@@ -781,17 +823,18 @@ export default {
           SELECT card_id, COUNT(*) AS n FROM prices_daily GROUP BY card_id
         )
         SELECT
-          (SELECT COUNT(*) FROM svi_counts WHERE n >= 14) AS cards_with_svi14_plus,
-          (SELECT COUNT(*) FROM price_counts WHERE n >= 1) AS cards_with_price1_plus,
+          (SELECT COUNT(*) FROM svi_counts   WHERE n >= 14) AS cards_with_svi14_plus,
+          (SELECT COUNT(*) FROM price_counts WHERE n >= 1 ) AS cards_with_price1_plus,
+          (SELECT COUNT(*) FROM price_counts WHERE n >= 7 ) AS cards_with_price7_plus,
           (SELECT COUNT(*) FROM signals_daily WHERE as_of=(SELECT MAX(as_of) FROM signals_daily)) AS signals_rows_latest,
-          (SELECT MAX(as_of) FROM prices_daily) AS latest_price_date,
-          (SELECT MAX(as_of) FROM svi_daily) AS latest_svi_date,
-          (SELECT MAX(as_of) FROM signals_daily) AS latest_signal_date
+          (SELECT MAX(as_of) FROM prices_daily)   AS latest_price_date,
+          (SELECT MAX(as_of) FROM svi_daily)      AS latest_svi_date,
+          (SELECT MAX(as_of) FROM signals_daily)  AS latest_signal_date
       `).all();
       return json({ ok: true, ...rs.results?.[0] });
     }
 
-    // ----- Admin helpers (hardened with try/catch) -----
+    // ----- Admin helpers -----
     if (url.pathname === '/admin/alerts' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403);
       const active = url.searchParams.get('active'); // '', '0', '1' or null
@@ -855,7 +898,6 @@ export default {
         const out = await pipelineRun(env);
         return json({ ok: true, ...out });
       } catch (e: any) {
-        // Always return JSON so jq never fails again.
         return json({ ok: false, error: String(e) }, 500);
       }
     }
