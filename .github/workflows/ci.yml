@@ -30,5 +30,22 @@ jobs:
       - name: Validate OpenAPI file exists
         run: |
           test -f openapi.yaml || (echo 'openapi.yaml missing' && exit 1)
+      - name: Wrangler Preview (local)
+        id: preview
+        run: |
+          echo 'Starting local wrangler dev for smoke preview'
+          npx wrangler dev --port=8787 &
+          echo $! > wrangler_pid
+          sleep 5
+      - name: Smoke (Preview)
+        env:
+          BASE: http://127.0.0.1:8787
+        run: |
+          chmod +x scripts/smoke.sh
+          ./scripts/smoke.sh || (echo 'Preview smoke failed' && cat scripts/smoke.sh && exit 1)
+      - name: Shutdown preview
+        if: always()
+        run: |
+          if [ -f wrangler_pid ]; then kill $(cat wrangler_pid) || true; fi
       - name: Summarize
         run: echo "CI pipeline completed" 
