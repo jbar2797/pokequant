@@ -147,10 +147,16 @@ async function recordLatency(env: Env, tag: string, ms: number) {
 async function ensureTestSeed(env: Env) {
   try {
     const check = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='cards'`).all();
-    if (!check.results || !check.results.length) {
+    const tableExists = !!(check.results && check.results.length);
+    if (!tableExists) {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, name TEXT, set_name TEXT, rarity TEXT, image_url TEXT, types TEXT);`).run();
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS prices_daily (card_id TEXT, as_of DATE, price_usd REAL, price_eur REAL, src_updated_at TEXT, PRIMARY KEY(card_id,as_of));`).run();
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id,as_of));`).run();
+    }
+    // Seed if zero rows (helps local preview & smoke tests)
+    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all().catch(()=>({ results: [{ n: 0 }] } as any));
+    const n = Number(count.results?.[0]?.n) || 0;
+    if (n === 0) {
       await env.DB.prepare(`INSERT INTO cards (id,name,set_name,rarity,image_url,types) VALUES ('card1','Test Card','Test Set','Promo',NULL,'Fire');`).run();
     }
   } catch { /* ignore in prod */ }
@@ -429,6 +435,9 @@ export default {
 
     // Public universe & cards
     if (url.pathname === '/api/universe' && req.method === 'GET') {
+  // Ensure at least one row for smoke test / empty preview DBs
+  await ensureTestSeed(env);
+  await incMetric(env, 'universe.list');
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
                (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
