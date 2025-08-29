@@ -1,0 +1,39 @@
+name: Fetch Google Trends (SVI) and ingest
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "15 6 * * *"   # daily at 06:15 UTC
+
+concurrency:
+  group: fetch_trends
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytrends requests
+
+      - name: Run Trends backfill
+        env:
+          INGEST_URL:   ${{ secrets.INGEST_URL }}     # e.g. https://pokequant.<you>.workers.dev/ingest/trends
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          MAX_CARDS: "250"
+          BATCH_SIZE: "5"
+          SLEEP_BASE_SEC: "3.5"
+          TIMEFRAME: "today 12-m"
+        run: |
+          python trends/fetch_trends.py
