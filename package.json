@@ -10,7 +10,8 @@
 		"typecheck": "tsc --noEmit",
 		"lint": "eslint 'src/**/*.ts'",
 		"format": "prettier -w .",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "wrangler types",
+		"contract": "node scripts/contract-check.js"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",

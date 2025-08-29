@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.2.0
+  version: 0.2.1
   description: MVP API. Fields may add over time; removals are breaking. Use schema components.
 servers:
   - url: https://pokequant.jonathanbarreneche.workers.dev
@@ -130,6 +130,8 @@ paths:
     post: { summary: Full pipeline run, responses: { '200': { description: OK } } }
   /admin/metrics:
     get: { summary: Recent metrics (admin), responses: { '200': { description: OK } } }
+  /admin/run-alerts:
+    post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
 components:
   schemas:
     Error:

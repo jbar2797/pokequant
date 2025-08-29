@@ -660,6 +660,36 @@ export default {
       }
     }
 
+    // Run alerts only (for tests / manual)
+    if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      try {
+        const out = await runAlerts(env);
+        log('admin_run_alerts', out);
+        return json({ ok:true, ...out });
+      } catch (e:any) {
+        return json({ ok:false, error:String(e) }, 500);
+      }
+    }
+
+    // Test seed utility (not documented) to insert cards & prices
+    if (url.pathname === '/admin/test-seed' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const cards = Array.isArray(body.cards) ? body.cards : [];
+      const today = new Date().toISOString().slice(0,10);
+      const batch: D1PreparedStatement[] = [];
+      for (const c of cards) {
+        if (!c.id) continue;
+        batch.push(env.DB.prepare(`INSERT OR REPLACE INTO cards (id,name,set_name,rarity,image_url,types) VALUES (?,?,?,?,?,?)`).bind(c.id, c.name||c.id, c.set_name||null, c.rarity||null, null, null));
+        if (c.price_usd !== undefined) {
+          batch.push(env.DB.prepare(`INSERT OR REPLACE INTO prices_daily (card_id, as_of, price_usd) VALUES (?,?,?)`).bind(c.id, today, c.price_usd));
+        }
+      }
+      if (batch.length) await env.DB.batch(batch);
+      return json({ ok:true, inserted: cards.length });
+    }
+
     // NEW: fast, bulk compute only (safe warm)
     if (url.pathname === '/admin/run-fast' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
