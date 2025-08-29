@@ -30,6 +30,9 @@ function json(data: unknown, status = 200) {
     headers: { 'content-type': 'application/json; charset=utf-8', ...CORS }
   });
 }
+function err(code: string, status = 400, extra: Record<string, unknown> = {}) {
+  return json({ ok: false, error: code, ...extra }, status);
+}
 function isoDaysAgo(days: number) {
   const d = new Date(Date.now() - Math.max(0, days)*86400000);
   return d.toISOString().slice(0,10);
@@ -396,7 +399,7 @@ export default {
     if (url.pathname === '/api/subscribe' && req.method === 'POST') {
       const body: any = await req.json().catch(()=>({}));
       const email = (body && body.email ? String(body.email) : '').trim();
-      if (!email) return json({ error: 'email required' }, 400);
+  if (!email) return err('email_required', 400);
       const id = crypto.randomUUID();
   await env.DB.prepare(`INSERT OR REPLACE INTO subscriptions (id, kind, target, created_at) VALUES (?, 'email', ?, datetime('now'))`).bind(id, email).run();
   log('subscribe', { email });
@@ -411,8 +414,8 @@ export default {
       const card_id = body && body.card_id ? String(body.card_id).trim() : '';
       const kind = body && body.kind ? String(body.kind).trim() : 'price_below';
       const threshold = body && body.threshold !== undefined ? Number(body.threshold) : NaN;
-      if (!email || !card_id) return json({ ok:false, error: 'email_and_card_id_required' }, 400);
-      if (!Number.isFinite(threshold)) return json({ ok:false, error: 'threshold_invalid' }, 400);
+  if (!email || !card_id) return err('email_and_card_id_required');
+  if (!Number.isFinite(threshold)) return err('threshold_invalid');
       const id = crypto.randomUUID();
       const tokenBytes = new Uint8Array(16); crypto.getRandomValues(tokenBytes);
       const manage_token = Array.from(tokenBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -524,10 +527,10 @@ export default {
       const body: any = req.method === 'POST' ? await req.json().catch(()=>({})) : {};
       const id = req.method === 'GET' ? (url.searchParams.get('id') || '').trim() : (body.id ? String(body.id).trim() : '');
       const token = req.method === 'GET' ? (url.searchParams.get('token') || '').trim() : (body.token ? String(body.token).trim() : '');
-  if (!id || !token) return json({ ok:false, error: 'id_and_token_required' }, 400);
+  if (!id || !token) return err('id_and_token_required');
       const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
       const mt = row.results?.[0]?.manage_token as string | undefined;
-  if (!mt || mt !== token) return json({ ok:false, error: 'invalid_token' }, 403);
+  if (!mt || mt !== token) return err('invalid_token', 403);
       await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
   if (req.method === 'GET') {
         const html = `<!doctype html><meta charset="utf-8"><title>PokeQuant</title>

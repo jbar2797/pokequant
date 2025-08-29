@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.1.0
-  description: Generated minimal spec for current MVP endpoints.
+  version: 0.2.0
+  description: MVP API. Fields may add over time; removals are breaking. Use schema components.
 servers:
   - url: https://pokequant.jonathanbarreneche.workers.dev
 paths:
@@ -18,7 +18,14 @@ paths:
   /api/cards:
     get:
       summary: Cards with latest signals
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: List of cards with signals
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CardWithSignal' }
   /api/movers:
     get:
       summary: Top movers
@@ -41,7 +48,12 @@ paths:
         - in: query
           name: days
           schema: { type: integer }
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: Card timeseries bundle
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CardTimeseries' }
   /research/card-csv:
     get:
       summary: Card CSV export
@@ -92,7 +104,14 @@ paths:
   /alerts/create:
     post:
       summary: Create price alert
-      responses: { '200': { description: OK } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertCreateRequest' }
+      responses:
+        '200': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/AlertCreateResponse' } } } }
+        '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /alerts/deactivate:
     get: { summary: Deactivate alert, responses: { '200': { description: OK } } }
     post: { summary: Deactivate alert (POST), responses: { '200': { description: OK } } }
@@ -104,4 +123,89 @@ paths:
     post: { summary: Compute signals only, responses: { '200': { description: OK } } }
   /admin/run-now:
     post: { summary: Full pipeline run, responses: { '200': { description: OK } } }
-components: {}
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        ok: { type: boolean, const: false }
+        error: { type: string }
+      required: [ok, error]
+    CardBase:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        set_name: { type: string }
+        rarity: { type: string }
+        image_url: { type: string, nullable: true }
+        types: { type: string, nullable: true, description: 'Pipe-delimited types' }
+      required: [id, name]
+    CardWithSignal:
+      allOf:
+        - $ref: '#/components/schemas/CardBase'
+        - type: object
+          properties:
+            signal: { type: string, nullable: true }
+            score: { type: number, nullable: true }
+            price_usd: { type: number, nullable: true }
+            price_eur: { type: number, nullable: true }
+    SignalPoint:
+      type: object
+      properties:
+        d: { type: string, description: 'ISO date' }
+        signal: { type: string, nullable: true }
+        score: { type: number, nullable: true }
+        edge_z: { type: number, nullable: true }
+        exp_ret: { type: number, nullable: true }
+        exp_sd: { type: number, nullable: true }
+      required: [d]
+    PricePoint:
+      type: object
+      properties:
+        d: { type: string }
+        usd: { type: number, nullable: true }
+        eur: { type: number, nullable: true }
+      required: [d]
+    SviPoint:
+      type: object
+      properties:
+        d: { type: string }
+        svi: { type: integer, nullable: true }
+      required: [d]
+    ComponentPoint:
+      type: object
+      properties:
+        d: { type: string }
+        ts7: { type: number, nullable: true }
+        ts30: { type: number, nullable: true }
+        dd: { type: number, nullable: true }
+        vol: { type: number, nullable: true }
+        z_svi: { type: number, nullable: true }
+      required: [d]
+    CardTimeseries:
+      type: object
+      properties:
+        ok: { type: boolean }
+        card: { $ref: '#/components/schemas/CardBase' }
+        prices: { type: array, items: { $ref: '#/components/schemas/PricePoint' } }
+        signals: { type: array, items: { $ref: '#/components/schemas/SignalPoint' } }
+        svi: { type: array, items: { $ref: '#/components/schemas/SviPoint' } }
+        components: { type: array, items: { $ref: '#/components/schemas/ComponentPoint' } }
+      required: [ok]
+    AlertCreateRequest:
+      type: object
+      properties:
+        email: { type: string }
+        card_id: { type: string }
+        kind: { type: string, enum: [price_below, price_above] }
+        threshold: { type: number }
+      required: [email, card_id, threshold]
+    AlertCreateResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        manage_token: { type: string }
+        manage_url: { type: string }
+      required: [ok, id, manage_token, manage_url]
