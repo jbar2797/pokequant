@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>PokeQuant — Signals & Portfolio</title>
+  <title>PokeQuant — Signals & Portfolio (MVP)</title>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
   <style>
     .hover-row:hover { background: #f9fafb; }
@@ -11,50 +11,44 @@
     .badge-buy { background: #d1fae5; color: #065f46; }
     .badge-hold{ background: #e5e7eb; color: #374151; }
     .badge-sell{ background: #fee2e2; color: #991b1b; }
-    .pill { border: 1px solid #e5e7eb; border-radius: 9999px; padding: 2px 8px; display:inline-block; margin:2px; font-size:12px;}
+    .pill { border: 1px solid #e5e7eb; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
   </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
-  <div class="max-w-6xl mx-auto p-4">
-    <header class="mb-4 flex items-center justify-between">
+  <div class="max-w-7xl mx-auto p-4 space-y-6">
+    <header class="flex items-center justify-between">
       <h1 class="text-2xl font-bold">PokeQuant — Signals & Portfolio</h1>
-      <a class="text-sm underline" href="https://pokequant.jonathanbarreneche.workers.dev/health" target="_blank" rel="noreferrer">API Health</a>
+      <div class="flex items-center gap-3 text-sm">
+        <span id="env" class="pill">Base: <code id="baseLabel"></code></span>
+        <a class="underline" href="https://pokequant.jonathanbarreneche.workers.dev/health" target="_blank" rel="noreferrer">API Health</a>
+      </div>
     </header>
 
-    <div id="status" class="hidden mb-3 p-2 border rounded bg-yellow-50 text-yellow-900"></div>
+    <div id="status" class="hidden p-2 border rounded bg-yellow-50 text-yellow-900"></div>
 
-    <!-- Top Movers -->
-    <section class="mb-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-semibold mb-2">Top Movers</h2>
-        <button id="btnReloadMovers" class="text-sm underline">Reload</button>
+    <!-- TOP MOVERS -->
+    <section>
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-xl font-semibold">Top Movers</h2>
+        <button id="reloadMovers" class="text-sm underline">Reload</button>
       </div>
-      <div id="movers" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"></div>
+      <div id="movers" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3"></div>
     </section>
 
-    <!-- Search & Filters -->
-    <section class="mb-6">
+    <hr/>
+
+    <!-- DISCOVER / SEARCH -->
+    <section>
       <h2 class="text-xl font-semibold mb-2">Discover</h2>
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-2">
-        <input id="q" class="border p-2 rounded col-span-2" placeholder="Search by name / set / number…" />
+      <div class="flex flex-col md:flex-row gap-2 md:items-center">
+        <input id="q" placeholder="Search name or card number…" class="border p-2 rounded flex-1"/>
         <select id="fSet" class="border p-2 rounded"><option value="">All sets</option></select>
         <select id="fRarity" class="border p-2 rounded"><option value="">All rarities</option></select>
         <select id="fType" class="border p-2 rounded"><option value="">All types</option></select>
+        <button id="doSearch" class="bg-black text-white px-3 py-2 rounded">Search</button>
       </div>
-      <div class="mt-2 flex gap-2">
-        <button id="btnSearch" class="bg-black text-white px-4 py-2 rounded">Search</button>
-        <button id="btnReset" class="border px-4 py-2 rounded">Reset</button>
-      </div>
-    </section>
-
-    <!-- Cards table -->
-    <section class="mb-8">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-semibold mb-2">Cards</h2>
-        <button id="btnReload" class="text-sm underline">Reload</button>
-      </div>
-      <p class="text-sm text-gray-600 mb-2">Tip: Click a row to open details or use the bell to create an alert.</p>
-      <div class="overflow-auto border rounded bg-white">
+      <p class="text-xs text-gray-600 mt-1">Tip: click a row to open details and prefill the alert modal.</p>
+      <div class="overflow-auto border rounded bg-white mt-3">
         <table class="min-w-full">
           <thead>
             <tr class="bg-gray-100 text-left text-sm">
@@ -64,7 +58,7 @@
               <th class="p-2">Price</th>
               <th class="p-2">Signal</th>
               <th class="p-2">Score</th>
-              <th class="p-2">Actions</th>
+              <th class="p-2">Alert</th>
             </tr>
           </thead>
           <tbody id="rows"></tbody>
@@ -72,19 +66,20 @@
       </div>
     </section>
 
-    <hr class="my-6">
+    <hr/>
 
-    <!-- Portfolio -->
-    <section class="mb-6">
-      <h2 class="text-xl font-semibold mb-2">Portfolio (MVP)</h2>
-      <div class="flex flex-col md:flex-row md:items-center gap-2 mb-3">
+    <!-- PORTFOLIO (MVP) -->
+    <section>
+      <h2 class="text-xl font-semibold mb-2">Portfolio</h2>
+      <div class="flex flex-col md:flex-row md:items-center gap-2 mb-2">
         <button id="btnCreate" class="bg-black text-white px-3 py-2 rounded">Create Portfolio</button>
         <input id="pid" class="border p-2 flex-1 rounded" placeholder="Portfolio ID"/>
         <input id="pkey" class="border p-2 flex-1 rounded" placeholder="Portfolio Secret"/>
         <button id="btnSaveCreds" class="border px-3 py-2 rounded">Save to Browser</button>
       </div>
-      <div class="flex flex-col lg:flex-row lg:items-center gap-2 mb-3">
-        <input id="lotCard" class="border p-2 flex-1 rounded" placeholder="Card ID"/>
+
+      <div class="flex flex-col lg:flex-row lg:items-center gap-2 mb-2">
+        <input id="lotCard" class="border p-2 flex-1 rounded" placeholder="Card ID (click a row to fill)"/>
         <input id="lotQty" class="border p-2 w-28 rounded" type="number" min="0" step="1" placeholder="Qty"/>
         <input id="lotCost" class="border p-2 w-40 rounded" type="number" min="0" step="0.01" placeholder="Cost USD"/>
         <input id="lotDate" class="border p-2 w-44 rounded" type="date"/>
@@ -95,16 +90,19 @@
     </section>
   </div>
 
-  <!-- Details Modal -->
+  <!-- DETAILS MODAL -->
   <div id="cardModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
     <div class="bg-white max-w-2xl w-full rounded shadow-lg p-4 relative">
       <button id="modalClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
       <div class="flex gap-4">
         <img id="mImage" src="" alt="" class="w-32 h-auto rounded border">
-        <div>
+        <div class="flex-1">
           <h3 id="mTitle" class="text-lg font-semibold"></h3>
           <div id="mMeta" class="text-sm text-gray-600"></div>
-          <div class="mt-2"><a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (last 120d)</a></div>
+          <div class="mt-2 flex items-center gap-3">
+            <a id="mCsv" href="#" class="text-sm underline" target="_blank" rel="noreferrer">Download CSV (120d)</a>
+            <button id="mAlert" class="pill">Create Alert</button>
+          </div>
         </div>
       </div>
       <div class="mt-4">
@@ -118,265 +116,308 @@
     </div>
   </div>
 
-  <!-- Alert Modal -->
+  <!-- ALERT MODAL -->
   <div id="alertModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
     <div class="bg-white max-w-md w-full rounded shadow-lg p-4 relative">
       <button id="alertClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
       <h3 class="text-lg font-semibold mb-2">Create Price Alert</h3>
       <div class="space-y-2">
-        <input id="alertEmail" class="border p-2 w-full rounded" type="email" placeholder="you@domain.com">
-        <div class="flex gap-2 items-center">
-          <label><input type="radio" name="alertKind" value="price_below" checked> Price below</label>
-          <label><input type="radio" name="alertKind" value="price_above"> Price above</label>
+        <div>
+          <label class="text-sm">Card ID</label>
+          <input id="aCard" class="border p-2 rounded w-full" readonly/>
         </div>
-        <input id="alertThreshold" class="border p-2 w-full rounded" type="number" step="0.01" placeholder="Threshold USD">
-        <div class="text-right">
-          <button id="alertSave" class="bg-black text-white px-4 py-2 rounded">Save Alert</button>
+        <div class="flex gap-2">
+          <select id="aKind" class="border p-2 rounded">
+            <option value="price_below">Price falls below</option>
+            <option value="price_above">Price rises above</option>
+          </select>
+          <input id="aThresh" type="number" step="0.01" class="border p-2 rounded flex-1" placeholder="USD threshold"/>
+        </div>
+        <div>
+          <input id="aEmail" type="email" class="border p-2 rounded w-full" placeholder="you@domain.com"/>
+        </div>
+        <div class="flex justify-end">
+          <button id="aCreate" class="bg-black text-white px-3 py-2 rounded">Create</button>
         </div>
       </div>
     </div>
   </div>
 
-  <script>
-    const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
-    const $ = s => document.querySelector(s);
-    function setStatus(msg, kind='info') {
-      const el = $('#status');
-      if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
-      el.textContent = msg;
-      el.classList.remove('hidden');
-      el.className = 'mb-3 p-2 border rounded ' + (
-        kind === 'error' ? 'bg-red-50 text-red-900 border-red-200' :
-        kind === 'success' ? 'bg-green-50 text-green-900 border-green-200' :
-        'bg-yellow-50 text-yellow-900 border-yellow-200'
-      );
-      setTimeout(()=> setStatus(''), 3500);
-    }
-    function fmtUSD(x){ return (x==null||isNaN(Number(x)))?'—':('$'+Number(x).toFixed(2)); }
-    function fmtEUR(x){ return (x==null||isNaN(Number(x)))?'—':('€'+Number(x).toFixed(2)); }
-    function todayISO(){ return new Date().toISOString().slice(0,10); }
-    function saveCreds(pid, pkey) { localStorage.setItem('pf_id', pid); localStorage.setItem('pf_key', pkey); $('#pid').value=pid; $('#pkey').value=pkey; }
-    function loadCreds() { const pid=localStorage.getItem('pf_id')||''; const pkey=localStorage.getItem('pf_key')||''; $('#pid').value=pid; $('#pkey').value=pkey; return {pid,pkey}; }
+<script>
+const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
+document.getElementById('baseLabel').textContent = WORKER_BASE;
 
-    async function fetchJSON(u,opts={}){ const r=await fetch(u,opts); if(!r.ok) throw new Error(r.status+' '+r.statusText); return r.json(); }
+// utils
+const $ = (s)=>document.querySelector(s);
+function setStatus(msg, kind='info'){
+  const el = $('#status');
+  if(!msg){ el.classList.add('hidden'); el.textContent=''; return; }
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  el.className = 'p-2 border rounded ' + (kind==='error'?'bg-red-50 text-red-900 border-red-200': kind==='success'?'bg-green-50 text-green-900 border-green-200':'bg-yellow-50 text-yellow-900 border-yellow-200');
+  setTimeout(()=> setStatus(''), 4000);
+}
+function fmtUSD(x){ return (x==null||isNaN(Number(x)))?'—':('$'+Number(x).toFixed(2)); }
+function fmtEUR(x){ return (x==null||isNaN(Number(x)))?'—':('€'+Number(x).toFixed(2)); }
+async function fetchJSON(u,opts={}){
+  const r = await fetch(u,opts);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
 
-    // Movers
-    async function loadMovers(){
-      const data = await fetchJSON(WORKER_BASE + '/api/movers?n=12').catch(()=>[]);
-      const host = $('#movers'); host.innerHTML='';
-      if (!data.length) { host.innerHTML='<div class="text-sm text-gray-500">No movers yet.</div>'; return; }
-      host.innerHTML = data.map(c => {
-        const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?fmtEUR(c.price_eur):'—');
-        return `<div class="border rounded bg-white p-2 hover:shadow cursor-pointer" data-card="${c.id}">
-          <img src="${c.image_url||''}" class="w-full h-auto rounded mb-2"/>
-          <div class="text-sm font-medium">${c.name}</div>
-          <div class="text-xs text-gray-600">${c.set_name||''}</div>
-          <div class="text-xs mt-1">${price}</div>
-        </div>`;
-      }).join('');
-      host.querySelectorAll('[data-card]').forEach(el => el.addEventListener('click', ()=> openDetails(el.getAttribute('data-card'))));
-    }
+// sparkline
+function sparklineSVG(values, { width=560, height=70, pad=4 } = {}) {
+  if (!Array.isArray(values) || values.length < 2) return `<svg width="${width}" height="${height}"></svg>`;
+  const w=width,h=height,p=pad;
+  const xs = values.map((_,i)=> p + (i*(w-2*p))/(values.length-1));
+  const finite = values.filter(v=>Number.isFinite(v));
+  const min = Math.min(...finite), max=Math.max(...finite), rng=(max-min)||1e-9;
+  const ys = values.map(v=> (h-p) - ((v-min)/rng)*(h-2*p));
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline fill="none" stroke="${values[values.length-1]>=values[0]?'#065f46':'#991b1b'}" stroke-width="2"
+      points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}"/></svg>`;
+}
 
-    // Facets
-    async function loadFacets(){
-      const [sets, rares, types] = await Promise.all([
-        fetchJSON(WORKER_BASE+'/api/sets').catch(()=>[]),
-        fetchJSON(WORKER_BASE+'/api/rarities').catch(()=>[]),
-        fetchJSON(WORKER_BASE+'/api/types').catch(()=>[])
-      ]);
-      const sSel = $('#fSet'); sSel.innerHTML = '<option value="">All sets</option>' + sets.map(x=> `<option>${x.v}</option>`).join('');
-      const rSel = $('#fRarity'); rSel.innerHTML = '<option value="">All rarities</option>' + rares.map(x=> `<option>${x.v}</option>`).join('');
-      const tSel = $('#fType'); tSel.innerHTML = '<option value="">All types</option>' + types.map(x=> `<option>${x.v}</option>`).join('');
-    }
+// movers
+async function loadMovers(){
+  try{
+    const data = await fetchJSON(WORKER_BASE+'/api/movers?n=12');
+    const wrap = $('#movers');
+    if(!Array.isArray(data)||!data.length){ wrap.innerHTML='<div class="text-sm text-gray-600">No movers yet.</div>'; return; }
+    wrap.innerHTML = data.map(c=>`
+      <div class="bg-white border rounded p-2 text-sm">
+        <img src="${c.image_url||''}" class="w-full h-auto rounded mb-2"/>
+        <div class="font-medium line-clamp-2">${c.name}</div>
+        <div class="text-xs text-gray-500">${c.set_name||''}</div>
+        <div class="mt-1 flex items-center justify-between">
+          <span class="pill">${(c.signal||'—').toUpperCase()}</span>
+          <span>${c.score!=null?Number(c.score).toFixed(1):'—'}</span>
+        </div>
+      </div>`).join('');
+  }catch(e){ setStatus('Movers load failed: '+e.message,'error'); }
+}
+$('#reloadMovers').addEventListener('click', loadMovers);
 
-    // Cards
-    async function loadCardsDefault(){
-      try{
-        const cards = await fetchJSON(WORKER_BASE + '/api/cards');
-        if (cards.length) return renderCards(cards);
-      }catch{}
-      const u = await fetchJSON(WORKER_BASE + '/api/universe');
-      renderCards((u||[]).map(c => ({...c, signal:'—', score:'—'})));
-    }
+// filters
+async function loadFilters(){
+  try{
+    const [sets, rarities, types] = await Promise.all([
+      fetchJSON(WORKER_BASE+'/api/sets'),
+      fetchJSON(WORKER_BASE+'/api/rarities'),
+      fetchJSON(WORKER_BASE+'/api/types')
+    ]);
+    const addOpts = (sel, arr)=>{ sel.innerHTML = '<option value="">All</option>' + (arr||[]).map(v=>`<option>${v}</option>`).join(''); };
+    addOpts($('#fSet'), sets);
+    addOpts($('#fRarity'), rarities);
+    addOpts($('#fType'), types);
+  }catch(e){ setStatus('Filters load failed: '+e.message,'error'); }
+}
 
-    async function runSearch(){
-      const q = $('#q').value.trim();
-      const set = $('#fSet').value;
-      const rarity = $('#fRarity').value;
-      const type = $('#fType').value;
-      const params = new URLSearchParams();
-      if (q) params.set('q', q);
-      if (set) params.set('set', set);
-      if (rarity) params.set('rarity', rarity);
-      if (type) params.set('type', type);
-      const data = await fetchJSON(WORKER_BASE + '/api/search?' + params.toString()).catch(()=>[]);
-      renderCards(data);
-    }
+// cards
+function renderCards(list){
+  const tbody = $('#rows');
+  if(!Array.isArray(list)||!list.length){
+    tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="7">No cards match.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(c=>{
+    const sig=(c.signal||'—').toString().toUpperCase();
+    let badge='badge-hold'; if(sig==='BUY')badge='badge-buy'; if(sig==='SELL')badge='badge-sell';
+    const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?fmtEUR(c.price_eur):'—');
+    return `<tr class="hover-row cursor-pointer" data-cardid="${c.id}">
+      <td class="p-2">
+        <div class="flex gap-2 items-center">
+          <img src="${c.image_url||''}" class="w-12 h-auto rounded"/>
+          <div class="font-medium">${c.name}</div>
+        </div>
+      </td>
+      <td class="p-2">${c.set_name||''}</td>
+      <td class="p-2">${c.rarity||''}</td>
+      <td class="p-2">${price}</td>
+      <td class="p-2"><span class="badge ${badge}">${sig}</span></td>
+      <td class="p-2">${c.score!=null?Number(c.score).toFixed(1):'—'}</td>
+      <td class="p-2"><button class="pill btnAlert" data-cardid="${c.id}" data-price="${c.price_usd!=null?c.price_usd:(c.price_eur!=null?c.price_eur:'')}">🔔</button></td>
+    </tr>`;
+  }).join('');
 
-    function renderCards(data){
-      const tbody = $('#rows');
-      if (!Array.isArray(data) || !data.length) {
-        tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="7">No cards.</td></tr>';
-        return;
-      }
-      tbody.innerHTML = data.map(c => {
-        const signal = (c.signal || '—').toString().toUpperCase();
-        let badgeClass = 'badge-hold'; if (signal==='BUY') badgeClass='badge-buy'; if (signal==='SELL') badgeClass='badge-sell';
-        const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?fmtEUR(c.price_eur):'—');
-        const score = (c.score==null||c.score==='—')?'—':Number(c.score).toFixed(1);
-        return `<tr class="hover-row" data-cardid="${c.id}">
-          <td class="p-2">
-            <div class="flex gap-2 items-center">
-              <img src="${c.image_url||''}" class="w-12 h-auto rounded"/>
-              <div><div class="font-medium">${c.name}</div></div>
-            </div>
-          </td>
-          <td class="p-2">${c.set_name||''}</td>
-          <td class="p-2">${c.rarity||''}</td>
-          <td class="p-2">${price}</td>
-          <td class="p-2"><span class="badge ${badgeClass}">${signal}</span></td>
-          <td class="p-2">${score}</td>
-          <td class="p-2">
-            <button class="text-sm underline" data-alert="${c.id}" data-price="${c.price_usd!=null?c.price_usd:(c.price_eur!=null?c.price_eur:'')}">🔔 Alert</button>
-          </td>
-        </tr>`;
-      }).join('');
-
-      tbody.querySelectorAll('tr[data-cardid]').forEach(tr => tr.addEventListener('click', (e)=>{
-        const tgt = e.target as HTMLElement;
-        if (tgt && (tgt as any).dataset && ((tgt as any).dataset.alert)) return; // alert button has its own handler
-        const id = tr.getAttribute('data-cardid');
-        $('#lotCard').value = id || '';
-        openDetails(id);
-      }));
-
-      tbody.querySelectorAll('button[data-alert]').forEach(btn => btn.addEventListener('click', (e)=>{
-        e.stopPropagation();
-        const id = (btn as any).dataset.alert;
-        const price = Number((btn as any).dataset.price || '0');
-        openAlert(id, price);
-      }));
-    }
-
-    // Details
-    function sparklineSVG(values,{width=560,height=70,pad=4}={}){
-      if (!Array.isArray(values)||values.length<2) return `<svg width="${width}" height="${height}"></svg>`;
-      const w=width,h=height,p=pad,n=values.length;
-      const xs=values.map((_,i)=>p+(i*(w-2*p))/(n-1));
-      const vals=values.filter(v=>Number.isFinite(v)); const min=Math.min(...vals), max=Math.max(...vals), rng=(max-min)||1e-9;
-      const ys=values.map(v=>(h-p)-((v-min)/rng)*(h-2*p));
-      const stroke = values[values.length-1] >= values[0] ? '#065f46' : '#991b1b';
-      return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><polyline fill="none" stroke="${stroke}" stroke-width="2" points="${xs.map((x,i)=>`${x},${ys[i]}`).join(' ')}" /></svg>`;
-    }
-    async function openDetails(cardId){
-      try{
-        const data = await fetchJSON(WORKER_BASE + '/api/card?id='+encodeURIComponent(cardId));
-        if (!data?.ok) throw new Error('No data');
-        $('#mImage').src = data.card?.image_url || '';
-        $('#mTitle').textContent = `${data.card?.name || cardId}`;
-        $('#mMeta').textContent = `${data.card?.set_name || ''} • ${data.card?.rarity || ''}`;
-        $('#mCsv').href = WORKER_BASE + '/research/card-csv?id=' + encodeURIComponent(cardId) + '&days=120';
-        const priceValues = (data.prices||[]).map(r => r.usd!=null?Number(r.usd):(r.eur!=null?Number(r.eur):NaN)).filter(Number.isFinite);
-        $('#mPriceSpark').innerHTML = sparklineSVG(priceValues,{width:600,height:80,pad:6});
-        const scoreValues = (data.signals||[]).map(r => r.score!=null?Number(r.score):NaN).filter(Number.isFinite);
-        $('#mScoreSpark').innerHTML = scoreValues.length ? sparklineSVG(scoreValues,{width:600,height:80,pad:6}) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
-        const modal = $('#cardModal'); modal.classList.remove('hidden'); modal.classList.add('flex');
-      }catch(e){ setStatus('Failed to load details: '+e.message,'error'); }
-    }
-    $('#modalClose').addEventListener('click', ()=>{ const m=$('#cardModal'); m.classList.add('hidden'); m.classList.remove('flex'); });
-    $('#cardModal').addEventListener('click', (e)=>{ if(e.target===$('#cardModal')) $('#modalClose').click(); });
-
-    // Alerts
-    let alertCardId = ''; 
-    function openAlert(cardId, price){
-      alertCardId = cardId;
-      $('#alertThreshold').value = price && !isNaN(Number(price)) ? String(Number(price).toFixed(2)) : '';
-      const m = $('#alertModal'); m.classList.remove('hidden'); m.classList.add('flex');
-    }
-    $('#alertClose').addEventListener('click', ()=>{ const m=$('#alertModal'); m.classList.add('hidden'); m.classList.remove('flex'); });
-    $('#alertModal').addEventListener('click', (e)=>{ if(e.target===$('#alertModal')) $('#alertClose').click(); });
-    $('#alertSave').addEventListener('click', async ()=>{
-      const email = $('#alertEmail').value.trim();
-      const th = Number($('#alertThreshold').value);
-      const kind = document.querySelector('input[name="alertKind"]:checked')?.value || 'price_below';
-      if (!email || !alertCardId || !Number.isFinite(th)) { setStatus('Fill email and threshold','error'); return; }
-      try{
-        const r = await fetch(WORKER_BASE + '/alerts/create', {
-          method:'POST', headers:{'content-type':'application/json'},
-          body: JSON.stringify({ email, card_id: alertCardId, kind, threshold: th })
-        });
-        const j = await r.json();
-        if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP '+r.status));
-        setStatus('Alert saved. Check your email when triggered.','success');
-        $('#alertClose').click();
-      }catch(e){ setStatus('Alert failed: '+e.message,'error'); }
+  tbody.querySelectorAll('tr[data-cardid]').forEach(tr=>{
+    tr.addEventListener('click', (e)=>{
+      const id = tr.getAttribute('data-cardid');
+      openDetails(id);
     });
+  });
+  tbody.querySelectorAll('.btnAlert').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{
+      e.stopPropagation();
+      const id = btn.getAttribute('data-cardid');
+      const p  = btn.getAttribute('data-price');
+      openAlert(id, p);
+    });
+  });
+}
 
-    // Subscribe
-    document.addEventListener('DOMContentLoaded', ()=>{
-      $('#lotDate').value = todayISO();
-      loadCreds();
-      loadMovers();
-      loadFacets();
-      loadCardsDefault();
-    });
-    $('#btnReload').addEventListener('click', loadCardsDefault);
-    $('#btnReloadMovers').addEventListener('click', loadMovers);
-    $('#btnSearch').addEventListener('click', runSearch);
-    $('#btnReset').addEventListener('click', ()=>{ $('#q').value=''; $('#fSet').value=''; $('#fRarity').value=''; $('#fType').value=''; loadCardsDefault(); });
+async function loadDefaultCards(){
+  try{
+    const data = await fetchJSON(WORKER_BASE+'/api/cards');
+    if(Array.isArray(data) && data.length){ renderCards(data); return; }
+    const u = await fetchJSON(WORKER_BASE+'/api/universe');
+    renderCards((u||[]).map(c=>({...c, signal:'—', score:'—'})));
+  }catch(e){
+    setStatus('Failed to load cards: '+e.message,'error');
+  }
+}
 
-    // Subscribe email (top status area not shown again)
-    // Portfolio actions
-    $('#btnCreate').addEventListener('click', async ()=>{
-      try{ const r=await fetch(WORKER_BASE + '/portfolio/create',{method:'POST'});
-        const j=await r.json(); if(j.id&&j.secret){ saveCreds(j.id,j.secret); setStatus('Portfolio created and saved.','success'); }
-        else throw new Error('no id/secret');
-      }catch(e){ setStatus('Create portfolio failed: '+e.message,'error'); }
+async function doSearch(){
+  const q = $('#q').value.trim();
+  const set = $('#fSet').value;
+  const rarity = $('#fRarity').value;
+  const type = $('#fType').value;
+  const params = new URLSearchParams();
+  if(q) params.set('q', q);
+  if(set) params.set('set', set);
+  if(rarity) params.set('rarity', rarity);
+  if(type) params.set('type', type);
+  try{
+    const data = await fetchJSON(WORKER_BASE+'/api/search?'+params.toString());
+    renderCards(data);
+  }catch(e){
+    setStatus('Search failed: '+e.message,'error');
+  }
+}
+$('#doSearch').addEventListener('click', doSearch);
+$('#q').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ doSearch(); }});
+$('#fSet').addEventListener('change', doSearch);
+$('#fRarity').addEventListener('change', doSearch);
+$('#fType').addEventListener('change', doSearch);
+
+// details
+async function openDetails(cardId){
+  try{
+    const data = await fetchJSON(WORKER_BASE + '/api/card?id=' + encodeURIComponent(cardId));
+    if(!data?.ok) throw new Error('No data');
+    $('#mImage').src = data.card?.image_url || '';
+    $('#mTitle').textContent = data.card?.name || cardId;
+    $('#mMeta').textContent = `${data.card?.set_name || ''} • ${data.card?.rarity || ''}`;
+    $('#mCsv').href = WORKER_BASE + '/research/card-csv?id=' + encodeURIComponent(cardId) + '&days=120';
+    const priceValues = (data.prices||[]).map(r=> (r.usd!=null?Number(r.usd):(r.eur!=null?Number(r.eur):NaN))).filter(Number.isFinite);
+    $('#mPriceSpark').innerHTML = sparklineSVG(priceValues, { width: 600, height: 80, pad: 6 });
+    const scoreValues = (data.signals||[]).map(r=> r.score!=null?Number(r.score):NaN).filter(Number.isFinite);
+    $('#mScoreSpark').innerHTML = scoreValues.length ? sparklineSVG(scoreValues, { width: 600, height: 80, pad: 6 }) : '<div class="text-xs text-gray-500 p-2">No scores yet.</div>';
+    // alert button
+    $('#mAlert').onclick = ()=>{
+      const last = priceValues.length ? priceValues[priceValues.length-1] : '';
+      openAlert(cardId, last);
+    };
+    const modal = $('#cardModal');
+    modal.classList.remove('hidden'); modal.classList.add('flex');
+  }catch(e){ setStatus('Failed to load details: '+e.message,'error'); }
+}
+$('#modalClose').addEventListener('click', ()=>{
+  const m=$('#cardModal'); m.classList.add('hidden'); m.classList.remove('flex');
+});
+$('#cardModal').addEventListener('click', (e)=>{ if(e.target===$('#cardModal')) $('#modalClose').click(); });
+
+// alerts modal
+function openAlert(cardId, price){
+  $('#aCard').value = cardId;
+  $('#aThresh').value = price || '';
+  const m=$('#alertModal'); m.classList.remove('hidden'); m.classList.add('flex');
+}
+$('#alertClose').addEventListener('click', ()=>{
+  const m=$('#alertModal'); m.classList.add('hidden'); m.classList.remove('flex');
+});
+$('#alertModal').addEventListener('click', (e)=>{ if(e.target===$('#alertModal')) $('#alertClose').click(); });
+$('#aCreate').addEventListener('click', async ()=>{
+  const card_id = $('#aCard').value.trim();
+  const kind = $('#aKind').value;
+  const threshold = Number($('#aThresh').value);
+  const email = $('#aEmail').value.trim();
+  if(!card_id || !email || !Number.isFinite(threshold)){ setStatus('Fill all alert fields.','error'); return; }
+  try{
+    const r = await fetch(WORKER_BASE+'/alerts/create', {
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body: JSON.stringify({ email, card_id, kind, threshold })
     });
-    $('#btnSaveCreds').addEventListener('click', ()=>{
-      const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
-      if(!pid||!pkey){ setStatus('Enter both Portfolio ID and Secret.','error'); return; }
-      saveCreds(pid,pkey); setStatus('Credentials saved.','success');
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || ('HTTP '+r.status));
+    setStatus('Alert created. Check your email for a one‑click manage link.','success');
+    $('#alertClose').click();
+  }catch(e){ setStatus('Create alert failed: '+e.message,'error'); }
+});
+
+// portfolio
+function saveCreds(pid, pkey){ localStorage.setItem('pf_id',pid); localStorage.setItem('pf_key',pkey); $('#pid').value=pid; $('#pkey').value=pkey; }
+function loadCreds(){ const pid=localStorage.getItem('pf_id')||''; const pkey=localStorage.getItem('pf_key')||''; $('#pid').value=pid; $('#pkey').value=pkey; return {pid,pkey}; }
+$('#btnCreate').addEventListener('click', async ()=>{
+  try{ const r = await fetch(WORKER_BASE+'/portfolio/create',{method:'POST'}); const j=await r.json();
+    if(j.id&&j.secret){ saveCreds(j.id,j.secret); setStatus('Portfolio created and saved.','success'); } else throw new Error('no id/secret');
+  }catch(e){ setStatus('Create portfolio failed: '+e.message,'error'); }
+});
+$('#btnSaveCreds').addEventListener('click', ()=>{
+  const pid=$('#pid').value.trim(); const pkey=$('#pkey').value.trim();
+  if(!pid||!pkey) return setStatus('Enter both Portfolio ID and Secret.','error');
+  saveCreds(pid,pkey); setStatus('Credentials saved.','success');
+});
+$('#btnAddLot').addEventListener('click', async ()=>{
+  const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
+  const card=$('#lotCard').value.trim(), qty=Number($('#lotQty').value), cost=Number($('#lotCost').value), date=$('#lotDate').value||todayISO();
+  if(!pid||!pkey) return setStatus('Save portfolio credentials first.','error');
+  if(!card || !(qty>0) || !(cost>=0)) return setStatus('Invalid lot fields.','error');
+  try{
+    const r = await fetch(WORKER_BASE+'/portfolio/add-lot',{
+      method:'POST',
+      headers:{'content-type':'application/json','x-portfolio-id':pid,'x-portfolio-secret':pkey},
+      body: JSON.stringify({ card_id: card, qty, cost_usd: cost, acquired_at: date })
     });
-    $('#btnAddLot').addEventListener('click', async ()=>{
-      const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim(), card=$('#lotCard').value.trim();
-      const qty=Number($('#lotQty').value), cost=Number($('#lotCost').value), date=$('#lotDate').value || todayISO();
-      if(!pid||!pkey) return setStatus('Save portfolio credentials first.','error');
-      if(!card || !(qty>0) || !(cost>=0)) return setStatus('Invalid lot fields.','error');
-      try{
-        const r=await fetch(WORKER_BASE + '/portfolio/add-lot',{method:'POST',headers:{'content-type':'application/json','x-portfolio-id':pid,'x-portfolio-secret':pkey},body:JSON.stringify({card_id:card,qty,cost_usd:cost,acquired_at:date})});
-        const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||('HTTP '+r.status));
-        setStatus('Lot added.','success'); $('#btnLoadPnL').click();
-      }catch(e){ setStatus('Add lot failed: '+e.message,'error'); }
-    });
-    $('#btnLoadPnL').addEventListener('click', async ()=>{
-      const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
-      if(!pid||!pkey) return setStatus('Save portfolio credentials first.','error');
-      try{
-        const r=await fetch(WORKER_BASE + '/portfolio',{headers:{'x-portfolio-id':pid,'x-portfolio-secret':pkey}});
-        const j=await r.json(); if(!r.ok||!j.ok) throw new Error(j.error||('HTTP '+r.status));
-        const rows=j.rows||[], totals=j.totals||{};
-        const pnl=$('#pnl'); pnl.innerHTML=`
-          <div class="mb-2"><b>Totals:</b> Cost <b>${fmtUSD(totals.cost_usd)}</b>, Mkt <b>${fmtUSD(totals.market_value_usd)}</b>,
-            P&L <b>${fmtUSD(totals.pnl_usd)}</b>${totals.roi_pct!=null?' ('+Number(totals.roi_pct).toFixed(2)+'%)':''}
-          </div>
-          <div class="overflow-auto border rounded bg-white">
-            <table class="min-w-full">
-              <thead><tr class="bg-gray-100 text-left text-sm"><th class="p-2">Card</th><th class="p-2">Qty</th><th class="p-2">Cost</th><th class="p-2">Price</th><th class="p-2">Mkt Value</th><th class="p-2">P&L</th></tr></thead>
-              <tbody>${rows.map(r=>`
-                <tr class="border-t">
-                  <td class="p-2"><div class="flex gap-2 items-center"><img src="${r.image_url||''}" class="w-10 h-auto rounded"/><div><div class="font-medium">${r.name}</div><div class="text-gray-500 text-xs">${r.set_name||''}</div></div></div></td>
-                  <td class="p-2">${r.qty ?? '—'}</td>
-                  <td class="p-2">${fmtUSD(r.cost_usd)}</td>
-                  <td class="p-2">${r.price_usd!=null?fmtUSD(r.price_usd):(r.price_eur!=null?fmtEUR(r.price_eur):'—')} <span class="text-gray-500 text-xs">${r.price_as_of||''}</span></td>
-                  <td class="p-2">${r.market_value_usd!=null?fmtUSD(r.market_value_usd):'—'}</td>
-                  <td class="p-2 ${r.pnl_usd>0?'text-green-700':(r.pnl_usd<0?'text-red-700':'')}">${r.pnl_usd!=null?fmtUSD(r.pnl_usd):'—'}</td>
-                </tr>`).join('')}</tbody>
-            </table>
-          </div>`;
-        setStatus('P&L updated.','success');
-      }catch(e){ setStatus('Load P&L failed: '+e.message,'error'); }
-    });
-  </script>
+    const j = await r.json();
+    if(!r.ok || !j.ok) throw new Error(j.error || ('HTTP '+r.status));
+    setStatus('Lot added.','success'); $('#btnLoadPnL').click();
+  }catch(e){ setStatus('Add lot failed: '+e.message,'error'); }
+});
+$('#btnLoadPnL').addEventListener('click', async ()=>{
+  const pid=$('#pid').value.trim(), pkey=$('#pkey').value.trim();
+  if(!pid||!pkey) return setStatus('Save portfolio credentials first.','error');
+  try{
+    const r = await fetch(WORKER_BASE+'/portfolio',{headers:{'x-portfolio-id':pid,'x-portfolio-secret':pkey}});
+    const j = await r.json(); if(!r.ok||!j.ok) throw new Error(j.error || ('HTTP '+r.status));
+    const rows = j.rows||[], totals=j.totals||{};
+    const pnl=$('#pnl');
+    pnl.innerHTML = `
+      <div class="mb-2"><b>Totals:</b> Cost <b>${fmtUSD(totals.cost_usd)}</b>, Mkt <b>${fmtUSD(totals.market_value_usd)}</b>, P&L <b>${fmtUSD(totals.pnl_usd)}</b>${totals.roi_pct!=null?(' ('+Number(totals.roi_pct).toFixed(2)+'%)'):''}</div>
+      <div class="overflow-auto border rounded bg-white">
+        <table class="min-w-full">
+          <thead><tr class="bg-gray-100 text-left text-sm">
+            <th class="p-2">Card</th><th class="p-2">Qty</th><th class="p-2">Cost</th><th class="p-2">Price</th><th class="p-2">Mkt Value</th><th class="p-2">P&L</th>
+          </tr></thead>
+          <tbody>${rows.map(r=>`
+            <tr class="border-t">
+              <td class="p-2">
+                <div class="flex gap-2 items-center">
+                  <img src="${r.image_url||''}" class="w-10 h-auto rounded"/>
+                  <div><div class="font-medium">${r.name}</div><div class="text-xs text-gray-500">${r.set_name||''}</div></div>
+                </div>
+              </td>
+              <td class="p-2">${r.qty??'—'}</td>
+              <td class="p-2">${fmtUSD(r.cost_usd)}</td>
+              <td class="p-2">${r.price_usd!=null?fmtUSD(r.price_usd):(r.price_eur!=null?fmtEUR(r.price_eur):'—')} <span class="text-xs text-gray-500">${r.price_as_of||''}</span></td>
+              <td class="p-2">${r.market_value_usd!=null?fmtUSD(r.market_value_usd):'—'}</td>
+              <td class="p-2 ${r.pnl_usd>0?'text-green-700':(r.pnl_usd<0?'text-red-700':'')}">${r.pnl_usd!=null?fmtUSD(r.pnl_usd):'—'}</td>
+            </tr>`).join('')}
+          </tbody></table>
+      </div>`;
+    setStatus('P&L updated.','success');
+  }catch(e){ setStatus('Load P&L failed: '+e.message,'error'); }
+});
+
+// boot
+(async function boot(){
+  $('#lotDate').value = todayISO();
+  loadCreds();
+  await Promise.all([loadMovers(), loadFilters()]);
+  await loadDefaultCards();
+})();
+</script>
 </body>
 </html>
