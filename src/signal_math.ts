@@ -1,196 +1,95 @@
 // src/signal_math.ts
-// Robust, bounded scoring with SVI-only fallback support.
+// Lightweight, transparent signal blend for MVP
+// Inputs: prices[] (USD preferred, falls back to EUR), svis[] (Google Trends)
+// Outputs: 0..100 score, BUY/HOLD/SELL, edgeZ, expected return, sd, components
 
-export type CompositeOut = {
-  score: number;                       // 0..100
-  signal: 'BUY' | 'HOLD' | 'SELL';
+type Out = {
+  score: number;
+  signal: 'BUY'|'HOLD'|'SELL';
   reasons: string[];
-  edgeZ: number;                       // normalized 'edge' proxy
-  expRet: number;                      // heuristic expected return per period (bps, not displayed yet)
-  expSd: number;                       // heuristic risk proxy (bps, not displayed yet)
+  edgeZ: number;
+  expRet: number;
+  expSd: number;
   components: {
-    ts7: number | null;                // short-term momentum proxy (prices)    [z-like]
-    ts30: number | null;               // medium-term momentum proxy (prices)   [z-like]
-    dd: number | null;                 // drawdown 0..1 (prices)                [0=none, 1=worst]
-    vol: number | null;                // stdev of log-returns (prices)         [z-like]
-    zSVI: number | null;               // z-score of SVI                        [z]
-    regimeBreak: boolean;              // true if a break/phase-change detected
-  }
+    ts7: number|null;
+    ts30: number|null;
+    dd: number|null;
+    vol: number|null;
+    zSVI: number|null;
+    regimeBreak: boolean;
+  };
 };
 
-const EPS = 1e-12;
+function mean(xs: number[]) { return xs.length ? xs.reduce((a,b)=>a+b,0)/xs.length : 0; }
+function sd(xs: number[]) {
+  if (xs.length < 2) return 0;
+  const m = mean(xs); const v = xs.reduce((a,b)=>a+(b-m)*(b-m),0)/(xs.length-1); return Math.sqrt(Math.max(0, v));
+}
+function zscore(x: number, arr: number[]) {
+  const s = sd(arr); if (!Number.isFinite(s) || s === 0) return 0;
+  return (x - mean(arr)) / s;
+}
+function last<T>(arr: T[]) { return arr.length ? arr[arr.length-1] : null; }
+function pctChange(a: number, b: number) { return (b - a) / (Math.abs(a) || 1e-9); }
 
-function mean(xs: number[]): number {
-  const v = xs.filter(Number.isFinite);
-  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : 0;
-}
-function stdev(xs: number[]): number {
-  const v = xs.filter(Number.isFinite);
-  if (v.length < 2) return 0;
-  const m = mean(v);
-  const s2 = v.reduce((a,b)=>a+(b-m)*(b-m),0)/(v.length-1);
-  return Math.sqrt(Math.max(0, s2));
-}
-function clamp(x: number, lo: number, hi: number): number {
-  return Math.min(hi, Math.max(lo, x));
-}
-function zFrom(value: number, ref: number[], floor = 1e-6): number {
-  const m = mean(ref);
-  const sd = Math.max(stdev(ref), floor);
-  return (value - m) / sd;
-}
-function ln(x: number): number {
-  return Math.log(Math.max(x, EPS));
-}
-function last<T>(xs: T[]): T {
-  return xs[xs.length-1];
-}
-function sliceLast(xs: number[], n: number): number[] {
-  if (xs.length <= n) return xs.slice();
-  return xs.slice(xs.length - n);
-}
-function pctChange(a: number, b: number): number {
-  // (b/a - 1)
-  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0) return 0;
-  return b / a - 1;
-}
-function linregSlopeZ(y: number[]): number {
-  // Returns slope normalized by sd(y). Simple trend proxy for last ~8-12 points.
-  const n = y.length;
-  if (n < 3) return 0;
-  const xs = Array.from({length:n}, (_,i)=>i+1);
-  const mx = mean(xs);
-  const my = mean(y);
-  let num = 0, den = 0;
-  for (let i=0;i<n;i++){
-    num += (xs[i]-mx)*(y[i]-my);
-    den += (xs[i]-mx)*(xs[i]-mx);
-  }
-  const slope = den>0 ? num/den : 0;
-  const sd = Math.max(stdev(y), 1e-6);
-  return slope / sd;
-}
-
-function priceFeatures(prices: number[]) {
-  // Use last 30 bars max for robustness
-  const p = prices.filter(Number.isFinite);
-  const n = p.length;
-  if (n < 2) {
-    return { ts7: null, ts30: null, dd: null, vol: null };
-  }
-  const last30 = sliceLast(p, 30);
-  const last7  = sliceLast(p, 7);
-  const pLast  = last(p);
-
-  // momentum: compare last price to average of short/medium windows, convert ~to z-like scale
-  const ts7 = zFrom(pLast, last7);
-  const ts30 = zFrom(pLast, last30);
-
-  // drawdown: 1 - last/max
-  const maxP = Math.max(...last30);
-  const dd = clamp(1 - (pLast / Math.max(maxP, EPS)), 0, 1);
-
-  // vol: stdev of log-returns (last 30)
-  const rets: number[] = [];
-  for (let i=1;i<last30.length;i++) {
-    rets.push(ln(last30[i]) - ln(last30[i-1]));
-  }
-  const vol = stdev(rets); // already scale-like
-
-  return { ts7, ts30, dd, vol };
-}
-
-function sviFeatures(svis: number[]) {
-  const s = svis.filter(Number.isFinite);
-  const n = s.length;
-  if (n < 1) return { zSVI: null, slopeZ: null };
-  const look = sliceLast(s, Math.min(90, n));  // up to 90 obs
-  const zSVI = zFrom(last(look), look);
-  const slopeZ = linregSlopeZ(sliceLast(s, Math.min(12, n)));
-  return { zSVI, slopeZ };
-}
-
-function scoreFrom(
-  pf: { ts7: number|null, ts30: number|null, dd: number|null, vol: number|null },
-  sf: { zSVI: number|null, slopeZ: number|null },
-  hasPrices: boolean,
-  hasSVI: boolean
-): { score: number, reasons: string[], edgeZ: number, expRet: number, expSd: number, regimeBreak: boolean } {
-
-  let raw = 0;
+export function compositeScore(prices: number[], svis: number[]): Out {
   const reasons: string[] = [];
-  let regimeBreak = false;
+  const components = { ts7: null as number|null, ts30: null as number|null, dd: null as number|null, vol: null as number|null, zSVI: null as number|null, regimeBreak: false };
 
-  if (hasPrices) {
-    const ts7 = pf.ts7 ?? 0;
-    const ts30= pf.ts30 ?? 0;
-    const dd  = pf.dd ?? 0;
-    const vol = pf.vol ?? 0;
-
-    raw += 0.40 * clamp(ts7,  -3, 3);     if (ts7 > 0.5) reasons.push('px_momo7+');
-    raw += 0.20 * clamp(ts30, -3, 3);     if (ts30> 0.5) reasons.push('px_momo30+');
-    raw -= 0.20 * clamp(dd*3, 0, 3);      if (dd  > 0.3) reasons.push('dd-');
-    raw -= 0.15 * clamp((vol*10), 0, 3);  if (vol > 0.08) reasons.push('vol-');
-
-    // "regime break": very fresh up-move after a deep dd
-    if (dd > 0.35 && ts7 > 0.8) regimeBreak = true;
+  // 1) Price momentum & risk
+  let ts7 = 0, ts30 = 0, vol = 0, dd = 0;
+  if (prices.length >= 7) {
+    const rets: number[] = [];
+    for (let i=1;i<prices.length;i++) rets.push(Math.log((prices[i] || 1e-9)/(prices[i-1] || 1e-9)));
+    vol = sd(rets) * Math.sqrt(252); // annualized-ish
+    const m7 = prices.slice(-7);
+    const m30 = prices.slice(-Math.min(30, prices.length));
+    ts7 = pctChange(m7[0], m7[m7.length-1]);
+    ts30 = pctChange(m30[0], m30[m30.length-1]);
+    // drawdown (simple)
+    let peak = -Infinity, maxdd = 0;
+    for (const p of prices) { peak = Math.max(peak, p); maxdd = Math.max(maxdd, (peak - p)/(peak || 1e-9)); }
+    dd = maxdd;
+    components.ts7 = ts7; components.ts30 = ts30; components.vol = vol; components.dd = dd;
+    reasons.push(`px_mom7=${ts7.toFixed(3)}`, `px_mom30=${ts30.toFixed(3)}`);
   }
 
-  if (hasSVI) {
-    const zS = sf.zSVI ?? 0;
-    const sZ = sf.slopeZ ?? 0;
-    raw += 0.20 * clamp(zS,  -3, 3);   if (zS > 0.5) reasons.push('svi_z+');
-    raw += 0.15 * clamp(sZ,  -3, 3);   if (sZ > 0.4) reasons.push('svi_momo+');
+  // 2) SVI z-score (search interest vs its history)
+  if (svis.length >= 7) {
+    const z = zscore(last(svis) as number, svis);
+    components.zSVI = z;
+    reasons.push(`svi_z=${z.toFixed(2)}`);
+  } else {
+    components.zSVI = null;
   }
 
-  // map raw to 0..100; keep HOLD centered near 50, modest spread
-  const score = clamp(50 + raw * 8, 0, 100);
-
-  // crude 'edge' and expectations for display/research
-  const edgeZ = clamp(raw, -3, 3);
-  const expRet = edgeZ * 15;  // bps proxy
-  const expSd  = 120;         // constant proxy (could scale with vol later)
-
-  return { score, reasons, edgeZ, expRet, expSd, regimeBreak };
-}
-
-// ---- Public API ----
-
-// Accepts short price history (0..N) and SVI history (0..N).
-// If no prices (or <7), but SVI >=14, produce an SVI-only score.
-// If prices >=7, produce a composite score (and use SVI if available).
-export function compositeScore(prices: number[], svis: number[]): CompositeOut {
-  const hasPrices = prices.filter(Number.isFinite).length >= 7;
-  const hasSVI    = svis.filter(Number.isFinite).length   >= 14;
-
-  if (!hasPrices && !hasSVI) {
-    // Not enough info
-    return {
-      score: 50, signal: 'HOLD', reasons: ['insufficient_data'],
-      edgeZ: 0, expRet: 0, expSd: 120,
-      components: { ts7: null, ts30: null, dd: null, vol: null, zSVI: null, regimeBreak: false }
-    };
+  // 3) Regime break (very crude): if last return > 3 sd of history -> regimeBreak
+  if (prices.length >= 20) {
+    const rets: number[] = [];
+    for (let i=1;i<prices.length;i++) rets.push(Math.log((prices[i] || 1e-9)/(prices[i-1] || 1e-9)));
+    const z = zscore(last(rets) as number, rets.slice(0,-1));
+    if (Math.abs(z) >= 3) { components.regimeBreak = true; reasons.push('regime_break'); }
   }
 
-  const pf = hasPrices ? priceFeatures(prices) : { ts7: null, ts30: null, dd: null, vol: null };
-  const sf = hasSVI    ? sviFeatures(svis)     : { zSVI: null, slopeZ: null };
+  // 4) Blend into [0,100] score
+  // weights: short-term momentum (0.45), longer trend (0.25), SVI (0.20), risk penalty (0.10)
+  let wTs7 = 0.45, wTs30 = 0.25, wSVI = 0.20, wRisk = 0.10;
+  let base = 50;
+  if (components.ts7 !== null) base += 100 * wTs7 * components.ts7;
+  if (components.ts30 !== null) base += 100 * wTs30 * components.ts30;
+  if (components.zSVI !== null) base += 10  * wSVI * (components.zSVI as number); // z around -3..+3 -> -6..+6 contribution
+  if (components.vol !== null)  base -= 10  * wRisk * (components.vol as number); // penalize high vol a bit
 
-  const { score, reasons, edgeZ, expRet, expSd, regimeBreak } =
-    scoreFrom(pf, sf, hasPrices, hasSVI);
+  // clamp
+  const score = Math.max(0, Math.min(100, base));
+  let signal: 'BUY'|'HOLD'|'SELL' = 'HOLD';
+  if (score >= 66) signal = 'BUY';
+  else if (score <= 33) signal = 'SELL';
 
-  const signal = score >= 60 ? 'BUY' : score <= 40 ? 'SELL' : 'HOLD';
+  // map to crude expected return/sd (for display)
+  const edgeZ = (score - 50)/15; // 0 -> 50, ±1 z around 15 pts
+  const expRet = 0.001 * (score - 50);  // daily-ish expectation proxy
+  const expSd  = Math.max(0.01, (components.vol ?? 0.2)/Math.sqrt(252));
 
-  return {
-    score,
-    signal,
-    reasons,
-    edgeZ,
-    expRet,
-    expSd,
-    components: {
-      ts7: pf.ts7, ts30: pf.ts30, dd: pf.dd, vol: pf.vol,
-      zSVI: sf.zSVI,
-      regimeBreak
-    }
-  };
+  return { score: Math.round(score), signal, reasons, edgeZ, expRet, expSd, components };
 }
