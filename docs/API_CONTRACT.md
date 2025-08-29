@@ -44,6 +44,25 @@ This is the **minimal shape** clients can rely on. Adding fields is OK; removing
 - Headers: as above
 - 200 JSON: `{ ok, portfolio_id, lots: [...] }`
 
+## `GET /api/sets`
+- 200: `[ { v: string, n: number }, ... ]` (set name and count)
+
+## `GET /api/rarities`
+- 200: `[ { v: string, n: number }, ... ]`
+
+## `GET /api/types`
+- 200: `[ { v: string }, ... ]` (unique tokens from `cards.types`)
+
+## `GET /api/search?q=&set=&rarity=&type=&limit=&offset=`
+- 200: `[{ id, name, set_name, rarity, image_url, signal?, score?, price_usd?, price_eur? }, ... ]`
+
+## `POST /alerts/create`
+- Body: `{ email, card_id, kind: 'price_below'|'price_above', threshold: number }`
+- 200: `{ ok: true, id, manage_token }`
+
+## `GET|POST /alerts/deactivate`
+- 200: `{ ok: true }` (POST) or small HTML confirmation (GET)
+
 ## Ingest — GitHub Action only
 ### `POST /ingest/trends`
 - Header: `x-ingest-token`

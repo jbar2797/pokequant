@@ -47,6 +47,22 @@ This file is the **source of truth** for our MVP. Anything marked ✅ must exist
 - ✅ CI: `.github/workflows/smoke.yml` runs on push to main
 - ✅ PR template reminding to run smoke + update contract
 
+## Discovery
+- ✅ Top Movers (signals/components)
+- ✅ Cards table (default signals if present, fallback to universe)
+- ✅ **Search + Filter** (name/number/set/rarity/type) via `/api/search`, `/api/sets`, `/api/rarities`, `/api/types`
+
+## Alerts
+- ✅ Create price alerts (`/alerts/create`)
+- ✅ One-click deactivate (`/alerts/deactivate?id=...&token=...`)
+- ✅ Admin manual run `/admin/run-alerts` and automatic checks inside pipeline
+
+## Portfolio
+- ✅ Create portfolio, add lots, P&L summary
+
+## Export/Research
+- ✅ `/api/card` (detail) and `/research/card-csv` (download)
+
 **Definition of Done for any change**
 1. Contract updated (if endpoints/shape change).
 2. Local `scripts/smoke.sh "$BASE"` passes.
