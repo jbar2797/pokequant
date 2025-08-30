@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.30
+  version: 0.5.31
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -504,16 +504,49 @@ paths:
     '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /alerts/deactivate:
-    get: { summary: Deactivate alert, responses: { '200': { description: OK } } }
-    post: { summary: Deactivate alert (POST), responses: { '200': { description: OK } } }
+    get:
+      summary: Deactivate alert
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
+    post:
+      summary: Deactivate alert (POST)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   /ingest/trends:
     post:
       summary: Ingest SVI trends (secure)
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   /admin/run-fast:
-    post: { summary: Compute signals only, responses: { '200': { description: OK } } }
+    post:
+      summary: Compute signals only
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   /admin/run-now:
-    post: { summary: Full pipeline run, responses: { '200': { description: OK } } }
+    post:
+      summary: Full pipeline run
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   /admin/metrics:
     get:
       summary: Recent metrics (admin)
@@ -561,7 +594,14 @@ paths:
                     ok: true
                     rows: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
   /admin/run-alerts:
-    post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
+    post:
+      summary: Run alerts evaluation only
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   security: [ { AdminToken: [] } ]
   /admin/alert-queue/send:
     post:
@@ -588,7 +628,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
   /admin/integrity:
-    get:
+  get:
       summary: Data integrity snapshot (admin)
       description: Coverage counts, latest dates, recent gap heuristics, and staleness flags.
       responses:
@@ -618,7 +658,14 @@ paths:
     get:
       summary: List recent backtests (admin)
       responses: { '200': { description: OK } }
-    post:
+                    rows:
+                      - { d: 2025-08-29, metric: req_total, count: 123 }
+                      - { d: 2025-08-29, metric: alert.queued, count: 3 }
+                      - { d: 2025-08-29, metric: alert.sent, count: 2 }
+                      - { d: 2025-08-29, metric: portfolio.auth_legacy, count: 1 }
+                      - { d: 2025-08-29, metric: email.sent, count: 2 }
+                      - { d: 2025-08-29, metric: email.send_error, count: 1 }
+                      - { d: 2025-08-29, metric: email.no_provider, count: 5 }
       summary: Run simple quintile spread backtest (admin)
       responses: { '200': { description: OK } }
   security: [ { AdminToken: [] } ]
@@ -823,6 +870,18 @@ components:
         ok: { type: boolean }
         processed: { type: integer }
       required: [ok, processed]
+    SimpleOkResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+      required: [ok]
+    RetentionResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        deleted: { type: object, additionalProperties: { type: integer } }
+        ms: { type: integer }
+      required: [ok, deleted]
   securitySchemes:
     AdminToken:
       type: apiKey

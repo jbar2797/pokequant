@@ -8,6 +8,17 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+### Planned
+- Retry & backoff for alert email sending with failure metrics aggregation
+- Drop legacy plaintext portfolio_secret column after observation window
+
+## [0.5.31] - 2025-08-30
+### Added
+- Email metrics (email.sent, email.send_error, email.no_provider) surfaced in /admin/metrics OpenAPI example.
+- SimpleOkResponse schema applied to several simple 200-only endpoints (initial batch: alerts deactivate, ingest trends, run-fast, run-now, run-alerts).
+### Changed
+- OpenAPI version already at 0.5.31 now aligned with code/package.
+- Expanded /admin/metrics example rows to include alert.*, portfolio.auth_legacy, and email.* metrics.
 ## [0.5.30] - 2025-08-30
 ### Added
 - Admin endpoint POST /admin/portfolio/force-legacy to null secret_hash for a portfolio (testing legacy auth metric path)
