@@ -135,5 +135,34 @@ let moversInterval = setInterval(loadMovers, 60_000);
 // ---------- Initial Loads ----------
 loadMovers(); loadUniverse(); loadMiniMetrics(); loadFactorPerformance(); loadIcSummary(); refreshAdmin();
 
+// Enhance: global search bridges to cards view filtering
+const globalSearchEl = document.getElementById('globalSearch');
+if(globalSearchEl){
+  globalSearchEl.addEventListener('input', () => {
+    // Switch to cards view if not already
+    switchView('cards');
+    const qBox = document.getElementById('q');
+    if(qBox){ qBox.value = globalSearchEl.value; filterCards(); }
+  });
+}
+// Mobile menu toggles sidebar clone (simple)
+const mobileMenuBtn = document.getElementById('mobileMenu');
+if(mobileMenuBtn){
+  mobileMenuBtn.addEventListener('click', () => {
+    let panel = document.getElementById('mobileNavPanel');
+    if(!panel){
+      panel = document.createElement('div');
+      panel.id = 'mobileNavPanel';
+      panel.className = 'fixed inset-0 z-50 bg-slate-900/80 backdrop-blur flex';
+      panel.innerHTML = `<div class="w-60 bg-slate-950 border-r border-slate-800 p-4 flex flex-col gap-2">${Array.from(document.querySelectorAll('aside nav button.nav-link')).map(b=>`<button data-mobile-view="${b.getAttribute('data-view')}" class="text-left px-3 py-2 rounded hover:bg-slate-800 text-sm">${b.textContent}</button>`).join('')}<button id="closeMobileNav" class="mt-auto text-xs underline">Close</button></div>`;
+      document.body.appendChild(panel);
+      panel.addEventListener('click', e=> { if(e.target.id==='closeMobileNav') panel.remove(); });
+      panel.querySelectorAll('[data-mobile-view]').forEach(btn=> btn.addEventListener('click', () => { switchView(btn.getAttribute('data-mobile-view')); panel.remove(); }));
+    } else {
+      panel.remove();
+    }
+  });
+}
+
 // Expose minimal debugging hooks
 window.PQ = { reload: { movers: loadMovers, cards: loadUniverse, portfolio: loadPortfolio, analytics: ()=>{loadFactorPerformance();loadIcSummary();}, admin: refreshAdmin } };
