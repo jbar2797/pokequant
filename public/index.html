@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="/styles.css?v=0.7.2" />
   </head>
   <body>
+  <a href="#mainContent" style="position:absolute;left:-999px;top:auto;width:1px;height:1px;overflow:hidden" onfocus="this.style.cssText='position:absolute;left:8px;top:8px;background:#162132;color:#e5ecf5;padding:6px 10px;border:1px solid #253349;border-radius:6px;z-index:500'" onblur="this.style.left='-999px'">Skip to content</a>
     <div class="deploy-banner">DEPLOY OVERHAUL 0.7.2 — NEW SHELL ACTIVE</div>
     <div id="toastHost" style="position:fixed;top:46px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:400"></div>
     <div id="statusBanner" style="position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#162132;color:#e5ecf5;font-size:11px;padding:6px 10px;border:1px solid #253349;border-radius:8px;display:none;z-index:380"></div>
@@ -43,6 +44,45 @@
               <h2>System Health</h2>
               <div id="healthInfo" style="font-size:12px;opacity:.75">Loading health…</div>
             </div>
+            <div class="panel" id="alertPanel">
+              <h2>Create Alert (Quick)</h2>
+              <form id="alertQuickForm" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;font-size:12px">
+                <label style="display:flex;flex-direction:column;gap:4px">Email <input required name="email" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:190px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Card ID <input required name="card_id" placeholder="e.g. card123" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:140px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Kind
+                  <select name="kind" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px">
+                    <option value="above">above</option>
+                    <option value="below">below</option>
+                  </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px">Threshold
+                  <input required name="threshold" type="number" step="0.01" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:110px" />
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px">Snooze (min)
+                  <input name="snooze" type="number" step="1" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:90px" />
+                </label>
+                <button type="submit" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:600;letter-spacing:.5px">Create</button>
+              </form>
+              <div id="alertQuickResult" style="margin-top:10px;font-size:11px;opacity:.75"></div>
+            </div>
+            <div class="panel" id="portfolioPanel">
+              <h2>Portfolio Summary</h2>
+              <form id="portfolioAuth" style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;margin-bottom:12px">
+                <label style="display:flex;flex-direction:column;gap:4px">ID <input name="pid" placeholder="portfolio id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:150px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Secret <input name="psec" placeholder="secret" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:170px" /></label>
+                <button type="button" id="portfolioLoadBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer">Load</button>
+              </form>
+              <div id="portfolioSummary" style="font-size:12px;opacity:.75">Enter credentials & load.</div>
+              <div id="portfolioLotsMini" style="margin-top:12px;font-size:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px"></div>
+            </div>
+            <div class="panel" id="adminMetricsPanel">
+              <h2>Admin Metrics (Mini)</h2>
+              <form id="adminAuth" style="display:flex;gap:8px;font-size:12px;margin-bottom:8px">
+                <input id="adminTokenInput" placeholder="Admin token" style="flex:1;min-width:160px;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px" />
+                <button id="adminTokenSet" type="button" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer">Set</button>
+              </form>
+              <ul id="adminMetricsList" style="list-style:none;padding:0;margin:0;font-size:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px"></ul>
+            </div>
           </section>
           <section data-panel="cards" hidden>
             <div class="panel" style="overflow:auto">
@@ -66,6 +106,15 @@
           </section>
         </div>
       </div>
+    </div>
+    <!-- Card side panel -->
+    <div id="cardSidePanel" style="position:fixed;top:0;right:0;height:100%;width:0;overflow:hidden;background:#101726;border-left:1px solid #253349;box-shadow:-4px 0 18px -6px rgba(0,0,0,.6);transition:width .3s;z-index:320;display:flex;flex-direction:column" aria-labelledby="cardPanelTitle" role="dialog" aria-modal="false">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #253349">
+        <h3 id="cardPanelTitle" style="margin:0;font-size:14px;font-weight:600;letter-spacing:.5px">Card</h3>
+        <div style="flex:1"></div>
+        <button id="cardPanelClose" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer">Close</button>
+      </div>
+      <div id="cardPanelBody" style="padding:16px;overflow:auto;font-size:12px;line-height:1.4"></div>
     </div>
   <!-- Modal removed to fix persistent rectangle; will reintroduce later with proper lifecycle -->
   <script type="module" src="/core.js?v=0.7.2"></script>
