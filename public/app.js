@@ -80,9 +80,9 @@ async function loadMovers(){ ensureMoverHosts(); const moversEl=$('#movers'); co
   } catch(e){ setStatus('Failed movers','error'); }
 }
 function abbreviateSet(name){ if(!name) return ''; return name.split(/\s+/).map(w=> w[0]).join('').slice(0,4).toUpperCase(); }
-function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const setAbbr = abbreviateSet(c.set_name); const number = c.number || ''; return `<div class="card-tiny text-xs space-y-2 bg-slate-800/40 border border-slate-600/40 hover:border-slate-500 transition-colors">
+function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const setAbbr = abbreviateSet(c.set_name); const number = c.number || ''; const img = c.image_url || 'https://placehold.co/160x223?text=Card'; return `<div class="card-tiny text-xs space-y-2 bg-slate-800/40 border border-slate-600/40 hover:border-slate-500 transition-colors">
   <div class="flex gap-3 items-start">
-    <div class="w-12 h-16 bg-slate-700/40 rounded overflow-hidden flex items-center justify-center"><img src="${c.image_url||''}" alt="${c.name}" class="max-h-16" loading="lazy"/></div>
+    <div class="w-12 h-16 bg-slate-700/40 rounded overflow-hidden flex items-center justify-center"><img src="${img}" alt="${c.name}" class="max-h-16" loading="lazy"/></div>
     <div class="flex-1 min-w-0">
       <div class="font-medium leading-4 truncate" title="${c.name}">${c.name}</div>
       <div class="text-[10px] text-slate-400">${setAbbr}${number? ' • #'+number:''}</div>
@@ -103,8 +103,8 @@ function ensureMoverHosts(){ if(!document.getElementById('movers')){ const el=do
 let UNIVERSE = [];
 function unique(arr){ return Array.from(new Set(arr)); }
 function buildSetOptions(){ const sets = unique(UNIVERSE.map(c=>c.set_name).filter(Boolean)).sort(); const sel=$('#set'); if(!sel) return; sel.innerHTML = '<option value="">All sets</option>' + sets.map(s=>`<option>${s}</option>`).join(''); }
-function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); const setAb = abbreviateSet(c.set_name); return `<tr class="hover-row">
-  <td class="p-2"><div class="flex gap-2 items-center"><div class=\"w-10 h-14 rounded bg-slate-700/40 overflow-hidden flex items-center justify-center\"><img src=\"${c.image_url||''}\" class=\"max-h-14\" loading=\"lazy\"/></div><div class="leading-4"><div class="font-medium truncate max-w-[140px]" title="${c.name}">${c.name}</div><div class="text-[10px] text-slate-400">${setAb}${c.number? ' • #'+c.number:''}</div></div></div></td>
+function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); const setAb = abbreviateSet(c.set_name); const img = c.image_url || 'https://placehold.co/160x223?text=Card'; return `<tr class="hover-row">
+  <td class="p-2"><div class="flex gap-2 items-center"><div class=\"w-10 h-14 rounded bg-slate-700/40 overflow-hidden flex items-center justify-center\"><img src=\"${img}\" class=\"max-h-14\" loading=\"lazy\"/></div><div class="leading-4"><div class="font-medium truncate max-w-[140px]" title="${c.name}">${c.name}</div><div class="text-[10px] text-slate-400">${setAb}${c.number? ' • #'+c.number:''}</div></div></div></td>
   <td class="p-2 text-xs">${c.set_name||''}</td>
   <td class="p-2 text-xs">${c.rarity||''}</td>
   <td class="p-2 text-xs font-mono">${price}</td>

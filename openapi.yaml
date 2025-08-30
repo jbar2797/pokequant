@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.6.1
+  version: 0.6.2
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -985,9 +985,93 @@ paths:
   /admin/ingestion-schedule/run-due:
     post:
       summary: Run due ingestion schedules (admin)
-      description: Updates last_run_at for schedules whose frequency_minutes elapsed since last run; emits ingest.scheduled_run metric per dataset.
+      description: |
+        Updates last_run_at for schedules whose frequency_minutes elapsed since last run; emits ingest.scheduled_run metric per dataset.
+        Optional run flag (`?run=1` query or JSON body `{ "run": true }`) triggers immediate incremental ingestion for the due datasets (max 1 day) using the same logic as `/admin/ingestion/run`.
       responses: { '200': { description: OK } }
   security: [ { AdminToken: [] } ]
+  /admin/alerts:
+    get:
+      summary: List alerts (admin)
+      description: Filterable by email, active (0|1), suppressed (0|1). Suppressed means current time < suppressed_until.
+      parameters:
+        - in: query
+          name: email
+          schema: { type: string }
+        - in: query
+          name: active
+          schema: { type: string, enum: ['0','1'] }
+        - in: query
+          name: suppressed
+          schema: { type: string, enum: ['0','1'] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        email: { type: string }
+                        card_id: { type: string }
+                        kind: { type: string }
+                        active: { type: integer }
+                        threshold: { type: number }
+                        suppressed_until: { type: string, nullable: true }
+                        last_fired_at: { type: string, nullable: true }
+                        fired_count: { type: integer, nullable: true }
+                      required: [id, email, card_id, kind, active]
+                required: [ok, rows]
+  security: [ { AdminToken: [] } ]
+  /admin/alerts/stats:
+    get:
+      summary: Alert statistics (admin)
+      description: Counts and escalation buckets (fired_count >= 5/10/25).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  total: { type: integer }
+                  active: { type: integer }
+                  suppressed: { type: integer }
+                  active_unsuppressed: { type: integer }
+                  escalation:
+                    type: object
+                    properties:
+                      ge5: { type: integer }
+                      ge10: { type: integer }
+                      ge25: { type: integer }
+                    required: [ge5, ge10, ge25]
+                required: [ok, total]
+  security: [ { AdminToken: [] } ]
+  /portfolio/orders/detail:
+    get:
+      summary: Portfolio order detail (authenticated)
+      description: Returns optimization order with stored suggestions and executed_trades.
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioOrderDetailResponse' }
+        '403': { description: Forbidden }
   /admin/audit:
     get:
       summary: List mutation audit trail entries (admin)
@@ -1423,7 +1507,30 @@ components:
         id: { type: string }
         manage_token: { type: string }
         manage_url: { type: string }
+        suppressed_until: { type: string, nullable: true }
+        fired_count: { type: integer }
       required: [ok, id, manage_token, manage_url]
+    PortfolioOrderDetailResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        status: { type: string }
+        objective: { type: string }
+        created_at: { type: string }
+        executed_at: { type: string, nullable: true }
+        suggestions:
+          type: object
+          nullable: true
+          properties:
+            factor_deltas: { type: object, additionalProperties: { type: number } }
+            generated_at: { type: string, format: date-time }
+            trades: { type: array, items: { type: object } }
+        executed_trades:
+          type: array
+          nullable: true
+          items: { type: object }
+      required: [ok, id, status, objective, created_at]
     FactorRiskPair:
       type: object
       properties:

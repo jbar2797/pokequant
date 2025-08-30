@@ -257,11 +257,21 @@ async function ensureTestSeed(env: Env) {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS prices_daily (card_id TEXT, as_of DATE, price_usd REAL, price_eur REAL, src_updated_at TEXT, PRIMARY KEY(card_id,as_of));`).run();
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id,as_of));`).run();
     }
+    // Ensure newer columns from migrations exist when using lightweight seed path
+    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN number TEXT`).run(); } catch { /* ignore if exists */ }
+    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN set_id TEXT`).run(); } catch { /* ignore */ }
+    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN tcgplayer_url TEXT`).run(); } catch { /* ignore */ }
+    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN cardmarket_url TEXT`).run(); } catch { /* ignore */ }
     // Seed if zero rows (helps local preview & smoke tests)
     const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all().catch(()=>({ results: [{ n: 0 }] } as any));
     const n = Number(count.results?.[0]?.n) || 0;
     if (n === 0) {
-      await env.DB.prepare(`INSERT INTO cards (id,name,set_name,rarity,image_url,types) VALUES ('card1','Test Card','Test Set','Promo',NULL,'Fire');`).run();
+      // Simple placeholder card (with image placeholder) so UI shows something meaningful
+      await env.DB.prepare(`INSERT INTO cards (id,name,set_name,rarity,image_url,types,number,set_id) VALUES ('card1','Test Card','Test Set','Promo','https://placehold.co/160x223?text=PK','Fire','001','set1');`).run();
+      const today = new Date().toISOString().slice(0,10);
+      await env.DB.prepare(`INSERT OR REPLACE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES ('card1', ?, 12.34, 11.11, datetime('now'))`).bind(today).run();
+      await env.DB.prepare(`INSERT OR REPLACE INTO signals_daily (card_id, as_of, score, signal, reasons, edge_z, exp_ret, exp_sd) VALUES ('card1', ?, 1.5, 'BUY', 'test seed', 0.5, 0.02, 0.05)`).bind(today).run();
+      try { await env.DB.prepare(`INSERT OR REPLACE INTO signal_components_daily (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break) VALUES ('card1', ?, 0.1, 0.2, -0.05, 0.3, 1.2, 0)`).bind(today).run(); } catch { /* ignore if table missing */ }
     }
   } catch { /* ignore in prod */ }
 }
@@ -497,6 +507,68 @@ async function runAlerts(env: Env) {
     fired++;
   }
   return { checked: (rs.results ?? []).length, fired };
+}
+
+// Reusable incremental ingestion logic (extracted from /admin/ingestion/run) so scheduling can invoke it for a subset of datasets.
+async function runIncrementalIngestion(env: Env, options?: { datasets?: string[]; maxDays?: number }) {
+  const maxDays = Math.min(7, Math.max(1, Number(options?.maxDays)||1));
+  const filter = options?.datasets ? new Set(options.datasets) : null;
+  const cfgRs = await env.DB.prepare(`SELECT dataset, source, cursor FROM ingestion_config WHERE enabled=1`).all();
+  const configs = (cfgRs.results||[]) as any[];
+  const today = new Date().toISOString().slice(0,10);
+  const results: any[] = [];
+  for (const c of configs) {
+    const dataset = String(c.dataset||'');
+    if (filter && !filter.has(dataset)) continue;
+    const source = String(c.source||'');
+    let cursor: string|null = c.cursor ? String(c.cursor) : null;
+    let inserted = 0; let fromDate: string|null = null; let toDate: string|null = null; let status: string = 'skipped';
+    if (dataset === 'prices_daily') {
+      const startDate = cursor ? new Date(Date.parse(cursor) + 86400000) : new Date(Date.now() - (maxDays-1)*86400000);
+      const dates: string[] = [];
+      for (let i=0;i<maxDays;i++) {
+        const d = new Date(startDate.getTime() + i*86400000).toISOString().slice(0,10);
+        if (Date.parse(d) > Date.parse(today)) break;
+        dates.push(d);
+      }
+      if (!dates.length || (cursor && cursor >= today)) {
+        results.push({ dataset, source, skipped:true });
+        continue;
+      }
+      fromDate = dates[0]; toDate = dates[dates.length-1];
+      const provId = crypto.randomUUID();
+      try { await env.DB.prepare(`INSERT INTO ingestion_provenance (id,dataset,source,from_date,to_date,started_at,status,rows) VALUES (?,?,?,?,?,datetime('now'),'running',0)`).bind(provId,dataset,source,fromDate,toDate).run(); } catch {/* ignore */}
+      try {
+        const haveCards = await env.DB.prepare(`SELECT id FROM cards LIMIT 20`).all();
+        let cards = (haveCards.results||[]) as any[];
+        if (!cards.length) {
+          const cid = 'INGEST-SEED-1';
+            await env.DB.prepare(`INSERT OR IGNORE INTO cards (id,name,set_name,rarity) VALUES (?,?,?,?)`).bind(cid,'Ingest Seed Card','Ingest','Promo').run();
+            cards = [{ id: cid }];
+        }
+        for (const d of dates) {
+          for (const card of cards) {
+            const exist = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind(card.id,d).all();
+            if (exist.results?.length) continue;
+            const seed = [...(card.id+d+source)].reduce((a,ch)=> a + ch.charCodeAt(0),0);
+            const base = (seed % 120) + 3;
+            await env.DB.prepare(`INSERT INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind(card.id,d,base,base*0.9).run();
+            inserted++;
+          }
+        }
+        cursor = toDate; status = 'completed';
+        try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='completed', rows=?, completed_at=datetime('now') WHERE id=?`).bind(inserted, provId).run(); } catch {/* ignore */}
+        await env.DB.prepare(`UPDATE ingestion_config SET cursor=?, last_run_at=datetime('now') WHERE dataset=? AND source=?`).bind(cursor,dataset,source).run();
+        await audit(env, { actor_type:'admin', action:'ingest_incremental', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ fromDate, toDate, inserted, scheduled: !!filter } });
+      } catch (e:any) {
+        status = 'error';
+        try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='error', error=?, completed_at=datetime('now') WHERE id=?`).bind(String(e), provId).run(); } catch {/* ignore */}
+        await audit(env, { actor_type:'admin', action:'ingest_error', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ error:String(e), scheduled: !!filter } });
+      }
+    }
+    results.push({ dataset, source, inserted, from_date: fromDate, to_date: toDate, status, cursor });
+  }
+  return results;
 }
 
 // ---------- Admin: fetch+upsert+compute (may hit limits if upstream is slow) ----------
@@ -1112,68 +1184,8 @@ export default {
     if (url.pathname === '/admin/ingestion/run' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const body:any = await req.json().catch(()=>({}));
-      let maxDays = Math.min(7, Math.max(1, Number(body.maxDays)||1));
-      const cfgRs = await env.DB.prepare(`SELECT dataset, source, cursor FROM ingestion_config WHERE enabled=1`).all();
-      const configs = (cfgRs.results||[]) as any[];
-      const today = new Date().toISOString().slice(0,10);
-      const results: any[] = [];
-      for (const c of configs) {
-        const dataset = String(c.dataset||'');
-        const source = String(c.source||'');
-        let cursor: string|null = c.cursor ? String(c.cursor) : null;
-        let inserted = 0; let fromDate: string|null = null; let toDate: string|null = null; let status: string = 'skipped';
-        // Support only prices_daily for now
-        if (dataset === 'prices_daily') {
-          // Determine ingest date range: if cursor present, start next day; else start = today - (maxDays-1)
-          const startDate = cursor ? new Date(Date.parse(cursor) + 86400000) : new Date(Date.now() - (maxDays-1)*86400000);
-          // Do not ingest future
-          const dates: string[] = [];
-          for (let i=0;i<maxDays;i++) {
-            const d = new Date(startDate.getTime() + i*86400000).toISOString().slice(0,10);
-            if (Date.parse(d) > Date.parse(today)) break;
-            dates.push(d);
-          }
-            // If cursor already today or beyond, nothing to do
-          if (!dates.length || (cursor && cursor >= today)) {
-            results.push({ dataset, source, skipped:true });
-            continue;
-          }
-          fromDate = dates[0]; toDate = dates[dates.length-1];
-          const provId = crypto.randomUUID();
-          try { await env.DB.prepare(`INSERT INTO ingestion_provenance (id,dataset,source,from_date,to_date,started_at,status,rows) VALUES (?,?,?,?,?,datetime('now'),'running',0)`).bind(provId,dataset,source,fromDate,toDate).run(); } catch {/* ignore */}
-          try {
-            // Ensure at least one card
-            const haveCards = await env.DB.prepare(`SELECT id FROM cards LIMIT 20`).all();
-            let cards = (haveCards.results||[]) as any[];
-            if (!cards.length) {
-              const cid = 'INGEST-SEED-1';
-              await env.DB.prepare(`INSERT OR IGNORE INTO cards (id,name,set_name,rarity) VALUES (?,?,?,?)`).bind(cid,'Ingest Seed Card','Ingest','Promo').run();
-              cards = [{ id: cid }];
-            }
-            for (const d of dates) {
-              for (const card of cards) {
-                // Skip existing row
-                const exist = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind(card.id,d).all();
-                if (exist.results?.length) continue;
-                const seed = [...(card.id+d+source)].reduce((a,ch)=> a + ch.charCodeAt(0),0);
-                const base = (seed % 120) + 3;
-                await env.DB.prepare(`INSERT INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind(card.id,d,base,base*0.9).run();
-                inserted++;
-              }
-            }
-            cursor = toDate; status = 'completed';
-            try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='completed', rows=?, completed_at=datetime('now') WHERE id=?`).bind(inserted, provId).run(); } catch {/* ignore */}
-            await env.DB.prepare(`UPDATE ingestion_config SET cursor=?, last_run_at=datetime('now') WHERE dataset=? AND source=?`).bind(cursor,dataset,source).run();
-            await audit(env, { actor_type:'admin', action:'ingest_incremental', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ fromDate, toDate, inserted } });
-          } catch (e:any) {
-            status = 'error';
-            try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='error', error=?, completed_at=datetime('now') WHERE id=?`).bind(String(e), provId).run(); } catch {/* ignore */}
-            await audit(env, { actor_type:'admin', action:'ingest_error', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ error:String(e) } });
-          }
-        }
-        results.push({ dataset, source, inserted, from_date: fromDate, to_date: toDate, status, cursor });
-      }
-      return json({ ok:true, runs: results });
+  const results = await runIncrementalIngestion(env, { maxDays: Number(body.maxDays)||1 });
+  return json({ ok:true, runs: results });
     }
     if (url.pathname === '/admin/ingest/prices' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1282,7 +1294,7 @@ export default {
   return notMod;
       }
       const rs = await env.DB.prepare(`
-        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
+        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types, c.number,
                (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
                (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_eur
         FROM cards c
@@ -1295,6 +1307,7 @@ export default {
   return done(resp, 'cards.list');
     }
     if (url.pathname === '/api/cards' && req.method === 'GET') {
+  await ensureTestSeed(env);
   await incMetric(env, 'cards.list');
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:cards"`;
@@ -1305,7 +1318,7 @@ export default {
       }
       const rs = await env.DB.prepare(`
         WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
-        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
+        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types, c.number,
                s.signal, ROUND(s.score,1) AS score,
                (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
                (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_eur
@@ -1323,6 +1336,7 @@ export default {
 
     // Movers (up/down)
     if (url.pathname === '/api/movers' && req.method === 'GET') {
+  await ensureTestSeed(env);
   await incMetric(env, 'cards.movers');
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:movers"`;
@@ -1336,7 +1350,7 @@ export default {
       const order = dir === 'down' ? 'ASC' : 'DESC';
       const rs = await env.DB.prepare(`
         WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
-        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url,
+        SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.number,
                s.signal, ROUND(s.score,1) AS score,
                sc.ts7, sc.z_svi,
                (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
@@ -1451,7 +1465,10 @@ export default {
   log('alert_created', { id, card_id, kind, threshold });
   await incMetric(env, 'alert.created');
   await audit(env, { actor_type:'public', action:'create', resource:'alert', resource_id:id, details:{ card_id, kind, threshold } });
-  return done(json({ ok: true, id, manage_token, manage_url }), 'alerts.create');
+  // Fetch suppressed_until & fired_count for enriched response
+  const meta = await env.DB.prepare(`SELECT suppressed_until, fired_count FROM alerts_watch WHERE id=?`).bind(id).all();
+  const row: any = meta.results?.[0] || {};
+  return done(json({ ok: true, id, manage_token, manage_url, suppressed_until: row.suppressed_until || null, fired_count: row.fired_count || 0 }), 'alerts.create');
     }
     if (url.pathname === '/alerts/snooze' && req.method === 'POST') {
       await ensureAlertsTable(env);
@@ -1538,7 +1555,7 @@ export default {
       if (type) { where.push('c.types LIKE ?'); binds.push(`%${type}%`); }
       const whereSql = where.length ? 'WHERE '+ where.join(' AND ') : '';
       const sql = `WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
-        SELECT c.id,c.name,c.set_name,c.rarity,c.image_url,c.types,
+        SELECT c.id,c.name,c.set_name,c.rarity,c.image_url,c.types,c.number,
           (SELECT s.signal FROM signals_daily s WHERE s.card_id=c.id AND s.as_of=latest.d) AS signal,
           (SELECT ROUND(s.score,1) FROM signals_daily s WHERE s.card_id=c.id AND s.as_of=latest.d) AS score,
           (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
@@ -2414,11 +2431,65 @@ export default {
         if (Date.now() - last >= mins*60000) due.push(String(r.dataset));
       }
       // For MVP just update last_run_at and increment metric
+      const body:any = await req.json().catch(()=>({}));
+      const runFlag = body.run === true || body.run === 1 || body.run === '1' || url.searchParams.get('run') === '1';
       for (const d of due) {
         await env.DB.prepare(`UPDATE ingestion_schedule SET last_run_at=? WHERE dataset=?`).bind(nowIso, d).run();
         incMetric(env, 'ingest.scheduled_run');
       }
-      return json({ ok:true, ran: due });
+      let ingestRuns: any[]|undefined;
+      if (runFlag && due.length) {
+        ingestRuns = await runIncrementalIngestion(env, { datasets: due, maxDays: 1 });
+      }
+      return json({ ok:true, ran: due, ingested: ingestRuns });
+    }
+    // Admin: list alerts with filters
+    if (url.pathname === '/admin/alerts' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      await ensureAlertsTable(env);
+      const email = (url.searchParams.get('email')||'').trim();
+      const active = url.searchParams.get('active'); // '1' | '0'
+      const suppressed = url.searchParams.get('suppressed'); // '1' | '0'
+      const where: string[] = [];
+      const binds: any[] = [];
+      if (email) { where.push('email=?'); binds.push(email); }
+      if (active === '1' || active === '0') { where.push('active=?'); binds.push(Number(active)); }
+      if (suppressed === '1') { where.push('suppressed_until IS NOT NULL AND suppressed_until > datetime(\'now\')'); }
+      if (suppressed === '0') { where.push('(suppressed_until IS NULL OR suppressed_until < datetime(\'now\'))'); }
+      const sql = `SELECT id,email,card_id,kind,active,${await getAlertThresholdCol(env)} AS threshold,suppressed_until,last_fired_at,fired_count FROM alerts_watch ${where.length? 'WHERE '+where.join(' AND '):''} ORDER BY created_at DESC LIMIT 200`;
+      const rs = await env.DB.prepare(sql).bind(...binds).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    // Admin: alert stats summary
+    if (url.pathname === '/admin/alerts/stats' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      await ensureAlertsTable(env);
+      const rs = await env.DB.prepare(`SELECT active, suppressed_until, fired_count FROM alerts_watch`).all();
+      let total=0, activeCount=0, suppressed=0; let ge5=0, ge10=0, ge25=0;
+      for (const r of (rs.results||[]) as any[]) {
+        total++;
+        const act = Number(r.active)||0; if (act) activeCount++;
+        const sup = r.suppressed_until && Date.parse(String(r.suppressed_until)) > Date.now(); if (sup) suppressed++;
+        const fc = Number(r.fired_count)||0;
+        if (fc>=5) ge5++; if (fc>=10) ge10++; if (fc>=25) ge25++;
+      }
+      return json({ ok:true, total, active: activeCount, suppressed, active_unsuppressed: activeCount - suppressed, escalation:{ ge5, ge10, ge25 } });
+    }
+    // Portfolio order detail (returns stored suggestions & executed_trades)
+    if (url.pathname === '/portfolio/orders/detail' && req.method === 'GET') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      const id = (url.searchParams.get('id')||'').trim();
+      if (!id) return json({ ok:false, error:'id_required' },400);
+      const rs = await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at, suggestions, executed_trades FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id, pid).all();
+      const row:any = rs.results?.[0];
+      if (!row) return json({ ok:false, error:'not_found' },404);
+      let suggestions:any = null, executed_trades:any = null;
+      try { if (row.suggestions) suggestions = JSON.parse(row.suggestions); } catch {/* ignore */}
+      try { if (row.executed_trades) executed_trades = JSON.parse(row.executed_trades); } catch {/* ignore */}
+      return json({ ok:true, id: row.id, status: row.status, objective: row.objective, created_at: row.created_at, executed_at: row.executed_at, suggestions, executed_trades });
     }
     if (url.pathname === '/portfolio/attribution' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
