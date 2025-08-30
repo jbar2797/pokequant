@@ -64,6 +64,13 @@ All notable changes to this project will be documented here.
 - /portfolio/exposure/history endpoint
 - factor_returns data added to /admin/snapshot
 
+## [0.5.8] - 2025-08-30
+### Added
+- Portfolio performance attribution endpoint /portfolio/attribution (factor contribution vs residual)
+- Admin manual snapshot endpoints: /admin/portfolio-exposure/snapshot, /admin/portfolio-nav/snapshot
+### Changed
+- OpenAPI version bump to 0.5.8
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.
