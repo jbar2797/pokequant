@@ -12,6 +12,8 @@ All notable changes to this project will be documented here.
  - Expose cache_hit_ratios in /admin/metrics
  - CI workflow: contract + version check, lint, typecheck, tests
  - Stronger ETag invalidation signature (include latest svi & component dates)
+ - Document /admin/retention endpoint in OpenAPI and add component schemas for factor analytics
+ - Add retention.spec.ts test to validate retention purge endpoint
 
 ## [0.2.5] - 2025-08-29
 - Add /admin/integrity endpoint summarizing latest dates, coverage counts, gap heuristic, and stale datasets

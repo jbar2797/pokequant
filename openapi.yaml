@@ -344,20 +344,10 @@ paths:
     post:
       summary: Delete factor from configuration (admin)
       responses: { '200': { description: OK } }
-  /admin/factors:
-    get:
-      summary: List factor configuration (admin)
-      responses: { '200': { description: OK } }
+  /admin/retention:
     post:
-      summary: Upsert factor configuration entry (admin)
-      responses: { '200': { description: OK } }
-  /admin/factors/toggle:
-    post:
-      summary: Toggle factor enabled flag (admin)
-      responses: { '200': { description: OK } }
-  /admin/factors/delete:
-    post:
-      summary: Delete factor from configuration (admin)
+      summary: Run data retention purge (admin)
+      description: Applies retention windows to historical tables and returns deleted row counts per table.
       responses: { '200': { description: OK } }
   /admin/backtests/{id}:
     get:
@@ -516,3 +506,45 @@ components:
         manage_token: { type: string }
         manage_url: { type: string }
       required: [ok, id, manage_token, manage_url]
+    FactorRiskPair:
+      type: object
+      properties:
+        factor_i: { type: string }
+        factor_j: { type: string }
+        cov: { type: number, nullable: true }
+        corr: { type: number, nullable: true }
+      required: [factor_i, factor_j]
+    FactorMetric:
+      type: object
+      properties:
+        as_of: { type: string }
+        factor: { type: string }
+        vol: { type: number, nullable: true }
+        beta: { type: number, nullable: true }
+      required: [as_of, factor]
+    FactorReturnSmoothed:
+      type: object
+      properties:
+        as_of: { type: string }
+        factor: { type: string }
+        ret_smoothed: { type: number, nullable: true }
+      required: [as_of, factor]
+    SignalQualityMetric:
+      type: object
+      properties:
+        as_of: { type: string }
+        factor: { type: string }
+        ic_mean: { type: number, nullable: true }
+        ic_vol: { type: number, nullable: true }
+        ic_ir: { type: number, nullable: true }
+        ic_half_life: { type: number, nullable: true }
+      required: [as_of, factor]
+    PortfolioPnlRow:
+      type: object
+      properties:
+        portfolio_id: { type: string }
+        as_of: { type: string }
+        ret: { type: number, nullable: true }
+        realized_pnl: { type: number, nullable: true }
+        turnover_cost: { type: number, nullable: true }
+      required: [portfolio_id, as_of]
