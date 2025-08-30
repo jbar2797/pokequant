@@ -841,6 +841,8 @@ async function runBacktest(env: Env, params: { lookbackDays?: number, txCostBps?
   const slippageBps = params.slippageBps ?? 0; // applied similarly to tx cost (per leg)
   // Collect per-day scores (signals_daily.score) and prices to compute daily return of top vs bottom quintile each day.
   const since = isoDaysAgo(look);
+  // Hard guard: limit per-day rows to cap CPU in test/CI environments. Using window function would be nicer but keep SQLite-simple.
+  // Strategy: fetch all then slice top N per day in JS (N=150) which is fine for small scale; avoids complex SQL.
   const rs = await env.DB.prepare(`SELECT s.card_id, s.as_of, s.score,
     (SELECT price_usd FROM prices_daily p WHERE p.card_id=s.card_id AND p.as_of=s.as_of) AS px
     FROM signals_daily s WHERE s.as_of >= ? ORDER BY s.as_of ASC, s.score DESC`).bind(since).all();
@@ -848,13 +850,14 @@ async function runBacktest(env: Env, params: { lookbackDays?: number, txCostBps?
   if (!rows.length) return { ok:false, error:'no_data' };
   // group by day
   const byDay = new Map<string, any[]>();
-  for (const r of rows) { const d = String(r.as_of); const arr = byDay.get(d)||[]; arr.push(r); byDay.set(d, arr); }
+  for (const r of rows) { const d = String(r.as_of); const arr = byDay.get(d)||[]; if (arr.length < 150) { arr.push(r); byDay.set(d, arr); } }
   const dates = Array.from(byDay.keys()).sort();
   let equity = 1; const curve: { d:string; equity:number; spreadRet:number }[] = [];
   let maxEquity = 1; let maxDrawdown = 0;
   let sumSpread = 0; let sumSqSpread = 0; let nSpread = 0;
   let prevTopIds: string[] = []; let prevBottomIds: string[] = []; let turnoverSum = 0; let turnoverDays = 0;
   for (let i=1;i<dates.length;i++) { // need prior day price to compute return; simplified using px field
+    if (curve.length >= 60) break; // runtime guard: cap processed days
     const todayD = dates[i];
     const arr = byDay.get(todayD)||[];
     if (arr.length < 10) continue;
@@ -896,7 +899,7 @@ async function runBacktest(env: Env, params: { lookbackDays?: number, txCostBps?
   const volSpread = nSpread ? Math.sqrt(Math.max(0, (sumSqSpread/nSpread) - avgSpread*avgSpread)) : 0;
   const sharpe = volSpread ? (avgSpread/volSpread) * Math.sqrt(252) : 0; // daily to annualized
   const turnover = turnoverDays ? turnoverSum / turnoverDays : 0;
-  const metrics = { final_equity: equity, days: curve.length, avg_daily_spread: avgSpread, spread_vol: volSpread, sharpe, max_drawdown: maxDrawdown, turnover };
+  const metrics = { final_equity: equity, days: curve.length, avg_daily_spread: avgSpread, spread_vol: volSpread, sharpe, max_drawdown: maxDrawdown, turnover, truncated: dates.length>60 };
   const id = crypto.randomUUID();
   await env.DB.prepare(`INSERT INTO backtests (id, created_at, params, metrics, equity_curve) VALUES (?,?,?, ?, ? )`)
     .bind(id, new Date().toISOString(), JSON.stringify(params), JSON.stringify(metrics), JSON.stringify(curve)).run();
