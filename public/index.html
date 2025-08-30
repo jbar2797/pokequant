@@ -10,24 +10,31 @@
   <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.4/dist/tailwind.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
-    :root { --grad: linear-gradient(135deg,#111827,#1f2937,#0f172a); }
-    body { font-family: 'Inter', system-ui, sans-serif; }
-    .glass { background: rgba(255,255,255,0.06); backdrop-filter: blur(10px); }
+  :root { --grad: radial-gradient(circle at 20% 20%, #1e3a8a 0%, #0f172a 55%, #020617 100%); }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--grad); background-attachment: fixed; }
+  .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(14px) saturate(140%); }
     .dark .glass { background: rgba(255,255,255,0.08); }
     .badge { border-radius: 0.375rem; padding: 0.15rem 0.5rem; font-size: .65rem; font-weight:600; letter-spacing:.5px; }
     .badge-buy { background: #05966922; color:#10b981; border:1px solid #10b98155; }
     .badge-hold{ background: #6b728022; color:#9ca3af; border:1px solid #6b728055; }
     .badge-sell{ background: #dc262622; color:#ef4444; border:1px solid #ef444455; }
-    .grid-movers { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
-    .card-tiny { border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px; background:linear-gradient(145deg,#1f2937,#111827); box-shadow:0 4px 14px -4px rgba(0,0,0,0.4); }
+  .grid-movers { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:14px; }
+  .card-tiny { position:relative; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:12px; background:linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01)); box-shadow:0 4px 18px -6px rgba(0,0,0,0.5); transition: border-color .25s, transform .25s; }
+  .card-tiny:hover { border-color: rgba(99,102,241,0.5); transform: translateY(-2px); }
     .light .card-tiny { background:#fff; border-color:#e5e7eb; }
     .hover-row:hover { background: rgba(255,255,255,0.05); }
     .light .hover-row:hover { background:#f9fafb; }
-    .section-card { border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; background:linear-gradient(160deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015)); }
+  .section-card { border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:22px 22px 24px; background:linear-gradient(155deg,rgba(255,255,255,0.055),rgba(255,255,255,0.015)); box-shadow:0 6px 28px -10px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05); }
     .light .section-card { background:#fff; border-color:#e5e7eb; }
     .nav-active { color:#60a5fa; }
     .scrollbar-thin::-webkit-scrollbar { height:8px; width:8px; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background:#374151; border-radius:4px; }
+  .skeleton-shimmer { position:relative; overflow:hidden; background:linear-gradient(90deg,#1e293b 0,#27364b 40%,#1e293b 80%); background-size:200% 100%; animation:shimmer 2.2s infinite; }
+  @keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
+  .brand-grad { background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:700; letter-spacing:-0.02em; }
+  .app-header { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
+  .app-header h1 { font-size:clamp(1.35rem,2.2vw,2rem); font-weight:600; }
+  .divider-faint { height:1px; background:linear-gradient(90deg,transparent,#334155,transparent); margin:8px 0 14px; }
   </style>
 </head>
 <body class="h-full bg-slate-950 text-slate-100 light:bg-slate-50 light:text-slate-900 transition-colors antialiased">

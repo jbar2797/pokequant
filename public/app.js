@@ -30,9 +30,22 @@ function miniBadge(signal){ const s=(signal||'—').toUpperCase(); let b='badge-
 // ---------- Theme ----------
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 let dark = localStorage.getItem('pq_dark') ? localStorage.getItem('pq_dark') === '1' : prefersDark;
-function applyTheme(){ if(dark){ document.documentElement.classList.add('dark'); document.body.classList.remove('light'); $('#themeToggle').textContent='🌙'; } else { document.documentElement.classList.remove('dark'); document.body.classList.add('light'); $('#themeToggle').textContent='☀️'; } }
-$('#themeToggle')?.addEventListener('click', ()=>{ dark=!dark; localStorage.setItem('pq_dark', dark?'1':'0'); applyTheme(); });
-$$('.theme-toggle').forEach(btn=> btn.addEventListener('click', ()=>{ dark=!dark; localStorage.setItem('pq_dark', dark?'1':'0'); applyTheme(); }));
+function applyTheme(){
+  if(dark){
+    document.documentElement.classList.add('dark');
+    document.body.classList.remove('light');
+  } else {
+    document.documentElement.classList.remove('dark');
+    document.body.classList.add('light');
+  }
+  // Update any theme toggle labels (support legacy #themeToggle & new .theme-toggle)
+  const icon = dark ? '🌙' : '☀️';
+  $('#themeToggle') && ($('#themeToggle').textContent = icon);
+  $$('.theme-toggle').forEach(b=> b.textContent = icon + (b.classList.contains('px-3')? '':'') );
+}
+function toggleTheme(){ dark=!dark; localStorage.setItem('pq_dark', dark?'1':'0'); applyTheme(); }
+$('#themeToggle')?.addEventListener('click', toggleTheme);
+$$('.theme-toggle').forEach(btn=> btn.addEventListener('click', toggleTheme));
 applyTheme();
 
 // ---------- Navigation ----------
@@ -139,8 +152,19 @@ async function refreshAdmin(){ loadMiniMetrics(); try { const stats = await fetc
 // ---------- Polling (lightweight) ----------
 let moversInterval = setInterval(loadMovers, 60_000);
 
-// ---------- Initial Loads ----------
-loadMovers(); loadUniverse(); loadMiniMetrics(); loadFactorPerformance(); loadIcSummary(); refreshAdmin(); loadFactorCorrelations();
+// ---------- Initial Loads (guarded) ----------
+async function initialLoad(){
+  try { loadMovers(); } catch(e){ console.error(e); }
+  try { loadUniverse(); } catch(e){ console.error(e); }
+  try { loadMiniMetrics(); } catch(e){ console.error(e); }
+  try { loadFactorPerformance(); loadIcSummary(); loadFactorCorrelations(); } catch(e){ console.error(e); }
+  try { refreshAdmin(); } catch(e){ console.error(e); }
+}
+if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialLoad); else initialLoad();
+
+// Global error surface
+window.addEventListener('error', ev=> { toast('UI error: '+ (ev.message||'unknown'),'error',{ ttl:5000 }); });
+window.addEventListener('unhandledrejection', ev=> { toast('Promise error','error'); });
 
 // Enhance: global search bridges to cards view filtering
 const globalSearchEl = document.getElementById('globalSearch');
