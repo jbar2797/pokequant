@@ -579,6 +579,7 @@ export default {
     // Router dispatch first (modularized endpoints)
     try {
       await Promise.all([
+  import('./routes/factors'),
         import('./routes/admin'),
         import('./routes/public'),
         import('./routes/alerts'),
@@ -1165,65 +1166,7 @@ export default {
       return json({ ok:true, version: APP_VERSION });
     }
 
-    // Factor weights CRUD
-    if (url.pathname === '/admin/factor-weights' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const body: any = await req.json().catch(()=>({}));
-      const version = (body.version||'').toString().trim() || ('manual'+Date.now());
-      const weights = Array.isArray(body.weights) ? body.weights : [];
-      if (!weights.length) return json({ ok:false, error:'weights_required' },400);
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_weights (version TEXT, factor TEXT, weight REAL, active INTEGER, created_at TEXT, PRIMARY KEY(version,factor));`).run();
-      await env.DB.prepare(`UPDATE factor_weights SET active=0 WHERE active=1`).run();
-      for (const w of weights) {
-        const f = (w.factor||'').toString();
-        const wt = Number(w.weight);
-        if (!f || !Number.isFinite(wt)) continue;
-        await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(version,f,wt,1).run();
-      }
-  await audit(env, { actor_type:'admin', action:'upsert', resource:'factor_weights', resource_id:version, details:{ factors: weights.length } });
-      return json({ ok:true, version, factors: weights.length });
-    }
-    if (url.pathname === '/admin/factor-weights' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT version, factor, weight, active, created_at FROM factor_weights ORDER BY created_at DESC, factor ASC LIMIT 200`).all();
-      return json({ ok:true, rows: rs.results||[] });
-    }
-    if (url.pathname === '/admin/factor-weights/auto' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      let q = await env.DB.prepare(`SELECT factor, AVG(ABS(ic)) AS strength FROM factor_ic WHERE as_of >= date('now','-29 day') GROUP BY factor`).all();
-      let rows = (q.results||[]) as any[];
-      try {
-        const enabled = await getFactorUniverse(env);
-        rows = rows.filter(r=> enabled.includes(String(r.factor)));
-      } catch {/* ignore */}
-      if (!rows.length) {
-        await computeFactorIC(env);
-        q = await env.DB.prepare(`SELECT factor, AVG(ABS(ic)) AS strength FROM factor_ic WHERE as_of >= date('now','-90 day') GROUP BY factor`).all();
-        rows = (q.results||[]) as any[];
-        try {
-          const enabled = await getFactorUniverse(env);
-          rows = rows.filter(r=> enabled.includes(String(r.factor)));
-        } catch {/* ignore */}
-      }
-      if (!rows.length) {
-        let comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
-        if (!comp.results?.length) {
-          try { await computeSignalsBulk(env, 30); } catch {/* ignore */}
-          comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
-        }
-        const factorsFallback = ['ts7','ts30','z_svi'];
-        rows = factorsFallback.map(f=> ({ factor: f, strength: 1 }));
-      }
-      const sum = rows.reduce((a,r)=> a + (Number(r.strength)||0),0) || 1;
-      const genVersion = 'auto'+ new Date().toISOString().slice(0,19).replace(/[:T]/g,'').replace(/-/g,'');
-      await env.DB.prepare(`UPDATE factor_weights SET active=0 WHERE active=1`).run();
-      for (const r of rows) {
-        const w = (Number(r.strength)||0)/sum;
-        await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(genVersion, r.factor, w, 1).run();
-      }
-  await audit(env, { actor_type:'admin', action:'auto_weights', resource:'factor_weights', resource_id:genVersion, details:{ factors: rows.length } });
-      return json({ ok:true, version: genVersion, factors: rows.length });
-    }
+  // (Factor weights CRUD endpoints removed in favor of routes/factors.ts)
 
     // Run alerts only (for tests / manual)
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
