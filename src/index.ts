@@ -372,6 +372,7 @@ async function pipelineRun(env: Env) {
   const t2 = Date.now();
   const alerts = await runAlerts(env);
   const t3 = Date.now();
+  await updateDataCompleteness(env); // record today's counts
 
   const today = new Date().toISOString().slice(0,10);
   const [prices, signals] = await Promise.all([
@@ -387,6 +388,27 @@ async function pipelineRun(env: Env) {
     alerts,
     timingsMs: { fetchUpsert: t1-t0, bulkCompute: t2-t1, alerts: t3-t2, total: t3-t0 }
   };
+}
+
+// ----- Data completeness ledger helpers -----
+async function updateDataCompleteness(env: Env) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS data_completeness (dataset TEXT, as_of DATE, rows INTEGER, PRIMARY KEY(dataset,as_of));`).run();
+    const today = new Date().toISOString().slice(0,10);
+    const datasets: [string,string][] = [
+      ['prices_daily','SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?'],
+      ['signals_daily','SELECT COUNT(*) AS n FROM signals_daily WHERE as_of=?'],
+      ['svi_daily','SELECT COUNT(*) AS n FROM svi_daily WHERE as_of=?'],
+      ['signal_components_daily','SELECT COUNT(*) AS n FROM signal_components_daily WHERE as_of=?']
+    ];
+    for (const [ds, sql] of datasets) {
+      const r = await env.DB.prepare(sql).bind(today).all();
+      const n = Number(r.results?.[0]?.n)||0;
+      await env.DB.prepare(`INSERT OR REPLACE INTO data_completeness (dataset, as_of, rows) VALUES (?,?,?)`).bind(ds, today, n).run();
+    }
+  } catch (e) {
+    log('data_completeness_update_error', { error: String(e) });
+  }
 }
 
 // ---------- HTTP ----------
@@ -932,6 +954,12 @@ export default {
             if (age > staleThresholdDays) stale.push(k);
           }
         }
+        // Pull completeness ledger (last 14 days)
+        let completeness: any[] = [];
+        try {
+          const crs = await env.DB.prepare(`SELECT dataset, as_of, rows FROM data_completeness WHERE as_of >= date('now','-13 day') ORDER BY as_of DESC, dataset`).all();
+          completeness = crs.results || [];
+        } catch { /* ignore */ }
         return json({
           ok: true,
             total_cards: cards.results?.[0]?.n ?? 0,
@@ -948,7 +976,8 @@ export default {
               svi_daily: gsv,
               signal_components_daily: gcc
             },
-            stale
+            stale,
+            completeness
         });
       } catch (e:any) {
         return json({ ok:false, error:String(e) }, 500);
@@ -1039,6 +1068,7 @@ export default {
     try {
   const bulk = await computeSignalsBulk(env, 365);
   await runAlerts(env);
+  await updateDataCompleteness(env);
   log('cron_run', bulk);
     } catch (e) {
   log('cron_error', { error: String(e) });

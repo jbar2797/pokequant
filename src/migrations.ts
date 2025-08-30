@@ -118,6 +118,17 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   manage_token TEXT
 );
 ` }
+  ,
+  {
+    id: '0006_data_completeness',
+    description: 'Add data_completeness ledger table for per-dataset per-day row counts',
+    sql: `CREATE TABLE IF NOT EXISTS data_completeness (
+  dataset TEXT NOT NULL,
+  as_of DATE NOT NULL,
+  rows INTEGER NOT NULL,
+  PRIMARY KEY(dataset, as_of)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

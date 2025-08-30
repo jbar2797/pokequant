@@ -16,6 +16,9 @@ All notable changes to this project will be documented here.
 ## [0.2.5] - 2025-08-29
 - Add /admin/integrity endpoint summarizing latest dates, coverage counts, gap heuristic, and stale datasets
 
+## [0.2.6] - 2025-08-29
+- Add data_completeness ledger (migration 0006) and surface recent completeness history in /admin/integrity
+
 ## [0.2.4] - 2025-08-29
 - Add lightweight ETag support on public read endpoints (conditional GETs)
 - Add standard X-RateLimit-* headers + Retry-After

@@ -14,5 +14,6 @@ describe('Admin integrity', () => {
     expect(j.coverage_latest && typeof j.coverage_latest === 'object').toBe(true);
     expect(j.gaps_last_30 && typeof j.gaps_last_30 === 'object').toBe(true);
     expect(Array.isArray(j.stale)).toBe(true);
+    expect(Array.isArray(j.completeness)).toBe(true);
   });
 });
