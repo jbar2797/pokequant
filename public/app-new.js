@@ -1,12 +1,15 @@
 // New application entry (v0.7.2)
 import { VERSION, fetchJSON, PLACEHOLDER, signalBadge, fmtUSD, abbreviateSet } from './core.js';
 import { loadMovers, wireMoversClicks } from './movers.js';
+import { toast, setStatus } from './toast.js';
+import './theme.js';
+import './health.js';
 
 const rootVersionEl = document.getElementById('appVersion');
 if(rootVersionEl) rootVersionEl.textContent = VERSION;
 
 // Simple state
-const state = { cards: [], view: 'overview' };
+const state = { cards: [], view: 'overview', filtered: [] };
 
 // Navigation
 function switchView(v){
@@ -29,15 +32,18 @@ async function loadCards(){
     let data = await fetchJSON('/api/cards');
     if(!data.length) data = await fetchJSON('/api/universe');
     state.cards = data.map(c=> ({ ...c, number: c.number || c.card_number || '' }));
+    state.filtered = state.cards;
     renderCards();
-  } catch(e){ if(host) host.innerHTML = '<tr><td colspan="6">Error loading cards</td></tr>'; }
+    setStatus('Cards loaded','success');
+  } catch(e){ if(host) host.innerHTML = '<tr><td colspan="6">Error loading cards</td></tr>'; setStatus('Cards load failed','error'); }
 }
 
 function renderCards(){
   const host = document.getElementById('cardsTableBody');
   if(!host) return;
-  if(!state.cards.length){ host.innerHTML = '<tr><td colspan="6">No data</td></tr>'; return; }
-  host.innerHTML = state.cards.slice(0,200).map(c=> row(c)).join('');
+  const list = state.filtered;
+  if(!list.length){ host.innerHTML = '<tr><td colspan="6">No data</td></tr>'; return; }
+  host.innerHTML = list.slice(0,200).map(c=> row(c)).join('');
 }
 function row(c){
   const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—');
@@ -53,12 +59,22 @@ function row(c){
   </tr>`;
 }
 
+// Simple client-side filter bound to globalSearch
+const globalSearch = document.getElementById('globalSearch');
+if(globalSearch){
+  globalSearch.addEventListener('input', ()=> {
+    const q = globalSearch.value.toLowerCase();
+    if(!q) state.filtered = state.cards; else state.filtered = state.cards.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q)) );
+    renderCards();
+  });
+}
+
 // Card modal removed (temporary) to resolve persistent rectangle issue.
 function openCard(id){ /* modal disabled */ }
 
 // Movers wiring
 wireMoversClicks(openCard);
-loadMovers();
+loadMovers().catch(()=> setStatus('Movers load failed','error'));
 
 // Expose basic debug
 window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard };

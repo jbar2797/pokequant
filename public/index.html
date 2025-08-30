@@ -11,9 +11,12 @@
   </head>
   <body>
     <div class="deploy-banner">DEPLOY OVERHAUL 0.7.2 — NEW SHELL ACTIVE</div>
+    <div id="toastHost" style="position:fixed;top:46px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:400"></div>
+    <div id="statusBanner" style="position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#162132;color:#e5ecf5;font-size:11px;padding:6px 10px;border:1px solid #253349;border-radius:8px;display:none;z-index:380"></div>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
+        <button id="themeToggle" style="font-size:11px;padding:6px 10px;border:1px solid #253349;background:#162132;color:#e5ecf5;border-radius:8px;cursor:pointer">🌙</button>
         <nav class="nav" aria-label="Primary">
           <button data-view="overview" class="active" aria-current="page">Overview</button>
           <button data-view="cards">Cards</button>
@@ -35,6 +38,10 @@
             <div class="panel">
               <h2>Biggest Losers</h2>
               <div id="moversDown" class="grid-tiles"></div>
+            </div>
+            <div class="panel">
+              <h2>System Health</h2>
+              <div id="healthInfo" style="font-size:12px;opacity:.75">Loading health…</div>
             </div>
           </section>
           <section data-panel="cards" hidden>
@@ -61,8 +68,11 @@
       </div>
     </div>
   <!-- Modal removed to fix persistent rectangle; will reintroduce later with proper lifecycle -->
-    <script type="module" src="/core.js?v=0.7.2"></script>
-    <script type="module" src="/movers.js?v=0.7.2"></script>
-    <script type="module" src="/app-new.js?v=0.7.2"></script>
+  <script type="module" src="/core.js?v=0.7.2"></script>
+  <script type="module" src="/movers.js?v=0.7.2"></script>
+  <script type="module" src="/toast.js?v=0.7.2"></script>
+  <script type="module" src="/theme.js?v=0.7.2"></script>
+  <script type="module" src="/health.js?v=0.7.2"></script>
+  <script type="module" src="/app-new.js?v=0.7.2"></script>
   </body>
 </html>
