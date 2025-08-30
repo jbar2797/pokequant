@@ -485,6 +485,89 @@ async function loadAdminMetrics(){
   } catch(e){ const list = document.getElementById('adminMetricsList'); if(list) list.innerHTML = '<li style="opacity:.6">Metrics unavailable</li>'; announce('Admin metrics unavailable','error'); }
 }
 
+// --- Alerts Admin Panel ---
+const alertAdminBody = document.getElementById('alertAdminBody');
+const alertAdminFilters = document.getElementById('alertAdminFilters');
+const alertAdminStatsBtn = document.getElementById('alertAdminStatsBtn');
+const alertAdminStats = document.getElementById('alertAdminStats');
+
+async function loadAdminAlerts(e){
+  if(e) e.preventDefault();
+  if(!ADMIN_TOKEN){ announce('Set admin token first','error'); return; }
+  if(alertAdminBody) alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;opacity:.6">Loading…</td></tr>';
+  const fd = new FormData(alertAdminFilters);
+  const params = new URLSearchParams();
+  for(const [k,v] of fd.entries()){ if(v) params.append(k, v.toString()); }
+  try {
+    const r = await fetchJSON('/admin/alerts'+(params.toString()? ('?'+params.toString()):''), { headers: { 'x-admin-token': ADMIN_TOKEN } });
+    if(!alertAdminBody) return;
+    const rows = r.rows||[];
+    if(!rows.length){ alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;opacity:.6">No alerts</td></tr>'; return; }
+    alertAdminBody.innerHTML = rows.slice(0,400).map(a=> alertRow(a)).join('');
+    wireAlertActions();
+  } catch(err){ if(alertAdminBody) alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;color:#f87171">Load failed</td></tr>'; announce('Alerts load failed','error'); }
+}
+
+function alertRow(a){
+  return `<tr data-alert-id='${a.id}'>
+    <td style='padding:4px 6px;font-family:monospace;font-size:10px'>${a.id.slice(0,8)}</td>
+    <td style='padding:4px 6px'>${a.email||''}</td>
+    <td style='padding:4px 6px'>${a.card_id||''}</td>
+    <td style='padding:4px 6px'>${a.kind||''}</td>
+    <td style='padding:4px 6px'>${a.threshold!=null? a.threshold:''}</td>
+    <td style='padding:4px 6px'>${a.active? '✅':'❌'}</td>
+    <td style='padding:4px 6px;font-size:10px;${a.suppressed_until?'':'opacity:.4'}'>${a.suppressed_until? a.suppressed_until.replace('T',' ').slice(0,16):'—'}</td>
+    <td style='padding:4px 6px'>${a.fired_count!=null? a.fired_count:''}</td>
+    <td style='padding:4px 6px;display:flex;gap:4px;flex-wrap:wrap'>
+      <button data-alert-action='deactivate' style='background:#b91c1c;border:1px solid #b91c1c;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Deactivate</button>
+      <button data-alert-action='snooze' style='background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Snooze</button>
+    </td>
+  </tr>`;
+}
+
+function wireAlertActions(){
+  alertAdminBody?.querySelectorAll('tr').forEach(tr=> {
+    tr.querySelectorAll('button[data-alert-action]').forEach(btn=> {
+      btn.addEventListener('click', ()=> handleAlertAction(tr.getAttribute('data-alert-id'), btn.getAttribute('data-alert-action')));
+    });
+  });
+}
+
+async function handleAlertAction(id, action){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  try {
+    if(action==='deactivate'){
+      await fetchJSON(`/alerts/deactivate?id=${encodeURIComponent(id)}`,{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+      announce('Alert deactivated','success');
+    } else if(action==='snooze'){
+      const minutes = prompt('Snooze minutes (max 10080):','60');
+      if(!minutes) return; const mins = parseInt(minutes,10); if(!Number.isFinite(mins)||mins<1) return announce('Bad minutes','error');
+      // Snooze requires POST with minutes + token; admin may not have manage token. Attempt anyway.
+      await fetchJSON(`/alerts/snooze?id=${encodeURIComponent(id)}`,{ method:'POST', headers:{ 'content-type':'application/json','x-admin-token': ADMIN_TOKEN }, body: JSON.stringify({ minutes: mins, token: 'admin' }) });
+      announce('Alert snoozed','success');
+    }
+    loadAdminAlerts();
+  } catch(e){ announce('Action failed','error'); }
+}
+
+async function loadAlertStats(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  if(alertAdminStats) alertAdminStats.textContent = 'Loading stats…';
+  try {
+    const r = await fetchJSON('/admin/alerts/stats',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    if(alertAdminStats){
+      alertAdminStats.innerHTML = `<strong>${r.total}</strong> total • active ${r.active} • suppressed ${r.suppressed} • unsuppressed ${r.active_unsuppressed} • escalations >=5:${r.escalation?.ge5} >=10:${r.escalation?.ge10} >=25:${r.escalation?.ge25}`;
+    }
+  } catch(e){ if(alertAdminStats) alertAdminStats.textContent='Stats unavailable'; announce('Alert stats failed','error'); }
+}
+
+if(alertAdminFilters){
+  alertAdminFilters.addEventListener('submit', loadAdminAlerts);
+}
+if(alertAdminStatsBtn){
+  alertAdminStatsBtn.addEventListener('click', loadAlertStats);
+}
+
 if(globalSearch){
   globalSearch.addEventListener('input', ()=> {
     const q = globalSearch.value.toLowerCase();
@@ -501,6 +584,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');

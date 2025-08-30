@@ -66,6 +66,46 @@
               </form>
               <div id="alertQuickResult" style="margin-top:10px;font-size:11px;opacity:.75"></div>
             </div>
+            <div class="panel" id="alertAdminPanel">
+              <h2>Alerts (Admin)</h2>
+              <form id="alertAdminFilters" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px">
+                <label style="display:flex;flex-direction:column;gap:4px">Email <input name="email" placeholder="filter email" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:170px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Active
+                  <select name="active" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:100px">
+                    <option value="">(any)</option>
+                    <option value="1">Active</option>
+                    <option value="0">Inactive</option>
+                  </select>
+                </label>
+                <label style="display:flex;flex-direction:column;gap:4px">Suppressed
+                  <select name="suppressed" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px">
+                    <option value="">(any)</option>
+                    <option value="1">Suppressed</option>
+                    <option value="0">Unsuppressed</option>
+                  </select>
+                </label>
+                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
+                <button type="button" id="alertAdminStatsBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Stats</button>
+              </form>
+              <div id="alertAdminStats" style="font-size:11px;opacity:.75;margin-bottom:6px"></div>
+              <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:320px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:780px">
+                  <thead style="position:sticky;top:0;background:#101726"><tr>
+                    <th style="text-align:left;padding:6px 8px">ID</th>
+                    <th style="text-align:left;padding:6px 8px">Email</th>
+                    <th style="text-align:left;padding:6px 8px">Card</th>
+                    <th style="text-align:left;padding:6px 8px">Kind</th>
+                    <th style="text-align:left;padding:6px 8px">Thresh</th>
+                    <th style="text-align:left;padding:6px 8px">Active</th>
+                    <th style="text-align:left;padding:6px 8px">Suppressed Until</th>
+                    <th style="text-align:left;padding:6px 8px">Fired</th>
+                    <th style="text-align:left;padding:6px 8px">Actions</th>
+                  </tr></thead>
+                  <tbody id="alertAdminBody"></tbody>
+                </table>
+              </div>
+              <div style="font-size:10px;opacity:.55;margin-top:6px">Snooze requires manage token (returned on creation). Deactivate may not require token (admin flow).</div>
+            </div>
             <div class="panel" id="portfolioPanel">
               <h2>Portfolio Summary</h2>
               <form id="portfolioAuth" style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;margin-bottom:12px">
