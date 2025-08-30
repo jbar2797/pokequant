@@ -134,6 +134,13 @@ All notable changes to this project will be documented here.
 ### Changed
 - Version bump to 0.5.17 (spec, package, version.ts)
 
+## [0.5.18] - 2025-08-30
+### Added
+- Data retention helper purgeOldData invoked by daily cron (lightweight DELETE with table existence checks)
+- On-demand retention endpoint /admin/retention (POST) returning per-table deleted row counts (audited)
+### Changed
+- Version bump to 0.5.18 (spec, package, version.ts)
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.

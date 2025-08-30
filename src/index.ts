@@ -1132,13 +1132,12 @@ export default {
         for (let i=0;i<days;i++) {
           const d = new Date(from.getTime() + i*86400000).toISOString().slice(0,10);
           for (const c of cards) {
-            // Skip if already have a row for that date
-            const have = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind(c.id,d).all();
+            const have = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind((c as any).id, d).all();
             if (have.results?.length) continue;
-            const seed = [...(c.id+d)].reduce((a,ch)=> a + ch.charCodeAt(0),0);
-            const base = (seed % 100) + 5;
-            await env.DB.prepare(`INSERT INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`)
-              .bind(c.id, d, base, base*0.92).run();
+            const latest = await env.DB.prepare(`SELECT price_usd, price_eur FROM prices_daily WHERE card_id=? ORDER BY as_of DESC LIMIT 1`).bind((c as any).id).all();
+            const pu = (latest.results?.[0] as any)?.price_usd || Math.random()*50+1;
+            const pe = (latest.results?.[0] as any)?.price_eur || pu*0.9;
+            await env.DB.prepare(`INSERT OR IGNORE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind((c as any).id, d, pu, pe).run();
             inserted++;
           }
         }
@@ -1635,6 +1634,14 @@ export default {
       } catch (e:any) {
         return json({ ok:false, error:String(e) }, 500);
       }
+    }
+
+    // Retention (on-demand purge) - returns number of deleted rows per table
+    if (url.pathname === '/admin/retention' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const deleted = await purgeOldData(env);
+      audit(env, { actor_type:'admin', action:'purge', resource:'retention', resource_id:null, details: deleted });
+      return json({ ok:true, deleted });
     }
 
     // Anomalies list (supports status filtering)
@@ -2299,9 +2306,55 @@ export default {
   await snapshotPortfolioNAV(env);
   await computePortfolioPnL(env);
   await snapshotPortfolioFactorExposure(env);
+  await purgeOldData(env); // apply retention daily (lightweight DELETEs)
   log('cron_run', bulk);
     } catch (e) {
   log('cron_error', { error: String(e) });
     }
   }
 };
+
+// Lightweight retention (placed after export for clarity)
+async function purgeOldData(env: Env) {
+  try {
+    // Retention windows (days)
+    const windows: Record<string, number> = {
+      backtests: 30,
+      mutation_audit: 30,
+      anomalies: 30,
+      metrics_daily: 14,
+      data_completeness: 30
+    };
+    const out: Record<string, number> = {};
+    // Helper executes DELETE only if table exists
+    for (const [table, days] of Object.entries(windows)) {
+      try {
+        const exists = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).all();
+        if (!(exists.results||[]).length) continue;
+        let cond = '';
+        if (table === 'backtests') cond = `created_at < datetime('now','-${days} day')`;
+        else if (table === 'mutation_audit') cond = `ts < datetime('now','-${days} day')`;
+        else if (table === 'metrics_daily' || table === 'data_completeness') cond = `as_of IS NOT NULL AND as_of < date('now','-${days} day')`; // metrics_daily uses d column but we map alias
+        else if (table === 'anomalies') cond = `created_at < datetime('now','-${days} day')`;
+        // Adjust column names
+        if (table === 'metrics_daily') {
+          const del = await env.DB.prepare(`DELETE FROM metrics_daily WHERE d < date('now','-${days} day')`).run();
+          out[table] = (del as any).meta?.changes || 0;
+          continue;
+        }
+        if (table === 'data_completeness') {
+          const del = await env.DB.prepare(`DELETE FROM data_completeness WHERE as_of < date('now','-${days} day')`).run();
+          out[table] = (del as any).meta?.changes || 0;
+          continue;
+        }
+        if (!cond) continue;
+        const del = await env.DB.prepare(`DELETE FROM ${table} WHERE ${cond}`).run();
+        out[table] = (del as any).meta?.changes || 0;
+      } catch (e) { log('retention_table_error', { table, error: String(e) }); }
+    }
+    return out;
+  } catch (e) {
+    log('retention_error', { error: String(e) });
+    return {};
+  }
+}
