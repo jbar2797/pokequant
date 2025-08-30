@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.18
+  version: 0.5.19
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -347,7 +347,10 @@ paths:
   /admin/retention:
     post:
       summary: Run data retention purge (admin)
-      description: Applies retention windows to historical tables and returns deleted row counts per table.
+      description: |
+        Applies retention windows to historical tables and returns deleted row counts per table.
+        Supports optional body windows override: { "windows": { "backtests": 15, "metrics_daily": 10 } } (0-365 days each).
+        Also supports environment variable overrides RETENTION_<TABLE>_DAYS (e.g. RETENTION_BACKTESTS_DAYS=14).
       responses: { '200': { description: OK } }
   /admin/backtests/{id}:
     get:

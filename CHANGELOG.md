@@ -15,6 +15,18 @@ All notable changes to this project will be documented here.
  - Document /admin/retention endpoint in OpenAPI and add component schemas for factor analytics
  - Add retention.spec.ts test to validate retention purge endpoint
 
+## [0.5.19] - 2025-08-30
+### Added
+- Configurable retention overrides: body windows map and RETENTION_<TABLE>_DAYS env vars
+- Retention metrics instrumentation (retention.deleted.<table>) & latency tracking (job.retention)
+### Changed
+- /admin/retention now returns ms duration and echoes applied overrides
+- OpenAPI version bump to 0.5.19 with retention override docs
+### Deferred
+- Audit batching optimization was prototyped but reverted in favor of fully synchronous, awaited audit writes (test isolation safety). Will revisit with per-request bulk insert strategy.
+### Fixed
+- Await all audit writes to prevent post-response D1 operations causing isolated storage teardown errors during tests.
+
 ## [0.2.5] - 2025-08-29
 - Add /admin/integrity endpoint summarizing latest dates, coverage counts, gap heuristic, and stale datasets
 
