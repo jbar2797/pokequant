@@ -54,6 +54,11 @@ function slicePage(rows, cfg){
   return rows.slice(start, start+cfg.pageSize);
 }
 
+// Debounce utility (trailing)
+function debounce(fn, wait=280){
+  let t; return (...args)=> { clearTimeout(t); t = setTimeout(()=> fn.apply(null,args), wait); };
+}
+
 // Navigation
 function switchView(v){
   state.view = v;
@@ -748,6 +753,10 @@ async function resolveAnomaly(id, action){
 }
 if(anomaliesRefresh) anomaliesRefresh.addEventListener('click', loadAnomalies);
 if(anomaliesFilter) anomaliesFilter.addEventListener('submit', loadAnomalies);
+// Debounce anomalies filter inputs (change events)
+if(anomaliesFilter){ anomaliesFilter.querySelectorAll('select,input').forEach(el=> {
+  el.addEventListener('change', debounce(()=> loadAnomalies(), 400));
+}); }
 
 // --- Data Integrity ---
 const integrityRefresh = document.getElementById('integrityRefresh');
@@ -1022,6 +1031,8 @@ async function loadAuditStats(){
 if(auditFilter) auditFilter.addEventListener('submit', loadAudit);
 if(auditRefresh) auditRefresh.addEventListener('click', loadAudit);
 if(auditStatsBtn) auditStatsBtn.addEventListener('click', loadAuditStats);
+// Debounce audit filter fields
+if(auditFilter){ auditFilter.querySelectorAll('input,select').forEach(el=> el.addEventListener('change', debounce(()=> loadAudit(), 400))); }
 
 // Helpers
 function escapeHtml(s){ return s?.replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]) ); }
@@ -1148,6 +1159,8 @@ async function loadAlertStats(){
 if(alertAdminFilters){
   alertAdminFilters.addEventListener('submit', loadAdminAlerts);
 }
+// Debounce alert filters
+if(alertAdminFilters){ alertAdminFilters.querySelectorAll('input,select').forEach(el=> el.addEventListener('change', debounce(()=> loadAdminAlerts(), 400))); }
 if(alertAdminStatsBtn){
   alertAdminStatsBtn.addEventListener('click', loadAlertStats);
 }
