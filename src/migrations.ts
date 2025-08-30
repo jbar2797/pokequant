@@ -206,6 +206,25 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   error TEXT
 );`
   }
+  ,
+  {
+    id: '0013_components_extension',
+    description: 'Extend signal_components_daily with liquidity, scarcity, mom90 columns',
+    sql: `ALTER TABLE signal_components_daily ADD COLUMN liquidity REAL;
+ALTER TABLE signal_components_daily ADD COLUMN scarcity REAL;
+ALTER TABLE signal_components_daily ADD COLUMN mom90 REAL;`
+  }
+  ,
+  {
+    id: '0014_factor_config',
+    description: 'Add factor_config table to allow dynamic factor universe definitions',
+    sql: `CREATE TABLE IF NOT EXISTS factor_config (
+  factor TEXT PRIMARY KEY,
+  enabled INTEGER DEFAULT 1,
+  display_name TEXT,
+  created_at TEXT
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

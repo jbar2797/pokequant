@@ -288,11 +288,14 @@ async function computeSignalsBulk(env: Env, daysLookback = 365) {
         const m: Record<string, number> = {};
         for (const r of rows) m[String(r.factor)] = Number(r.weight);
         const parts: number[] = []; let totalW = 0;
-        // Map known factors: ts7, ts30, z_svi, risk(vol)
+  // Map known factors: ts7, ts30, z_svi, risk(vol), liquidity, scarcity, mom90
         if (components.ts7 !== null && m.ts7 !== undefined) { parts.push((components.ts7 as number)*m.ts7*100); totalW += Math.abs(m.ts7); }
         if (components.ts30 !== null && m.ts30 !== undefined) { parts.push((components.ts30 as number)*m.ts30*100); totalW += Math.abs(m.ts30); }
         if (components.zSVI !== null && m.z_svi !== undefined) { parts.push((components.zSVI as number)*m.z_svi*10); totalW += Math.abs(m.z_svi); }
         if (components.vol !== null && m.risk !== undefined) { parts.push(-(components.vol as number)*m.risk*10); totalW += Math.abs(m.risk); }
+  if ((components as any).liquidity !== undefined && m.liquidity !== undefined) { parts.push(((components as any).liquidity as number)*m.liquidity); totalW += Math.abs(m.liquidity); }
+  if ((components as any).scarcity !== undefined && m.scarcity !== undefined) { parts.push(((components as any).scarcity as number)*m.scarcity*50); totalW += Math.abs(m.scarcity); }
+  if ((components as any).mom90 !== undefined && m.mom90 !== undefined) { parts.push(((components as any).mom90 as number)*m.mom90*80); totalW += Math.abs(m.mom90); }
         if (parts.length && totalW>0) {
           const base = 50 + parts.reduce((a,b)=>a+b,0);
           score = Math.max(0, Math.min(100, base));
@@ -311,11 +314,28 @@ async function computeSignalsBulk(env: Env, daysLookback = 365) {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(id, today, score, signal, JSON.stringify(reasons), edgeZ, expRet, expSd));
 
+    // Additional factors: liquidity (inverse vol), scarcity (placeholder rarity-based), mom90 simple momentum
+    let liquidity: number|null = null;
+    if (components.vol != null && components.vol > 0) liquidity = 1/components.vol;
+    let scarcity: number|null = null;
+    try {
+      const rar = await env.DB.prepare(`SELECT rarity FROM cards WHERE id=?`).bind(id).all();
+      const r = (rar.results?.[0] as any)?.rarity || '';
+      // Simple heuristic mapping rarity to numeric scarcity score
+      const map: Record<string, number> = { 'Common': 0.2,'Uncommon':0.4,'Rare':0.6,'Ultra Rare':0.8,'Secret Rare':0.9 };
+      scarcity = map[r] ?? (r ? 0.5 : null);
+    } catch {/* ignore */}
+    let mom90: number|null = null;
+    if (prices.length >= 90 && prices[0] > 0) {
+      const first = prices[Math.max(0, prices.length-90)];
+      const last = prices[prices.length-1];
+      if (first && last) mom90 = (last-first)/first;
+    }
     writesComponents.push(env.DB.prepare(`
       INSERT OR REPLACE INTO signal_components_daily
-      (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, today, components.ts7, components.ts30, components.dd, components.vol, components.zSVI, components.regimeBreak ? 1 : 0));
+      (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break, liquidity, scarcity, mom90)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, today, components.ts7, components.ts30, components.dd, components.vol, components.zSVI, components.regimeBreak ? 1 : 0, liquidity, scarcity, mom90));
   }
 
   // 5) Flush in chunks to avoid payload/time limits
@@ -476,7 +496,17 @@ async function sendEmailAlert(_env: Env, _to: string, _subject: string, _body: s
   log('email_stub', { to: _to, subject: _subject });
 }
 
-// ----- Factor IC computation (simple rank IC for today's factors vs future return placeholder) -----
+// Dynamic factor universe helper (persisted in factor_config)
+async function getFactorUniverse(env: Env): Promise<string[]> {
+  try {
+    const rs = await env.DB.prepare(`SELECT factor FROM factor_config WHERE enabled=1`).all();
+    const rows = (rs.results||[]) as any[];
+    if (rows.length) return rows.map(r=> String(r.factor));
+  } catch {/* ignore */}
+  return ['ts7','ts30','z_svi','risk','liquidity','scarcity','mom90'];
+}
+
+// ----- Factor IC computation (rank IC prev-day factors vs forward return) -----
 async function computeFactorIC(env: Env) {
   try {
     // Forward return IC: use factor values on day D (prev) vs return from D to D+1 (latest)
@@ -485,17 +515,22 @@ async function computeFactorIC(env: Env) {
     if (!metaRow || !metaRow.prev_d || !metaRow.latest_d) return { ok:false, skipped:true };
     const prevDay = metaRow.prev_d as string;
     const latestDay = metaRow.latest_d as string;
-    // Skip if already computed for prevDay (all three factors present)
+  const factorUniverse = await getFactorUniverse(env);
+    // Skip if already computed for prevDay (all factors present)
     const existing = await env.DB.prepare(`SELECT COUNT(*) AS c FROM factor_ic WHERE as_of=?`).bind(prevDay).all();
-    if (((existing.results||[])[0] as any)?.c >= 3) return { ok:true, skipped:true, already:true };
+    if (((existing.results||[])[0] as any)?.c >= factorUniverse.length) return { ok:true, skipped:true, already:true };
     const rs = await env.DB.prepare(`SELECT p.card_id,
         (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_prev,
         (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_next,
         (SELECT ts7 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS ts7,
         (SELECT ts30 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS ts30,
-        (SELECT z_svi FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS z_svi
+        (SELECT z_svi FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS z_svi,
+        (SELECT vol FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS vol,
+        (SELECT liquidity FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS liquidity,
+        (SELECT scarcity FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS scarcity,
+        (SELECT mom90 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS mom90
       FROM prices_daily p
-      WHERE p.as_of=?`).bind(prevDay, latestDay, prevDay, prevDay, prevDay, prevDay).all();
+      WHERE p.as_of=?`).bind(prevDay, latestDay, prevDay, prevDay, prevDay, prevDay, prevDay, prevDay, prevDay, prevDay).all();
     const rows = (rs.results||[]) as any[];
     if (!rows.length) return { ok:false, skipped:true };
     const rets: number[] = [];
@@ -521,11 +556,19 @@ async function computeFactorIC(env: Env) {
       for (let i=0;i<n;i++){ const a1=rankF[i]-mF,b1=rankR[i]-mR; num+=a1*b1; dF+=a1*a1; dR+=b1*b1; }
       const den = Math.sqrt(dF*dR)||0; if (!den) return null; return num/den;
     }
-    const factors: Record<string, number|null> = {
-      ts7: rankIC(rows.map(r=> Number(r.ts7))),
-      ts30: rankIC(rows.map(r=> Number(r.ts30))),
-      z_svi: rankIC(rows.map(r=> Number(r.z_svi)))
+    const baseMaps: Record<string, number[]> = {
+      ts7: rows.map(r=> Number(r.ts7)),
+      ts30: rows.map(r=> Number(r.ts30)),
+      z_svi: rows.map(r=> Number(r.z_svi)),
+      risk: rows.map(r=> Number(r.vol)),
+      liquidity: rows.map(r=> Number(r.liquidity)),
+      scarcity: rows.map(r=> Number(r.scarcity)),
+      mom90: rows.map(r=> Number(r.mom90))
     };
+    const factors: Record<string, number|null> = {};
+    for (const f of factorUniverse) {
+      if (baseMaps[f]) factors[f] = rankIC(baseMaps[f]);
+    }
     for (const [f, ic] of Object.entries(factors)) {
       if (ic === null) continue;
       await env.DB.prepare(`INSERT OR REPLACE INTO factor_ic (as_of,factor,ic) VALUES (?,?,?)`).bind(prevDay, f, ic).run();
@@ -538,8 +581,10 @@ async function computeFactorIC(env: Env) {
 }
 
 // ----- Simple backtest: rank cards by latest composite score and form top-quintile vs bottom-quintile spread cumulative -----
-async function runBacktest(env: Env, params: { lookbackDays?: number } ) {
+async function runBacktest(env: Env, params: { lookbackDays?: number, txCostBps?: number, slippageBps?: number } ) {
   const look = params.lookbackDays ?? 90;
+  const txCostBps = params.txCostBps ?? 0;
+  const slippageBps = params.slippageBps ?? 0; // applied similarly to tx cost (per leg)
   // Collect per-day scores (signals_daily.score) and prices to compute daily return of top vs bottom quintile each day.
   const since = isoDaysAgo(look);
   const rs = await env.DB.prepare(`SELECT s.card_id, s.as_of, s.score,
@@ -552,6 +597,9 @@ async function runBacktest(env: Env, params: { lookbackDays?: number } ) {
   for (const r of rows) { const d = String(r.as_of); const arr = byDay.get(d)||[]; arr.push(r); byDay.set(d, arr); }
   const dates = Array.from(byDay.keys()).sort();
   let equity = 1; const curve: { d:string; equity:number; spreadRet:number }[] = [];
+  let maxEquity = 1; let maxDrawdown = 0;
+  let sumSpread = 0; let sumSqSpread = 0; let nSpread = 0;
+  let prevTopIds: string[] = []; let prevBottomIds: string[] = []; let turnoverSum = 0; let turnoverDays = 0;
   for (let i=1;i<dates.length;i++) { // need prior day price to compute return; simplified using px field
     const todayD = dates[i];
     const arr = byDay.get(todayD)||[];
@@ -569,12 +617,32 @@ async function runBacktest(env: Env, params: { lookbackDays?: number } ) {
     if (prevTopPx>0 && prevBottomPx>0 && topPx>0 && bottomPx>0) {
       const retTop = (topPx - prevTopPx)/prevTopPx;
       const retBottom = (bottomPx - prevBottomPx)/prevBottomPx;
-      const spread = retTop - retBottom;
+      let spread = retTop - retBottom;
+      if (txCostBps > 0) spread -= (txCostBps/10000)*2; // two legs transaction cost
+      if (slippageBps > 0) spread -= (slippageBps/10000)*2; // rough slippage impact
       equity *= (1 + spread);
+      maxEquity = Math.max(maxEquity, equity);
+      const dd = (maxEquity - equity)/maxEquity;
+      if (dd > maxDrawdown) maxDrawdown = dd;
+      sumSpread += spread; sumSqSpread += spread*spread; nSpread++;
+      // Approx turnover: proportion of names changed in top & bottom buckets vs previous day
+      const topIds = top.map(r=> String(r.card_id));
+      const bottomIds = bottom.map(r=> String(r.card_id));
+      if (prevTopIds.length === topIds.length) {
+        const changedTop = topIds.filter(id=> !prevTopIds.includes(id)).length / (topIds.length||1);
+        const changedBottom = bottomIds.filter(id=> !prevBottomIds.includes(id)).length / (bottomIds.length||1);
+        turnoverSum += (changedTop + changedBottom)/2;
+        turnoverDays++;
+      }
+      prevTopIds = topIds; prevBottomIds = bottomIds;
       curve.push({ d: todayD, equity: +equity.toFixed(6), spreadRet: +spread.toFixed(6) });
     }
   }
-  const metrics = { final_equity: equity, days: curve.length };
+  const avgSpread = nSpread ? sumSpread / nSpread : 0;
+  const volSpread = nSpread ? Math.sqrt(Math.max(0, (sumSqSpread/nSpread) - avgSpread*avgSpread)) : 0;
+  const sharpe = volSpread ? (avgSpread/volSpread) * Math.sqrt(252) : 0; // daily to annualized
+  const turnover = turnoverDays ? turnoverSum / turnoverDays : 0;
+  const metrics = { final_equity: equity, days: curve.length, avg_daily_spread: avgSpread, spread_vol: volSpread, sharpe, max_drawdown: maxDrawdown, turnover };
   const id = crypto.randomUUID();
   await env.DB.prepare(`INSERT INTO backtests (id, created_at, params, metrics, equity_curve) VALUES (?,?,?, ?, ? )`)
     .bind(id, new Date().toISOString(), JSON.stringify(params), JSON.stringify(metrics), JSON.stringify(curve)).run();
@@ -1261,6 +1329,46 @@ export default {
         return json({ ok:false, error:String(e) },500);
       }
     }
+    // Auto compute factor weights based on trailing IC magnitudes
+    if (url.pathname === '/admin/factor-weights/auto' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      let q = await env.DB.prepare(`SELECT factor, AVG(ABS(ic)) AS strength FROM factor_ic WHERE as_of >= date('now','-29 day') GROUP BY factor`).all();
+      let rows = (q.results||[]) as any[];
+      try {
+        const enabled = await getFactorUniverse(env);
+        rows = rows.filter(r=> enabled.includes(String(r.factor)));
+      } catch {/* ignore */}
+      if (!rows.length) {
+        // Try to compute IC now, then re-query (broader window)
+        await computeFactorIC(env);
+        q = await env.DB.prepare(`SELECT factor, AVG(ABS(ic)) AS strength FROM factor_ic WHERE as_of >= date('now','-90 day') GROUP BY factor`).all();
+        rows = (q.results||[]) as any[];
+        try {
+          const enabled = await getFactorUniverse(env);
+          rows = rows.filter(r=> enabled.includes(String(r.factor)));
+        } catch {/* ignore */}
+      }
+      if (!rows.length) {
+        // Fallback: derive equal weights for default factors present in latest components row
+        let comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
+        if (!comp.results?.length) {
+          // generate a snapshot so fallback succeeds
+            try { await computeSignalsBulk(env, 30); } catch {/* ignore */}
+            comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
+        }
+  // Even if still empty, proceed with synthetic baseline factors
+  const factorsFallback = ['ts7','ts30','z_svi'];
+        rows = factorsFallback.map(f=> ({ factor: f, strength: 1 }));
+      }
+      const sum = rows.reduce((a,r)=> a + (Number(r.strength)||0),0) || 1;
+      const genVersion = 'auto'+ new Date().toISOString().slice(0,19).replace(/[:T]/g,'').replace(/-/g,'');
+      await env.DB.prepare(`UPDATE factor_weights SET active=0 WHERE active=1`).run();
+      for (const r of rows) {
+        const w = (Number(r.strength)||0)/sum;
+        await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(genVersion, r.factor, w, 1).run();
+      }
+      return json({ ok:true, version: genVersion, factors: rows.length });
+    }
 
     // Run alerts only (for tests / manual)
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
@@ -1285,13 +1393,75 @@ export default {
       const rs = await env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 300`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
+    if (url.pathname === '/admin/factor-ic/summary' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT factor, COUNT(*) AS n, AVG(ic) AS avg_ic, AVG(ABS(ic)) AS avg_abs_ic FROM factor_ic WHERE as_of >= date('now','-90 day') GROUP BY factor`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+
+    // Factor config CRUD
+    if (url.pathname === '/admin/factors' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT factor, enabled, display_name, created_at FROM factor_config ORDER BY factor ASC`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/admin/factors' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const factor = (body.factor||'').toString().trim();
+      const enabled = body.enabled === undefined ? 1 : (body.enabled ? 1 : 0);
+      const display = body.display_name ? String(body.display_name).trim() : null;
+      if (!factor || !/^[-_a-zA-Z0-9]{2,32}$/.test(factor)) return json({ ok:false, error:'invalid_factor' },400);
+      await env.DB.prepare(`INSERT OR REPLACE INTO factor_config (factor, enabled, display_name, created_at) VALUES (?,?,?, COALESCE((SELECT created_at FROM factor_config WHERE factor=?), datetime('now')))`) .bind(factor, enabled, display, factor).run();
+      return json({ ok:true, factor, enabled, display_name: display });
+    }
+    if (url.pathname === '/admin/factors/toggle' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const factor = (body.factor||'').toString().trim();
+      const enabled = body.enabled ? 1 : 0;
+      if (!factor) return json({ ok:false, error:'factor_required' },400);
+      await env.DB.prepare(`UPDATE factor_config SET enabled=? WHERE factor=?`).bind(enabled, factor).run();
+      return json({ ok:true, factor, enabled });
+    }
+    if (url.pathname === '/admin/factors/delete' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const factor = (body.factor||'').toString().trim();
+      if (!factor) return json({ ok:false, error:'factor_required' },400);
+      await env.DB.prepare(`DELETE FROM factor_config WHERE factor=?`).bind(factor).run();
+      return json({ ok:true, factor });
+    }
+
+    // Portfolio factor exposure (simple latest component averages weighted by holdings)
+    if (url.pathname === '/portfolio/exposure' && req.method === 'GET') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
+      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+      const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
+      const d = (latest.results?.[0] as any)?.d;
+      if (!d) return json({ ok:true, as_of:null, exposures:{} });
+      // Join lots with latest components and approximate factor exposures by quantity weighting
+      const rs = await env.DB.prepare(`SELECT l.card_id,l.qty, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90 FROM lots l LEFT JOIN signal_components_daily sc ON sc.card_id=l.card_id AND sc.as_of=? WHERE l.portfolio_id=?`).bind(d, pid).all();
+      const rows = (rs.results||[]) as any[];
+      let totalQty = 0; const agg: Record<string,{w:number; sum:number}> = {};
+      const factors = ['ts7','ts30','z_svi','vol','liquidity','scarcity','mom90'];
+      for (const r of rows) { const q = Number(r.qty)||0; if (q<=0) continue; totalQty += q; for (const f of factors) { const v = Number((r as any)[f]); if (!Number.isFinite(v)) continue; const slot = agg[f] || (agg[f] = { w:0, sum:0 }); slot.w += q; slot.sum += v*q; } }
+      const out: Record<string, number|null> = {};
+      for (const f of factors) { const a = agg[f]; out[f] = a && a.w>0 ? +(a.sum/a.w).toFixed(6) : null; }
+      return json({ ok:true, as_of:d, exposures: out });
+    }
 
     // Run backtest
     if (url.pathname === '/admin/backtests' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const body: any = await req.json().catch(()=>({}));
       const lookbackDays = Number(body.lookbackDays)||90;
-      const out = await runBacktest(env, { lookbackDays });
+  const txCostBps = Number(body.txCostBps)||0;
+  const slippageBps = Number(body.slippageBps)||0;
+  const out = await runBacktest(env, { lookbackDays, txCostBps, slippageBps });
       return json(out);
     }
     if (url.pathname === '/admin/backtests' && req.method === 'GET') {

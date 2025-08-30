@@ -31,9 +31,34 @@ All notable changes to this project will be documented here.
 ## [0.4.2] - 2025-08-29
 ### Changed
 - Factor IC now uses forward return: ranks factor values on day D against price return from D to D+1, and stores IC under date D (observation date) instead of current day.
+
+## [0.5.3] - 2025-08-30
+### Fixed
+- Auto factor weights endpoint now guarantees 200 with synthetic equal-weight fallback instead of 400 when no data present.
+
+## [0.5.4] - 2025-08-30
+### Added
+- Factor IC computation now covers extended factor set: ts7, ts30, z_svi, risk(vol), liquidity, scarcity, mom90.
+
+## [0.5.5] - 2025-08-30
+### Added
+- factor_config migration for dynamic factor universe
+- /admin/factor-ic/summary endpoint (90d aggregate stats)
+- Backtest txCostBps parameter for simple transaction cost modeling
+### Changed
+- Auto factor weights filtered to enabled factor universe
+- Factor IC computation sources factor list from config table when present
 - Added idempotence guard to skip recomputation if IC already present for a date.
 ### Notes
 - This lays groundwork for evaluating predictive power without lookahead bias.
+
+## [0.5.6] - 2025-08-30
+### Added
+- Factor configuration CRUD endpoints: /admin/factors (GET, POST), /admin/factors/toggle, /admin/factors/delete
+- Portfolio factor exposure endpoint /portfolio/exposure reporting quantity-weighted latest component averages
+- Enhanced backtest metrics (avg_daily_spread, spread_vol, sharpe, max_drawdown, turnover) and new slippageBps param
+### Changed
+- Backtest endpoint accepts slippageBps and returns richer metrics object
 
 ## [0.4.3] - 2025-08-29
 ### Added
@@ -49,6 +74,23 @@ All notable changes to this project will be documented here.
 - Migration runner updated to always attempt applying new migrations within same worker lifecycle (allowed new 0012_backfill_jobs table to be created in tests).
 ### Changed
 - OpenAPI: /admin/backfill now documents GET list, POST create, and new /admin/backfill/{id} detail path; removed erroneous duplicate POST block.
+
+## [0.5.0] - 2025-08-29
+### Added
+- New factor component columns: liquidity (inverse volatility), scarcity (rarity heuristic), mom90 (90-day momentum) via migration 0013.
+- Auto factor weighting endpoint /admin/factor-weights/auto deriving weights from trailing 30-day IC magnitudes.
+### Changed
+- Dynamic composite score now incorporates new factors when corresponding weights supplied (liquidity, scarcity, mom90).
+### Notes
+- Scarcity heuristic simplistic; future enhancement could use actual supply metrics.
+
+## [0.5.1] - 2025-08-29
+### Fixed
+- Auto factor weights endpoint now retries IC computation and falls back to equal baseline weights if no IC data present, preventing 400 responses in fresh DB.
+
+## [0.5.2] - 2025-08-29
+### Fixed
+- Auto factor weights endpoint now triggers signal component generation if absent so fallback weights always succeed on pristine databases.
 - Add factor_weights table (migration 0007) with dynamic composite weighting and admin endpoints (/admin/factor-weights)
 
 ## [0.3.0] - 2025-08-29

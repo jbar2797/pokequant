@@ -25,4 +25,15 @@ describe('Factor weights', () => {
     expect(Array.isArray(j2.rows)).toBe(true);
     expect(j2.rows.some((r:any)=> r.version==='testv1')).toBe(true);
   });
+  it('can auto compute factor weights from IC', async () => {
+    // Trigger IC run to have some data
+    await SELF.fetch('https://example.com/admin/factor-ic/run', { method:'POST', headers:{'x-admin-token':'test-admin'} });
+    const auto = await SELF.fetch('https://example.com/admin/factor-weights/auto', { method:'POST', headers:{'x-admin-token':'test-admin'} });
+    expect(auto.status).toBe(200);
+    const body: any = await auto.json();
+    expect(body.ok).toBe(true);
+    const list = await SELF.fetch('https://example.com/admin/factor-weights', { headers:{'x-admin-token':'test-admin'} });
+    const rows: any = await list.json();
+    expect(rows.rows.some((r:any)=> r.version === body.version)).toBe(true);
+  });
 });

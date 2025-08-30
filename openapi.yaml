@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.4.4
+  version: 0.5.6
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -141,6 +141,10 @@ paths:
     get:
       summary: Export portfolio
       responses: { '200': { description: OK } }
+  /portfolio/exposure:
+    get:
+      summary: Portfolio factor exposure (latest components)
+      responses: { '200': { description: OK } }
   /alerts/create:
     post:
       summary: Create price alert
@@ -236,6 +240,10 @@ paths:
     get:
       summary: List factor weights (admin)
       responses: { '200': { description: OK } }
+  /admin/factor-weights/auto:
+    post:
+      summary: Auto derive factor weights from trailing IC (admin)
+      responses: { '200': { description: OK } }
   /admin/factor-ic:
     get:
       summary: List factor IC history (admin)
@@ -250,6 +258,36 @@ paths:
       responses: { '200': { description: OK } }
     post:
       summary: Run simple quintile spread backtest (admin)
+      responses: { '200': { description: OK } }
+  /admin/factors:
+    get:
+      summary: List factor configuration (admin)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Upsert factor configuration entry (admin)
+      responses: { '200': { description: OK } }
+  /admin/factors/toggle:
+    post:
+      summary: Toggle factor enabled flag (admin)
+      responses: { '200': { description: OK } }
+  /admin/factors/delete:
+    post:
+      summary: Delete factor from configuration (admin)
+      responses: { '200': { description: OK } }
+  /admin/factors:
+    get:
+      summary: List factor configuration (admin)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Upsert factor configuration entry (admin)
+      responses: { '200': { description: OK } }
+  /admin/factors/toggle:
+    post:
+      summary: Toggle factor enabled flag (admin)
+      responses: { '200': { description: OK } }
+  /admin/factors/delete:
+    post:
+      summary: Delete factor from configuration (admin)
       responses: { '200': { description: OK } }
   /admin/backtests/{id}:
     get:
