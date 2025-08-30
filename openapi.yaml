@@ -251,7 +251,12 @@ paths:
   /admin/portfolio-exposure/snapshot:
     post:
       summary: Force snapshot of portfolio factor exposure history for current latest components date
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   security: [ { AdminToken: [] } ]
   /admin/portfolio-nav/snapshot:
     post:
@@ -452,7 +457,12 @@ paths:
   /portfolio/exposure:
     get:
       summary: Portfolio factor exposure (latest components)
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioExposureLatestResponse' }
   /portfolio/delete-lot:
     post:
       summary: Delete a portfolio lot
@@ -635,39 +645,112 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AlertQueueProcessResponse' }
   /admin/migrations:
-    get: { summary: List applied migrations (admin), responses: { '200': { description: OK } } }
-  security: [ { AdminToken: [] } ]
+    get:
+      summary: List applied migrations (admin)
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  migrations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        applied_at: { type: string, format: date-time }
+                      required: [id, name, applied_at]
+                required: [ok, migrations]
   /admin/version:
     get:
       summary: Version metadata (admin)
       responses:
         '200':
           description: OK
-  security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
+      security: [ { AdminToken: [] } ]
   /admin/integrity:
-  get:
+    get:
       summary: Data integrity snapshot (admin)
       description: Coverage counts, latest dates, recent gap heuristics, and staleness flags.
+      security: [ { AdminToken: [] } ]
       responses:
-        '200': { description: OK }
-  security: [ { AdminToken: [] } ]
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  flags: { type: object, additionalProperties: { type: boolean } }
+                  coverage: { type: object, additionalProperties: { type: integer } }
+                  latest: { type: object, additionalProperties: { type: string, format: date } }
+                required: [ok]
   /admin/factor-weights:
     get:
       summary: List factor weights (admin)
-      responses: { '200': { description: OK } }
-  security: [ { AdminToken: [] } ]
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  weights:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        factor: { type: string }
+                        weight: { type: number }
+                        auto: { type: boolean, nullable: true }
+                      required: [factor, weight]
+                required: [ok, weights]
   /admin/factor-weights/auto:
     post:
       summary: Auto derive factor weights from trailing IC (admin)
-      responses: { '200': { description: OK } }
-  security: [ { AdminToken: [] } ]
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   /admin/factor-ic:
     get:
       summary: List factor IC history (admin)
-      responses: { '200': { description: OK } }
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        d: { type: string, format: date }
+                        factor: { type: string }
+                        ic: { type: number, nullable: true }
+                      required: [d, factor]
+                required: [ok, rows]
   security: [ { AdminToken: [] } ]
   /admin/factor-ic/run:
     post:
@@ -908,6 +991,18 @@ components:
         id: { type: string }
         had_hash: { type: boolean }
       required: [ok, id, had_hash]
+    PortfolioExposureLatestResponse:
+      type: object
+      description: Latest factor exposure snapshot for a portfolio keyed by factor identifier
+      properties:
+        ok: { type: boolean }
+        as_of: { type: string, format: date }
+        portfolio_id: { type: string }
+        exposures:
+          type: object
+          additionalProperties:
+            type: number
+      required: [ok, as_of, portfolio_id, exposures]
     AlertQueueProcessResponse:
       type: object
       properties:
