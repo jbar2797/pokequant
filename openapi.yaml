@@ -100,6 +100,14 @@ paths:
                   responses:
                     '200':
                       description: ok
+              /admin/portfolio-nav/snapshot:
+                post:
+                  summary: Force portfolio NAV snapshot for latest prices
+                  security:
+                    - AdminToken: []
+                  responses:
+                    '200':
+                      description: ok
               /portfolio/exposure/history:
                 get:
                   summary: Portfolio factor exposure history (snapshots)

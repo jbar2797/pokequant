@@ -1296,6 +1296,11 @@ export default {
       const rs = await env.DB.prepare(`SELECT portfolio_id, as_of, market_value FROM portfolio_nav ORDER BY as_of DESC LIMIT 500`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
+    if (url.pathname === '/admin/portfolio-nav/snapshot' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      await snapshotPortfolioNAV(env);
+      return json({ ok:true });
+    }
 
     // Backfill jobs
     if (url.pathname === '/admin/backfill' && req.method === 'POST') {
