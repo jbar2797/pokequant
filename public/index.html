@@ -11,7 +11,8 @@
   </head>
   <body>
   <a href="#mainContent" style="position:absolute;left:-999px;top:auto;width:1px;height:1px;overflow:hidden" onfocus="this.style.cssText='position:absolute;left:8px;top:8px;background:#162132;color:#e5ecf5;padding:6px 10px;border:1px solid #253349;border-radius:6px;z-index:500'" onblur="this.style.left='-999px'">Skip to content</a>
-    <div class="deploy-banner">DEPLOY OVERHAUL 0.7.2 — NEW SHELL ACTIVE</div>
+  <!-- Deployment banner removed post verification -->
+  <div id="srLive" aria-live="polite" style="position:absolute;left:-999px;height:1px;width:1px;overflow:hidden"></div>
     <div id="toastHost" style="position:fixed;top:46px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:400"></div>
     <div id="statusBanner" style="position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#162132;color:#e5ecf5;font-size:11px;padding:6px 10px;border:1px solid #253349;border-radius:8px;display:none;z-index:380"></div>
     <div class="app-shell">
@@ -71,9 +72,41 @@
                 <label style="display:flex;flex-direction:column;gap:4px">ID <input name="pid" placeholder="portfolio id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:150px" /></label>
                 <label style="display:flex;flex-direction:column;gap:4px">Secret <input name="psec" placeholder="secret" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:170px" /></label>
                 <button type="button" id="portfolioLoadBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer">Load</button>
+                <button type="button" id="portfolioRefreshBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer" title="Refresh">↻</button>
+                <button type="button" id="portfolioRotateSecretBtn" style="background:#162132;border:1px solid #7c3aed;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer" title="Rotate secret">Rotate Secret</button>
               </form>
               <div id="portfolioSummary" style="font-size:12px;opacity:.75">Enter credentials & load.</div>
               <div id="portfolioLotsMini" style="margin-top:12px;font-size:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px"></div>
+              <div id="portfolioCrudSection" style="margin-top:18px;display:none;flex-direction:column;gap:12px">
+                <h3 style="margin:0;font-size:14px;font-weight:600">Lots</h3>
+                <form id="portfolioAddLotForm" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;align-items:flex-end">
+                  <label style="display:flex;flex-direction:column;gap:4px">Card ID <input required name="card_id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:130px" /></label>
+                  <label style="display:flex;flex-direction:column;gap:4px">Qty <input required type="number" step="1" name="qty" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:80px" /></label>
+                  <label style="display:flex;flex-direction:column;gap:4px">Cost USD <input required type="number" step="0.01" name="cost_usd" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:100px" /></label>
+                  <label style="display:flex;flex-direction:column;gap:4px">Acquired <input type="date" name="acquired_at" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
+                  <button type="submit" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600">Add Lot</button>
+                </form>
+                <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:360px">
+                  <table id="portfolioLotsTable" style="width:100%;border-collapse:collapse;font-size:11px;min-width:620px">
+                    <thead style="position:sticky;top:0;background:#101726">
+                      <tr>
+                        <th style="text-align:left;padding:6px 8px">Card</th>
+                        <th style="text-align:left;padding:6px 8px">Qty</th>
+                        <th style="text-align:left;padding:6px 8px">Cost</th>
+                        <th style="text-align:left;padding:6px 8px">MV</th>
+                        <th style="text-align:left;padding:6px 8px">Unrlzd</th>
+                        <th style="text-align:left;padding:6px 8px">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="portfolioLotsBody"></tbody>
+                  </table>
+                </div>
+                <div id="portfolioLotsEmpty" style="font-size:11px;opacity:.6;display:none">No lots yet.</div>
+              </div>
+              <div id="portfolioTargetsSection" style="margin-top:24px;display:none;flex-direction:column;gap:10px">
+                <h3 style="margin:0;font-size:14px;font-weight:600">Factor Targets (Coming Soon)</h3>
+                <div style="font-size:11px;opacity:.6">UI placeholder – will allow viewing & editing /portfolio/targets then creating optimization orders.</div>
+              </div>
             </div>
             <div class="panel" id="adminMetricsPanel">
               <h2>Admin Metrics (Mini)</h2>

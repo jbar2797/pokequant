@@ -11,6 +11,7 @@ if(rootVersionEl) rootVersionEl.textContent = VERSION;
 // Screen reader live region helper (wrap status updates)
 const __sr = document.getElementById('srLive');
 const __origSetStatus = setStatus;
+// announce: mirror status to visual banner + screen reader live region
 function announce(msg, kind){
   __origSetStatus(msg, kind);
   if(__sr) __sr.textContent = msg || '';
@@ -154,24 +155,150 @@ if(alertQuickForm){
 
 // --- Portfolio Summary (read-only) ---
 const portfolioLoadBtn = document.getElementById('portfolioLoadBtn');
+const portfolioRefreshBtn = document.getElementById('portfolioRefreshBtn');
+const portfolioRotateSecretBtn = document.getElementById('portfolioRotateSecretBtn');
+const portfolioCrudSection = document.getElementById('portfolioCrudSection');
+const portfolioLotsBody = document.getElementById('portfolioLotsBody');
+const portfolioLotsEmpty = document.getElementById('portfolioLotsEmpty');
+const portfolioAddLotForm = document.getElementById('portfolioAddLotForm');
+let currentPortfolioAuth = null; // { id, secret }
+
+function getPortfolioAuth(){
+  const pid = document.querySelector('#portfolioAuth input[name=pid]')?.value.trim();
+  const psec = document.querySelector('#portfolioAuth input[name=psec]')?.value.trim();
+  if(!pid||!psec) return null;
+  return { id: pid, secret: psec };
+}
+
+async function loadPortfolio(showToast=true){
+  const auth = getPortfolioAuth();
+  if(!auth){ if(showToast) announce('Portfolio creds required','error'); return; }
+  currentPortfolioAuth = auth;
+  const headers = { 'x-portfolio-id': auth.id, 'x-portfolio-secret': auth.secret };
+  try {
+    const r = await fetchJSON('/portfolio',{ headers });
+    renderPortfolio(r);
+    if(showToast) announce('Portfolio loaded','success');
+  } catch(e){ if(showToast) announce('Portfolio load failed','error'); }
+}
+
+function renderPortfolio(r){
+  const lots = r.rows || [];
+  const summaryEl = document.getElementById('portfolioSummary');
+  if(summaryEl) summaryEl.innerHTML = `<strong>${lots.length}</strong> lots • MV ${fmtUSD(r.totals?.market_value)} • Unrealized ${fmtUSD(r.totals?.unrealized)}`;
+  const lotsMini = document.getElementById('portfolioLotsMini');
+  if(lotsMini){
+    if(!lots.length) lotsMini.innerHTML = '<div style="opacity:.6">No lots</div>';
+    else lotsMini.innerHTML = lots.slice(0,12).map(l=> `<div style="border:1px solid #253349;padding:6px 8px;border-radius:8px;background:#162132"><div style="font-size:11px;font-weight:600">${l.card_id}</div><div style="font-size:10px;opacity:.65">Qty ${l.qty}</div></div>`).join('');
+  }
+  if(portfolioCrudSection) portfolioCrudSection.style.display = 'flex';
+  if(portfolioLotsBody){
+    if(!lots.length){
+      portfolioLotsBody.innerHTML='';
+      if(portfolioLotsEmpty) portfolioLotsEmpty.style.display='block';
+    } else {
+      if(portfolioLotsEmpty) portfolioLotsEmpty.style.display='none';
+      portfolioLotsBody.innerHTML = lots.map(l=> portfolioLotRow(l)).join('');
+      wireLotRowActions();
+    }
+  }
+}
+
+function portfolioLotRow(l){
+  const mv = l.price_usd!=null && l.qty!=null? l.price_usd * l.qty : null;
+  const unrl = (mv!=null && l.cost_usd!=null)? mv - l.cost_usd : null;
+  return `<tr data-lot-id="${l.lot_id}">
+    <td style="padding:4px 6px;font-family:monospace;font-size:10px">${l.card_id}</td>
+    <td style="padding:4px 6px"><input type="number" step="1" value="${l.qty}" data-field="qty" style="width:70px;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:3px 4px;border-radius:4px;font-size:11px" /></td>
+    <td style="padding:4px 6px"><input type="number" step="0.01" value="${l.cost_usd??''}" data-field="cost_usd" style="width:90px;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:3px 4px;border-radius:4px;font-size:11px" /></td>
+    <td style="padding:4px 6px;font-size:11px">${mv!=null? fmtUSD(mv):'—'}</td>
+    <td style="padding:4px 6px;font-size:11px">${unrl!=null? fmtUSD(unrl):'—'}</td>
+    <td style="padding:4px 6px;font-size:11px;display:flex;gap:4px;flex-wrap:wrap">
+      <button data-action="save" style="background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 8px;border-radius:5px;cursor:pointer">Save</button>
+      <button data-action="delete" style="background:#b91c1c;border:1px solid #b91c1c;color:#fff;font-size:10px;padding:4px 8px;border-radius:5px;cursor:pointer">Del</button>
+    </td>
+  </tr>`;
+}
+
+function wireLotRowActions(){
+  portfolioLotsBody?.querySelectorAll('tr').forEach(tr=> {
+    tr.querySelectorAll('button[data-action]').forEach(btn=> {
+      btn.addEventListener('click', async ()=> {
+        const lotId = tr.getAttribute('data-lot-id');
+        const action = btn.getAttribute('data-action');
+        if(action==='delete'){
+          await deleteLot(lotId);
+        } else if(action==='save'){
+          const qty = parseFloat(tr.querySelector('input[data-field="qty"]').value);
+          const cost = parseFloat(tr.querySelector('input[data-field="cost_usd"]').value);
+          await updateLot(lotId, { qty: Number.isFinite(qty)? qty: undefined, cost_usd: Number.isFinite(cost)? cost: undefined });
+        }
+      });
+    });
+  });
+}
+
+async function addLot(body){
+  if(!currentPortfolioAuth) return announce('Load portfolio first','error');
+  try {
+    const headers = { 'content-type':'application/json', 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    await fetchJSON('/portfolio/add-lot',{ method:'POST', headers, body: JSON.stringify(body) });
+    announce('Lot added','success');
+    await loadPortfolio(false);
+  } catch(e){ announce('Add lot failed','error'); }
+}
+async function updateLot(lot_id, changes){
+  if(!currentPortfolioAuth) return announce('Load portfolio first','error');
+  try {
+    const headers = { 'content-type':'application/json', 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    await fetchJSON('/portfolio/update-lot',{ method:'POST', headers, body: JSON.stringify({ lot_id, ...changes }) });
+    announce('Lot updated','success');
+    await loadPortfolio(false);
+  } catch(e){ announce('Update failed','error'); }
+}
+async function deleteLot(lot_id){
+  if(!currentPortfolioAuth) return announce('Load portfolio first','error');
+  if(!confirm('Delete this lot?')) return;
+  try {
+    const headers = { 'content-type':'application/json', 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    await fetchJSON('/portfolio/delete-lot',{ method:'POST', headers, body: JSON.stringify({ lot_id }) });
+    announce('Lot deleted','success');
+    await loadPortfolio(false);
+  } catch(e){ announce('Delete failed','error'); }
+}
+async function rotateSecret(){
+  if(!currentPortfolioAuth) return announce('Load portfolio first','error');
+  if(!confirm('Rotate secret? Old secret becomes invalid immediately.')) return;
+  try {
+    const headers = { 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    const r = await fetchJSON('/portfolio/rotate-secret',{ method:'POST', headers });
+    announce('Secret rotated','success');
+    // Update UI inputs
+    document.querySelector('#portfolioAuth input[name=psec]').value = r.secret;
+    currentPortfolioAuth.secret = r.secret;
+  } catch(e){ announce('Rotate failed','error'); }
+}
+
 if(portfolioLoadBtn){
-  portfolioLoadBtn.addEventListener('click', async ()=> {
-    const pid = document.querySelector('#portfolioAuth input[name=pid]')?.value.trim();
-    const psec = document.querySelector('#portfolioAuth input[name=psec]')?.value.trim();
-  if(!pid||!psec) return announce('Portfolio creds required','error');
-    const headers = { 'x-portfolio-id': pid, 'x-portfolio-secret': psec };
-    try {
-      const r = await fetchJSON('/portfolio',{ headers });
-      const lots = r.rows || [];
-      const summaryEl = document.getElementById('portfolioSummary');
-      if(summaryEl) summaryEl.innerHTML = `<strong>${lots.length}</strong> lots • MV ${fmtUSD(r.totals?.market_value)} • Unrealized ${fmtUSD(r.totals?.unrealized)}`;
-      const lotsHost = document.getElementById('portfolioLotsMini');
-      if(lotsHost){
-        if(!lots.length) lotsHost.innerHTML = '<div style="opacity:.6">No lots</div>';
-        else lotsHost.innerHTML = lots.slice(0,12).map(l=> `<div style="border:1px solid #253349;padding:6px 8px;border-radius:8px;background:#162132"><div style="font-size:11px;font-weight:600">${l.card_id}</div><div style="font-size:10px;opacity:.65">Qty ${l.qty}</div></div>`).join('');
-      }
-      announce('Portfolio loaded','success');
-    } catch(e){ announce('Portfolio load failed','error'); }
+  portfolioLoadBtn.addEventListener('click', ()=> loadPortfolio(true));
+}
+if(portfolioRefreshBtn){
+  portfolioRefreshBtn.addEventListener('click', ()=> loadPortfolio(true));
+}
+if(portfolioRotateSecretBtn){
+  portfolioRotateSecretBtn.addEventListener('click', rotateSecret);
+}
+if(portfolioAddLotForm){
+  portfolioAddLotForm.addEventListener('submit', ev=> {
+    ev.preventDefault();
+    const fd = new FormData(portfolioAddLotForm);
+    const card_id = fd.get('card_id')?.toString().trim();
+    const qty = Number(fd.get('qty'));
+    const cost_usd = Number(fd.get('cost_usd'));
+    const acquired_at = fd.get('acquired_at')?.toString().trim();
+    if(!card_id || !Number.isFinite(qty) || !Number.isFinite(cost_usd)) return announce('Lot form invalid','error');
+    addLot({ card_id, qty, cost_usd, acquired_at: acquired_at||undefined });
+    portfolioAddLotForm.reset();
   });
 }
 
@@ -208,6 +335,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');
