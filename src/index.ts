@@ -466,10 +466,10 @@ async function runAlerts(env: Env) {
   await ensureAlertsTable(env);
   const col = await getAlertThresholdCol(env);
   const rs = await env.DB.prepare(`
-    SELECT a.id, a.email, a.card_id, a.kind, a.${col} as threshold,
+  SELECT a.id, a.email, a.card_id, a.kind, a.${col} as threshold, 
            (SELECT COALESCE(price_usd, price_eur) FROM prices_daily p WHERE p.card_id=a.card_id ORDER BY as_of DESC LIMIT 1) AS px
     FROM alerts_watch a
-    WHERE a.active=1
+  WHERE a.active=1 AND (a.suppressed_until IS NULL OR a.suppressed_until < datetime('now'))
   `).all();
   let fired = 0;
   for (const a of (rs.results ?? []) as any[]) {
@@ -1426,6 +1426,7 @@ export default {
       const card_id = body && body.card_id ? String(body.card_id).trim() : '';
       const kind = body && body.kind ? String(body.kind).trim() : 'price_below';
       const threshold = body && body.threshold !== undefined ? Number(body.threshold) : NaN;
+  const snoozeMinutes = Number(body.snooze_minutes);
   if (!email || !card_id) return err('email_and_card_id_required');
   if (!Number.isFinite(threshold)) return err('threshold_invalid');
   const rlKey = `alert:${ip}:${email}`;
@@ -1438,13 +1439,28 @@ export default {
       // Dynamic column insert
       const col = await getAlertThresholdCol(env);
       await env.DB.prepare(
-        `INSERT INTO alerts_watch (id,email,card_id,kind,${col},active,manage_token,created_at) VALUES (?,?,?,?,?,1,?,datetime('now'))`
-      ).bind(id, email, card_id, kind, threshold, manage_token).run();
+        `INSERT INTO alerts_watch (id,email,card_id,kind,${col},active,manage_token,created_at,suppressed_until) VALUES (?,?,?,?,?,1,?,datetime('now'), CASE WHEN ? IS NULL THEN NULL ELSE datetime('now', ? || ' minutes') END)`
+      ).bind(id, email, card_id, kind, threshold, manage_token, Number.isFinite(snoozeMinutes)?1:null, Number.isFinite(snoozeMinutes)?snoozeMinutes.toString():null).run();
       const manage_url = `${env.PUBLIC_BASE_URL || ''}/alerts/deactivate?id=${encodeURIComponent(id)}&token=${encodeURIComponent(manage_token)}`;
   log('alert_created', { id, card_id, kind, threshold });
   await incMetric(env, 'alert.created');
   await audit(env, { actor_type:'public', action:'create', resource:'alert', resource_id:id, details:{ card_id, kind, threshold } });
   return done(json({ ok: true, id, manage_token, manage_url }), 'alerts.create');
+    }
+    if (url.pathname === '/alerts/snooze' && req.method === 'POST') {
+      await ensureAlertsTable(env);
+      const id = url.searchParams.get('id') || '';
+      const body: any = await req.json().catch(()=>({}));
+      const minutes = Number(body.minutes);
+      const token = (body.token||'').toString();
+      if (!id || !Number.isFinite(minutes)) return err('id_and_minutes_required');
+      const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
+      const found = (row.results||[])[0] as any;
+      if (!found) return err('not_found',404);
+      if (found.manage_token !== token) return err('forbidden',403);
+      await env.DB.prepare(`UPDATE alerts_watch SET suppressed_until=datetime('now', ? || ' minutes') WHERE id=?`).bind(minutes.toString(), id).run();
+      await audit(env, { actor_type:'public', action:'snooze', resource:'alert', resource_id:id, details:{ minutes } });
+      return json({ ok:true, id, suppressed_for_minutes: minutes });
     }
 
     // --- Search & metadata endpoints (MVP completion) ---
@@ -2358,9 +2374,26 @@ export default {
       const order = (orows.results||[])[0] as any;
       if (!order) return json({ ok:false, error:'not_found' },404);
       if (order.status !== 'open') return json({ ok:false, error:'invalid_status' },400);
-      await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=? WHERE id=?`).bind(new Date().toISOString(), id).run();
+      await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=datetime('now'), executed_trades=json('[]') WHERE id=?`).bind(id).run();
       await audit(env, { actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id });
       return json({ ok:true, id, status:'executed' });
+    }
+    // Ingestion schedule config
+    if (url.pathname === '/admin/ingestion-schedule' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ingestion_schedule (dataset TEXT PRIMARY KEY, frequency_minutes INTEGER, last_run_at TEXT);`).run();
+      const rs = await env.DB.prepare(`SELECT dataset, frequency_minutes, last_run_at FROM ingestion_schedule ORDER BY dataset`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/admin/ingestion-schedule' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const dataset = (body.dataset||'').toString();
+      const freq = Number(body.frequency_minutes);
+      if (!dataset || !Number.isFinite(freq)) return json({ ok:false, error:'dataset_and_frequency_required' },400);
+      await env.DB.prepare(`INSERT OR REPLACE INTO ingestion_schedule (dataset, frequency_minutes, last_run_at) VALUES (?,?,COALESCE((SELECT last_run_at FROM ingestion_schedule WHERE dataset=?), NULL))`).bind(dataset, freq, dataset).run();
+      await audit(env, { actor_type:'admin', action:'set_schedule', resource:'ingestion_schedule', resource_id:dataset, details:{ freq } });
+      return json({ ok:true, dataset, frequency_minutes: freq });
     }
     if (url.pathname === '/portfolio/attribution' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';

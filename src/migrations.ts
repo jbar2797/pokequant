@@ -443,6 +443,28 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
   PRIMARY KEY(portfolio_id, kind, target_key)
 );`
   }
+  ,
+  {
+    id: '0034_alert_suppression',
+    description: 'Add suppressed_until column to alerts_watch for snooze feature',
+    sql: `ALTER TABLE alerts_watch ADD COLUMN suppressed_until TEXT;`
+  }
+  ,
+  {
+    id: '0035_ingestion_schedule',
+    description: 'Add ingestion_schedule table for simple dataset frequency tracking',
+    sql: `CREATE TABLE IF NOT EXISTS ingestion_schedule (
+  dataset TEXT PRIMARY KEY,
+  frequency_minutes INTEGER,
+  last_run_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0036_portfolio_orders_exec_trades',
+    description: 'Add executed_trades column to portfolio_orders',
+    sql: `ALTER TABLE portfolio_orders ADD COLUMN executed_trades JSON;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;
