@@ -12,6 +12,12 @@ All notable changes to this project will be documented here.
 - Retry & backoff for alert email sending with failure metrics aggregation
 - Drop legacy plaintext portfolio_secret column after observation window
 
+## [0.6.0] - 2025-08-30
+### Added
+- Portfolio targets & optimization orders MVP: endpoints /portfolio/targets (GET/POST), /portfolio/orders (GET/POST), /portfolio/orders/execute (POST) with factor delta suggestion generation.
+### Changed
+- Version bump to 0.6.0; OpenAPI schemas for new order & target responses.
+
 ## [0.5.32] - 2025-08-30
 ### Added
 - Alert email retry with attempt_count + last_error columns (migration 0031) and processing logic (email.retry, email.giveup metrics).

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.32
+  version: 0.6.0
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -463,6 +463,64 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PortfolioExposureLatestResponse' }
+  /portfolio/targets:
+    get:
+      summary: List portfolio factor/asset targets
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  rows:
+                    type: array
+                    items: { type: object, properties: { kind: { type: string }, target_key: { type: string }, target_value: { type: number } }, required: [kind, target_key, target_value] }
+                required: [ok, rows]
+    post:
+      summary: Upsert portfolio factor targets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                factors: { type: object, additionalProperties: { type: number } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
+  /portfolio/orders:
+    post:
+      summary: Create portfolio optimization order (align targets)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioOrderCreateResponse' }
+    get:
+      summary: List recent portfolio orders
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioOrderListResponse' }
+  /portfolio/orders/execute:
+    post:
+      summary: Execute previously created portfolio order (MVP no-op)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioOrderExecuteResponse' }
   /portfolio/delete-lot:
     post:
       summary: Delete a portfolio lot
@@ -1021,6 +1079,43 @@ components:
         deleted: { type: object, additionalProperties: { type: integer } }
         ms: { type: integer }
       required: [ok, deleted]
+    PortfolioOrderCreateResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        objective: { type: string }
+        suggestions:
+          type: object
+          properties:
+            factor_deltas: { type: object, additionalProperties: { type: number } }
+            generated_at: { type: string, format: date-time }
+            trades: { type: array, items: { type: object } }
+          required: [factor_deltas, generated_at, trades]
+      required: [ok, id, objective, suggestions]
+    PortfolioOrderListResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              created_at: { type: string }
+              status: { type: string }
+              objective: { type: string }
+              executed_at: { type: string, nullable: true }
+            required: [id, created_at, status, objective]
+      required: [ok, rows]
+    PortfolioOrderExecuteResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        status: { type: string }
+      required: [ok, id, status]
   securitySchemes:
     AdminToken:
       type: apiKey

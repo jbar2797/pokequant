@@ -2276,6 +2276,92 @@ export default {
       const rs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? ORDER BY as_of DESC, factor ASC LIMIT 700`).bind(pid).all();
       return json({ ok:true, rows: rs.results||[] });
     }
+    // Portfolio factor/asset targets
+    if (url.pathname === '/portfolio/targets' && req.method === 'GET') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
+      const rs = await env.DB.prepare(`SELECT kind, target_key, target_value FROM portfolio_targets WHERE portfolio_id=? ORDER BY kind, target_key`).bind(pid).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/portfolio/targets' && req.method === 'POST') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const factorTargets = body.factors && typeof body.factors==='object' ? body.factors : {};
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
+      // Upsert factor targets
+      for (const [k,v] of Object.entries(factorTargets)) {
+        const val = Number(v);
+        if (!Number.isFinite(val)) continue;
+        await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_targets (portfolio_id, kind, target_key, target_value, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(pid,'factor',k,val).run();
+      }
+      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'set_targets', resource:'portfolio_targets', resource_id:pid, details:{ factors: Object.keys(factorTargets).length } });
+      return json({ ok:true, updated: Object.keys(factorTargets).length });
+    }
+    // Portfolio optimization orders (MVP suggestions toward targets)
+    if (url.pathname === '/portfolio/orders' && req.method === 'POST') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_orders (id TEXT PRIMARY KEY, portfolio_id TEXT, created_at TEXT, status TEXT, objective TEXT, params TEXT, suggestions JSON, executed_at TEXT);`).run();
+      // Gather current exposures
+      const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
+      const d = (latest.results?.[0] as any)?.d;
+      let exposures: Record<string, number|null> = {};
+      if (d) {
+        const rs = await env.DB.prepare(`SELECT l.qty, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90 FROM lots l LEFT JOIN signal_components_daily sc ON sc.card_id=l.card_id AND sc.as_of=? WHERE l.portfolio_id=?`).bind(d, pid).all();
+        const rows = (rs.results||[]) as any[];
+        let totalQty = 0; const agg: Record<string,{w:number; sum:number}> = {};
+        const factors = ['ts7','ts30','z_svi','vol','liquidity','scarcity','mom90'];
+        for (const r of rows) { const q = Number(r.qty)||0; if (q<=0) continue; totalQty += q; for (const f of factors) { const v = Number((r as any)[f]); if (!Number.isFinite(v)) continue; const slot = agg[f] || (agg[f] = { w:0, sum:0 }); slot.w += q; slot.sum += v*q; } }
+        for (const f of factors) { const a = agg[f]; exposures[f] = a && a.w>0 ? +(a.sum/a.w).toFixed(6) : 0; }
+      }
+      const targetsRs = await env.DB.prepare(`SELECT target_key, target_value FROM portfolio_targets WHERE portfolio_id=? AND kind='factor'`).bind(pid).all();
+      const targets: Record<string, number> = {};
+      for (const r of (targetsRs.results||[]) as any[]) targets[r.target_key] = Number(r.target_value);
+      const factor_deltas: Record<string, number> = {};
+      for (const [k,tv] of Object.entries(targets)) {
+        const cur = Number(exposures[k] ?? 0);
+        factor_deltas[k] = +(tv - cur).toFixed(6);
+      }
+      // Simple suggestion object
+      const suggestions = { factor_deltas, generated_at: new Date().toISOString(), trades: [] as any[] };
+      const id = crypto.randomUUID();
+      const objective = 'align_targets';
+      await env.DB.prepare(`INSERT INTO portfolio_orders (id, portfolio_id, created_at, status, objective, params, suggestions) VALUES (?,?,?,?,?,?,?)`).bind(id, pid, new Date().toISOString(), 'open', objective, JSON.stringify({}), JSON.stringify(suggestions)).run();
+      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'create_order', resource:'portfolio_order', resource_id:id, details:{ objective, deltas:factor_deltas } });
+      return json({ ok:true, id, objective, suggestions });
+    }
+    if (url.pathname === '/portfolio/orders' && req.method === 'GET') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at FROM portfolio_orders WHERE portfolio_id=? ORDER BY created_at DESC LIMIT 20`).bind(pid).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/portfolio/orders/execute' && req.method === 'POST') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const id = (body.id||'').toString();
+      if (!id) return json({ ok:false, error:'id_required' },400);
+      const orows = await env.DB.prepare(`SELECT id, status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id, pid).all();
+      const order = (orows.results||[])[0] as any;
+      if (!order) return json({ ok:false, error:'not_found' },404);
+      if (order.status !== 'open') return json({ ok:false, error:'invalid_status' },400);
+      await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=? WHERE id=?`).bind(new Date().toISOString(), id).run();
+      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id });
+      return json({ ok:true, id, status:'executed' });
+    }
     if (url.pathname === '/portfolio/attribution' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
