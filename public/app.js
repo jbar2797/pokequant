@@ -25,7 +25,7 @@ function setStatus(msg, kind='info'){ // preserve existing banner API for backwa
 
 // ---------- Utils ----------
 function fmtUSD(x){ return (x==null||isNaN(Number(x)))?'—':'$'+Number(x).toFixed(2); }
-function miniBadge(signal){ const s=(signal||'—').toUpperCase(); let b='badge-hold'; if(s==='BUY') b='badge-buy'; if(s==='SELL') b='badge-sell'; return `<span class="badge ${b}">${s}</span>`; }
+function miniBadge(signal){ const s=(signal||'—').toUpperCase(); const arrow = s==='BUY'?'▲':(s==='SELL'?'▼':''); const baseClasses='px-2 py-0.5 rounded text-[10px] font-semibold tracking-wide'; if(s==='BUY') return `<button class="${baseClasses} bg-emerald-600/90 hover:bg-emerald-500 text-white">${arrow} BUY</button>`; if(s==='SELL') return `<button class="${baseClasses} bg-red-600/90 hover:bg-red-500 text-white">${arrow} SELL</button>`; return `<button class="${baseClasses} bg-slate-600/80 hover:bg-slate-500 text-white">HOLD</button>`; }
 
 // ---------- Theme ----------
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -79,9 +79,19 @@ async function loadMovers(){ ensureMoverHosts(); const moversEl=$('#movers'); co
     $('#moversTs') && ($('#moversTs').textContent = new Date().toLocaleTimeString());
   } catch(e){ setStatus('Failed movers','error'); }
 }
-function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); return `<div class="card-tiny text-xs space-y-1">
-  <div class="flex gap-2 items-start"><img src="${c.image_url||''}" class="w-10 h-auto rounded"/><div><div class="font-medium leading-4 line-clamp-2">${c.name}</div><div class="text-[10px] text-slate-400">${c.set_name||''}</div></div></div>
-  <div class="flex items-center justify-between"><span>${price}</span>${miniBadge(c.signal)}</div>
+function abbreviateSet(name){ if(!name) return ''; return name.split(/\s+/).map(w=> w[0]).join('').slice(0,4).toUpperCase(); }
+function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const setAbbr = abbreviateSet(c.set_name); const number = c.number || ''; return `<div class="card-tiny text-xs space-y-2 bg-slate-800/40 border border-slate-600/40 hover:border-slate-500 transition-colors">
+  <div class="flex gap-3 items-start">
+    <div class="w-12 h-16 bg-slate-700/40 rounded overflow-hidden flex items-center justify-center"><img src="${c.image_url||''}" alt="${c.name}" class="max-h-16" loading="lazy"/></div>
+    <div class="flex-1 min-w-0">
+      <div class="font-medium leading-4 truncate" title="${c.name}">${c.name}</div>
+      <div class="text-[10px] text-slate-400">${setAbbr}${number? ' • #'+number:''}</div>
+    </div>
+  </div>
+  <div class="flex items-center justify-between">
+    <span class="font-mono text-[11px] text-slate-300">${price}</span>
+    <span>${miniBadge(c.signal)}</span>
+  </div>
 </div>`; }
 function skeletonTiles(n=8){ return Array.from({length:n}).map(()=>`<div class="card-tiny animate-pulse h-[110px] bg-slate-800/40 light:bg-slate-200"></div>`).join(''); }
 $('#reloadMovers')?.addEventListener('click', loadMovers);
@@ -93,18 +103,21 @@ function ensureMoverHosts(){ if(!document.getElementById('movers')){ const el=do
 let UNIVERSE = [];
 function unique(arr){ return Array.from(new Set(arr)); }
 function buildSetOptions(){ const sets = unique(UNIVERSE.map(c=>c.set_name).filter(Boolean)).sort(); const sel=$('#set'); if(!sel) return; sel.innerHTML = '<option value="">All sets</option>' + sets.map(s=>`<option>${s}</option>`).join(''); }
-function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); return `<tr class="hover-row">
-  <td class="p-2"><div class="flex gap-2 items-center"><img src="${c.image_url||''}" class="w-10 h-auto rounded"/><div class="leading-4"><div class="font-medium">${c.name}</div><div class="text-[10px] text-slate-400">${c.set_name||''}</div></div></div></td>
+function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); const setAb = abbreviateSet(c.set_name); return `<tr class="hover-row">
+  <td class="p-2"><div class="flex gap-2 items-center"><div class=\"w-10 h-14 rounded bg-slate-700/40 overflow-hidden flex items-center justify-center\"><img src=\"${c.image_url||''}\" class=\"max-h-14\" loading=\"lazy\"/></div><div class="leading-4"><div class="font-medium truncate max-w-[140px]" title="${c.name}">${c.name}</div><div class="text-[10px] text-slate-400">${setAb}${c.number? ' • #'+c.number:''}</div></div></div></td>
   <td class="p-2 text-xs">${c.set_name||''}</td>
   <td class="p-2 text-xs">${c.rarity||''}</td>
-  <td class="p-2 text-xs">${price}</td>
+  <td class="p-2 text-xs font-mono">${price}</td>
   <td class="p-2">${miniBadge(sig)}</td>
   <td class="p-2 text-xs">${c.score!=null?Number(c.score).toFixed(1):'—'}</td>
   <td class="p-2 text-xs"><button class="underline" data-alert="${c.id}">Alert</button></td>
   <td class="p-2 text-[10px] text-slate-500 font-mono">${c.id}</td>
 </tr>`; }).join(''); tb.querySelectorAll('button[data-alert]').forEach(b=> b.addEventListener('click',()=> { $('#alertCardQuick').value = b.getAttribute('data-alert'); switchView('overview'); toast('Card ID prefilled','success'); })); }
 function filterCards(){ const q=$('#q')?.value.toLowerCase()||''; const set=$('#set')?.value||''; const rarity=$('#rarity')?.value.toLowerCase()||''; let list=UNIVERSE; if(q) list=list.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q))); if(set) list=list.filter(c=> c.set_name===set); if(rarity) list=list.filter(c=> (c.rarity||'').toLowerCase()===rarity); FILTERED=list; CARDS_PAGE=1; applyCardsPagination(); }
-async function loadUniverse(){ setStatus('Loading cards…'); try { let data = await fetchJSON(WORKER_BASE+'/api/cards'); if(!data.length) data = await fetchJSON(WORKER_BASE+'/api/universe'); UNIVERSE=data; buildSetOptions(); filterCards(); setStatus('Cards loaded','success'); } catch(e){ setStatus('Cards load failed','error'); } }
+async function loadUniverse(){ setStatus('Loading cards…'); try { let data = await fetchJSON(WORKER_BASE+'/api/cards'); if(!data.length) data = await fetchJSON(WORKER_BASE+'/api/universe');
+  // Normalize to ensure number field exists (backend may omit currently)
+  UNIVERSE = data.map(c=> ({ ...c, number: c.number || c.card_number || '' }));
+  buildSetOptions(); filterCards(); setStatus('Cards loaded','success'); } catch(e){ setStatus('Cards load failed','error'); } }
 ['q','set','rarity'].forEach(id=> $('#'+id)?.addEventListener('input', filterCards)); $('#btnReload')?.addEventListener('click', loadUniverse);
 $('#cardsPageSize')?.addEventListener('change',()=> { CARDS_PAGE_SIZE = Number($('#cardsPageSize').value)||50; CARDS_PAGE=1; applyCardsPagination(); });
 
