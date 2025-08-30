@@ -104,6 +104,13 @@ All notable changes to this project will be documented here.
 ### Changed
 - Version bump to 0.5.13 (spec, package, version.ts)
 
+## [0.5.14] - 2025-08-30
+### Added
+- mutation_audit table (migration 0020) and audit helper instrumentation across mutating endpoints (alerts create/deactivate, portfolios & lots, factor weights/config, ingestion run/config, backfill jobs, backtests, pipeline & factor runs, anomaly resolution)
+- /admin/audit listing endpoint with optional filters (resource, action, limit)
+### Changed
+- Version bump to 0.5.14 (spec, package, version.ts)
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.

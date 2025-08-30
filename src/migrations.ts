@@ -288,6 +288,23 @@ ALTER TABLE anomalies ADD COLUMN resolved_at TEXT;`
   PRIMARY KEY(dataset, source)
 );`
   }
+  ,
+  {
+    id: '0020_mutation_audit',
+    description: 'Add mutation_audit table for tracking state-changing actions',
+    sql: `CREATE TABLE IF NOT EXISTS mutation_audit (
+  id TEXT PRIMARY KEY,
+  ts TEXT,
+  actor_type TEXT,
+  actor_id TEXT,
+  action TEXT,
+  resource TEXT,
+  resource_id TEXT,
+  details TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_ts ON mutation_audit(ts);
+CREATE INDEX IF NOT EXISTS idx_audit_resource ON mutation_audit(resource);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

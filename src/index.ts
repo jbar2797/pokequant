@@ -164,6 +164,19 @@ async function recordLatency(env: Env, tag: string, ms: number) {
   }
 }
 
+// ---------- mutation audit helper ----------
+// Lightweight audit trail for state-changing endpoints. Best-effort (errors ignored).
+interface AuditFields { actor_type: string; actor_id?: string|null; action: string; resource: string; resource_id?: string|null; details?: any }
+async function audit(env: Env, f: AuditFields) {
+  try {
+    const id = crypto.randomUUID();
+    const ts = new Date().toISOString();
+    const details = f.details === undefined ? null : JSON.stringify(f.details).slice(0,2000);
+    await env.DB.prepare(`INSERT INTO mutation_audit (id, ts, actor_type, actor_id, action, resource, resource_id, details) VALUES (?,?,?,?,?,?,?,?)`)
+      .bind(id, ts, f.actor_type, f.actor_id||null, f.action, f.resource, f.resource_id||null, details).run();
+  } catch { /* ignore */ }
+}
+
 // Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
 async function ensureTestSeed(env: Env) {
   try {
@@ -808,6 +821,7 @@ export default {
         await env.DB.prepare(`INSERT OR REPLACE INTO ingestion_config (dataset,source,cursor,enabled,last_run_at,meta) VALUES (?,?,?,?,datetime('now'),?)`)
           .bind(dataset, source, cursor, enabled, meta).run();
         const row = await env.DB.prepare(`SELECT dataset, source, cursor, enabled, last_run_at, meta FROM ingestion_config WHERE dataset=? AND source=?`).bind(dataset, source).all();
+  audit(env, { actor_type:'admin', action:'upsert', resource:'ingestion_config', resource_id:`${dataset}:${source}`, details:{ cursor, enabled } });
         return json({ ok:true, row: row.results?.[0]||null });
       } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     }
@@ -866,9 +880,11 @@ export default {
             cursor = toDate; status = 'completed';
             try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='completed', rows=?, completed_at=datetime('now') WHERE id=?`).bind(inserted, provId).run(); } catch {/* ignore */}
             await env.DB.prepare(`UPDATE ingestion_config SET cursor=?, last_run_at=datetime('now') WHERE dataset=? AND source=?`).bind(cursor,dataset,source).run();
+            audit(env, { actor_type:'admin', action:'ingest_incremental', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ fromDate, toDate, inserted } });
           } catch (e:any) {
             status = 'error';
             try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='error', error=?, completed_at=datetime('now') WHERE id=?`).bind(String(e), provId).run(); } catch {/* ignore */}
+            audit(env, { actor_type:'admin', action:'ingest_error', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ error:String(e) } });
           }
         }
         results.push({ dataset, source, inserted, from_date: fromDate, to_date: toDate, status, cursor });
@@ -1150,6 +1166,7 @@ export default {
       const manage_url = `${env.PUBLIC_BASE_URL || ''}/alerts/deactivate?id=${encodeURIComponent(id)}&token=${encodeURIComponent(manage_token)}`;
   log('alert_created', { id, card_id, kind, threshold });
   await incMetric(env, 'alert.created');
+  audit(env, { actor_type:'public', action:'create', resource:'alert', resource_id:id, details:{ card_id, kind, threshold } });
   return done(json({ ok: true, id, manage_token, manage_url }), 'alerts.create');
     }
 
@@ -1244,7 +1261,8 @@ export default {
       const secret = Array.from(secretBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
       await env.DB.prepare(`INSERT INTO portfolios (id, secret, created_at) VALUES (?,?,datetime('now'))`).bind(id, secret).run();
-      return json({ id, secret });
+  audit(env, { actor_type:'public', action:'create', resource:'portfolio', resource_id:id });
+  return json({ id, secret });
     }
     if (url.pathname === '/portfolio/add-lot' && req.method === 'POST') {
       const pid = req.headers.get('x-portfolio-id')||'';
@@ -1259,6 +1277,7 @@ export default {
       const lotId = crypto.randomUUID();
   await env.DB.prepare(`INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at) VALUES (?,?,?,?,?,?)`).bind(lotId, pid, parsed.data.card_id, parsed.data.qty, parsed.data.cost_usd, parsed.data.acquired_at || null).run();
   log('portfolio_lot_added', { portfolio: pid, lot: lotId, card: parsed.data.card_id });
+  audit(env, { actor_type:'portfolio', actor_id:pid, action:'add_lot', resource:'lot', resource_id:lotId, details:{ card_id: parsed.data.card_id, qty: parsed.data.qty } });
   return json({ ok:true, lot_id: lotId });
     }
     if (url.pathname === '/portfolio' && req.method === 'GET') {
@@ -1300,6 +1319,7 @@ export default {
         return new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8', ...CORS }});
       }
   log('alert_deactivated', { id });
+  audit(env, { actor_type:'public', action:'deactivate', resource:'alert', resource_id:id });
   return json({ ok: true });
     }
 
@@ -1493,7 +1513,8 @@ export default {
       const valid = new Set(['ack','dismiss','ignore']);
       if (!valid.has(action)) return json({ ok:false, error:'invalid_action' },400);
       await env.DB.prepare(`UPDATE anomalies SET resolved=1, resolution_kind=?, resolution_note=?, resolved_at=datetime('now') WHERE id=?`).bind(action, note, id).run();
-      return json({ ok:true, id, action });
+  audit(env, { actor_type:'admin', action:'resolve', resource:'anomaly', resource_id:id, details:{ action } });
+  return json({ ok:true, id, action });
     }
 
     // Portfolio NAV history (admin)
@@ -1549,9 +1570,11 @@ export default {
         }
         await env.DB.prepare(`UPDATE backfill_jobs SET status='completed' WHERE id=?`).bind(id).run();
         try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='completed', rows=?, completed_at=datetime('now') WHERE id=?`).bind(insertedRows, provId).run(); } catch { /* ignore */ }
+  audit(env, { actor_type:'admin', action:'backfill_complete', resource:'backfill_job', resource_id:id, details:{ dataset, days, insertedRows } });
       } catch (e:any) {
         await env.DB.prepare(`UPDATE backfill_jobs SET status='error', error=? WHERE id=?`).bind(String(e), id).run();
         try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='error', error=?, completed_at=datetime('now') WHERE id=?`).bind(String(e), provId).run(); } catch { /* ignore */ }
+  audit(env, { actor_type:'admin', action:'backfill_error', resource:'backfill_job', resource_id:id, details:{ dataset, error:String(e) } });
       }
       const job = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
       return json({ ok:true, job: job.results?.[0] });
@@ -1605,7 +1628,8 @@ export default {
           if (!w.factor || typeof w.weight !== 'number') continue;
           await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(version, String(w.factor), Number(w.weight), 1).run();
         }
-        return json({ ok:true, version, count: weights.length });
+  audit(env, { actor_type:'admin', action:'upsert', resource:'factor_weights', resource_id:version, details:{ count: weights.length } });
+  return json({ ok:true, version, count: weights.length });
       } catch (e:any) {
         return json({ ok:false, error:String(e) },500);
       }
@@ -1648,7 +1672,8 @@ export default {
         const w = (Number(r.strength)||0)/sum;
         await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(genVersion, r.factor, w, 1).run();
       }
-      return json({ ok:true, version: genVersion, factors: rows.length });
+  audit(env, { actor_type:'admin', action:'auto_weights', resource:'factor_weights', resource_id:genVersion, details:{ factors: rows.length } });
+  return json({ ok:true, version: genVersion, factors: rows.length });
     }
 
     // Run alerts only (for tests / manual)
@@ -1667,7 +1692,8 @@ export default {
     if (url.pathname === '/admin/factor-ic/run' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const out = await computeFactorIC(env);
-      return json(out);
+  audit(env, { actor_type:'admin', action:'run', resource:'factor_ic', resource_id: (out as any).as_of||null });
+  return json(out);
     }
     if (url.pathname === '/admin/factor-ic' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1792,7 +1818,8 @@ export default {
     if (url.pathname === '/admin/factor-returns/run' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const out = await computeFactorReturns(env);
-      return json(out);
+  audit(env, { actor_type:'admin', action:'run', resource:'factor_returns', resource_id: (out as any).as_of||null });
+  return json(out);
     }
     // Test support: generic row insert into allowlisted tables (non-prod usage)
     if (url.pathname === '/admin/test-insert' && req.method === 'POST') {
@@ -1833,7 +1860,8 @@ export default {
       const display = body.display_name ? String(body.display_name).trim() : null;
       if (!factor || !/^[-_a-zA-Z0-9]{2,32}$/.test(factor)) return json({ ok:false, error:'invalid_factor' },400);
       await env.DB.prepare(`INSERT OR REPLACE INTO factor_config (factor, enabled, display_name, created_at) VALUES (?,?,?, COALESCE((SELECT created_at FROM factor_config WHERE factor=?), datetime('now')))`) .bind(factor, enabled, display, factor).run();
-      return json({ ok:true, factor, enabled, display_name: display });
+  audit(env, { actor_type:'admin', action:'upsert', resource:'factor_config', resource_id:factor, details:{ enabled } });
+  return json({ ok:true, factor, enabled, display_name: display });
     }
     if (url.pathname === '/admin/factors/toggle' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1842,7 +1870,8 @@ export default {
       const enabled = body.enabled ? 1 : 0;
       if (!factor) return json({ ok:false, error:'factor_required' },400);
       await env.DB.prepare(`UPDATE factor_config SET enabled=? WHERE factor=?`).bind(enabled, factor).run();
-      return json({ ok:true, factor, enabled });
+  audit(env, { actor_type:'admin', action:'toggle', resource:'factor_config', resource_id:factor, details:{ enabled } });
+  return json({ ok:true, factor, enabled });
     }
     if (url.pathname === '/admin/factors/delete' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1850,7 +1879,8 @@ export default {
       const factor = (body.factor||'').toString().trim();
       if (!factor) return json({ ok:false, error:'factor_required' },400);
       await env.DB.prepare(`DELETE FROM factor_config WHERE factor=?`).bind(factor).run();
-      return json({ ok:true, factor });
+  audit(env, { actor_type:'admin', action:'delete', resource:'factor_config', resource_id:factor });
+  return json({ ok:true, factor });
     }
 
     // Portfolio factor exposure (simple latest component averages weighted by holdings)
@@ -1901,7 +1931,8 @@ export default {
   const txCostBps = Number(body.txCostBps)||0;
   const slippageBps = Number(body.slippageBps)||0;
   const out = await runBacktest(env, { lookbackDays, txCostBps, slippageBps });
-      return json(out);
+  audit(env, { actor_type:'admin', action:'backtest_run', resource:'backtest', resource_id: (out as any).id||null, details:{ lookbackDays } });
+  return json(out);
     }
     if (url.pathname === '/admin/backtests' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1986,10 +2017,30 @@ export default {
       try {
         const out = await pipelineRun(env);
         log('admin_run_pipeline', out.timingsMs);
-        return json(out);
+  audit(env, { actor_type:'admin', action:'pipeline_run', resource:'pipeline', resource_id: new Date().toISOString().slice(0,10), details: out.timingsMs });
+  return json(out);
       } catch (e:any) {
         log('admin_run_pipeline_error', { error: String(e) });
         return json({ ok:false, error:String(e) }, 500);
+      }
+    }
+
+    // Audit log listing endpoint
+    if (url.pathname === '/admin/audit' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const resource = (url.searchParams.get('resource')||'').trim();
+      const action = (url.searchParams.get('action')||'').trim();
+      let limit = parseInt(url.searchParams.get('limit')||'200',10); if (!Number.isFinite(limit)||limit<1) limit=100; if (limit>500) limit=500;
+      const where: string[] = []; const binds: any[] = [];
+      if (resource) { where.push('resource=?'); binds.push(resource); }
+      if (action) { where.push('action=?'); binds.push(action); }
+      const sql = `SELECT id, ts, actor_type, actor_id, action, resource, resource_id, details FROM mutation_audit ${where.length? 'WHERE '+where.join(' AND '):''} ORDER BY ts DESC LIMIT ?`;
+      binds.push(limit);
+      try {
+        const rs = await env.DB.prepare(sql).bind(...binds).all();
+        return json({ ok:true, rows: rs.results||[], filtered:{ resource:resource||undefined, action:action||undefined, limit } });
+      } catch (e:any) {
+        return json({ ok:false, error:String(e) },500);
       }
     }
 
