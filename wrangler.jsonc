@@ -2,7 +2,7 @@
   "name": "pokequant",
   "account_id": "b68b1a92dccf8e4a772b3c54a02d9026",
   "main": "src/index.ts",
-  "compatibility_date": "2025-08-28",
+  "compatibility_date": "2025-08-23", // pinned to latest supported by workers runtime in tests to avoid warnings
 
   // Vars: environment variables available in your Worker
   "vars": {

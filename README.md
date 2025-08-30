@@ -27,6 +27,18 @@ Rate limit overrides (optional):
 
 Provide as Wrangler vars to tune without code changes.
 
+### Auth & Security
+
+Header tokens:
+
+- Admin endpoints: `x-admin-token: $ADMIN_TOKEN`
+- Ingestion mock `/admin/ingest/prices`: `x-ingest-token: $INGEST_TOKEN`
+- Portfolio private endpoints (`/portfolio/pnl`, exposure history, attribution): `x-portfolio-id`, `x-portfolio-secret`
+
+Secrets originate when creating a portfolio (store securely). OpenAPI declares securitySchemes (AdminToken, IngestToken, PortfolioAuth) for these.
+
+Rotate by updating env vars and re-deploying.
+
 ## API
 See `openapi.yaml` and `docs/API_CONTRACT.md`.
 

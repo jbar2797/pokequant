@@ -7,9 +7,13 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 - …
-- CI workflow: contract + version check, lint, typecheck, tests
-- Document factor analytics response schemas more fully (future)
-- Add examples to OpenAPI for key endpoints
+- Add examples to OpenAPI for key endpoints (in progress)
+## [0.5.22] - 2025-08-29
+### Added
+- OpenAPI securitySchemes (AdminToken, IngestToken, PortfolioAuth) and applied security requirements to protected endpoints.
+### Changed
+- Compatibility date pinned to 2025-08-23 to silence workers test runtime warnings.
+- Version bump to 0.5.22 (spec, code, package).
 
 ## [0.5.20] - 2025-08-30
 ### Added
@@ -19,19 +23,18 @@ All notable changes to this project will be documented here.
 - Spec version bump to 0.5.20
 ### Housekeeping
 - Moved delivered backlog items (cache hit metrics, cache_hit_ratios exposure, stronger ETag signature, retention docs & test, /admin/version) into prior releases; cleaned Unreleased section.
-
-## [0.5.19] - 2025-08-30
 ### Added
 - Configurable retention overrides: body windows map and RETENTION_<TABLE>_DAYS env vars
-- Retention metrics instrumentation (retention.deleted.<table>) & latency tracking (job.retention)
+## [0.5.21] - 2025-08-30
+### Added
+- Detailed OpenAPI component schemas & response bodies for factor analytics and portfolio endpoints: factor returns, risk, metrics, smoothed returns, signal quality, IC summary, performance, portfolio PnL, exposure history, attribution.
+
+### Changed
+- Bumped version to 0.5.21.
 ### Changed
 - /admin/retention now returns ms duration and echoes applied overrides
-- OpenAPI version bump to 0.5.19 with retention override docs
-### Deferred
 - Audit batching optimization was prototyped but reverted in favor of fully synchronous, awaited audit writes (test isolation safety). Will revisit with per-request bulk insert strategy.
-### Fixed
 - Await all audit writes to prevent post-response D1 operations causing isolated storage teardown errors during tests.
-
 ## [0.2.5] - 2025-08-29
 - Add /admin/integrity endpoint summarizing latest dates, coverage counts, gap heuristic, and stale datasets
 

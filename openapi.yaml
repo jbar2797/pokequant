@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.20
+  version: 0.5.22
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -83,55 +83,167 @@ paths:
     get:
       summary: Latest stored factor daily top-bottom quintile returns
       description: Returns list plus rolling aggregates (7d/30d compound, averages, Sharpe) under aggregates field.
+  security: [ { AdminToken: [] } ]
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactorReturnsResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - { factor: ts7, ret: 0.0123, ret_7d: 0.045, ret_30d: 0.11 }
+                      - { factor: mom90, ret: -0.004, ret_7d: 0.010, ret_30d: 0.072 }
+                    aggregates: { count: 2, avg: 0.00415, avg_abs: 0.00815, sharpe_30d: 1.2, sharpe_7d: 0.9 }
   /admin/factor-returns/run:
     post:
       summary: Force recomputation of factor returns for latest date
+  security: [ { AdminToken: [] } ]
       responses: { '200': { description: OK } }
   /admin/factor-risk:
     get:
       summary: Latest factor covariance/correlation pairs
       description: Returns factor pairwise covariance & correlation (rolling 60d window) for as_of date (query param optional, defaults today). pairs array includes factor_i, factor_j, cov, corr.
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactorRiskResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    as_of: 2025-08-29
+                    pairs:
+                      - { factor_i: ts7, factor_j: ts7, cov: 0.0025, corr: 1 }
+                      - { factor_i: ts7, factor_j: mom90, cov: 0.0003, corr: 0.25 }
+                      - { factor_i: mom90, factor_j: mom90, cov: 0.0031, corr: 1 }
   /admin/factor-metrics:
     get:
       summary: Per-factor volatility & beta metrics
       description: Returns factor_metrics rows (vol, beta) for as_of date (query param optional, defaults today).
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactorMetricsResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    as_of: 2025-08-29
+                    metrics:
+                      - { factor: ts7, vol: 0.18, beta: 0.95 }
+                      - { factor: mom90, vol: 0.22, beta: 1.05 }
   /admin/factor-returns-smoothed:
     get:
       summary: Bayesian-smoothed factor returns
       description: Returns per-factor shrunken returns (ret_smoothed) for as_of date (query param optional, defaults today).
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactorReturnsSmoothedResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    as_of: 2025-08-29
+                    returns:
+                      - { factor: ts7, ret: 0.0123, ret_smoothed: 0.0101 }
+                      - { factor: mom90, ret: -0.004, ret_smoothed: 0.0012 }
   /admin/signal-quality:
     get:
       summary: Signal quality stability metrics
       description: Returns IC stability metrics (ic_mean, ic_vol, lag-1 autocorr, half-life) for factors at as_of date (query param optional, defaults today).
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignalQualityResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    as_of: 2025-08-29
+                    metrics:
+                      - { factor: ts7, ic_mean: 0.045, ic_vol: 0.12, ic_autocorr_1d: 0.10, ic_half_life_days: 5 }
+                      - { factor: mom90, ic_mean: 0.030, ic_vol: 0.11, ic_autocorr_1d: 0.05, ic_half_life_days: 4 }
   /admin/portfolio-pnl:
     get:
       summary: Portfolio daily PnL snapshots
       description: Returns portfolio_pnl rows (ret, turnover_cost, realized_pnl) filtered by optional portfolio_id and/or as_of.
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioPnlResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - { portfolio_id: p1, as_of: 2025-08-28, ret: 0.006, turnover_cost: 0.0002, realized_pnl: 12.3 }
+                      - { portfolio_id: p1, as_of: 2025-08-29, ret: -0.003, turnover_cost: 0.0001, realized_pnl: 11.9 }
   /admin/factor-ic/summary:
     get:
       summary: Rolling IC performance summary
       description: Per-factor stats over full history (<=90d) plus trailing 30d and 7d windows: average IC, absolute average IC, hit rate (>0), and information ratio (annualized) with window-specific fields.
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactorIcSummaryResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - { factor: ts7, ic_avg: 0.042, ic_avg_abs: 0.050, ic_ir: 0.85, ic_hit: 0.62, ic_avg_30d: 0.038, ic_avg_abs_30d: 0.046, ic_ir_30d: 0.80, ic_hit_30d: 0.60, ic_avg_7d: 0.041, ic_avg_abs_7d: 0.049, ic_ir_7d: 0.78, ic_hit_7d: 0.57 }
+                      - { factor: mom90, ic_avg: 0.030, ic_avg_abs: 0.044, ic_ir: 0.70, ic_hit: 0.58 }
   /admin/factor-performance:
     get:
       summary: Consolidated factor performance & suggested weights
       description: Combines recent factor returns and IC to produce per-factor performance metrics and normalized weight_suggest from trailing 30d absolute IC.
-      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FactorPerformanceResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    factors:
+                      - { factor: ts7, ic_avg_30d: 0.038, ic_ir_30d: 0.80, ret_30d: 0.11, ret_smoothed: 0.0101, weight_suggest: 0.55 }
+                      - { factor: mom90, ic_avg_30d: 0.028, ic_ir_30d: 0.60, ret_30d: 0.072, ret_smoothed: 0.0012, weight_suggest: 0.45 }
   /admin/portfolio-exposure/snapshot:
     post:
       summary: Force snapshot of portfolio factor exposure history for current latest components date
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/portfolio-nav/snapshot:
     post:
       summary: Force portfolio NAV snapshot for latest prices
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/test-insert:
     post:
       summary: (Test) Insert rows into allowlisted tables for test seeding
@@ -139,15 +251,44 @@ paths:
   /portfolio/exposure/history:
     get:
       summary: Portfolio factor exposure history (snapshots)
-      responses: { '200': { description: OK } }
+  security: [ { PortfolioAuth: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioExposureHistoryResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - { portfolio_id: p1, as_of: 2025-08-28, factor: ts7, exposure: 0.32 }
+                      - { portfolio_id: p1, as_of: 2025-08-29, factor: ts7, exposure: 0.30 }
+                      - { portfolio_id: p1, as_of: 2025-08-29, factor: mom90, exposure: 0.18 }
   /portfolio/attribution:
     get:
       summary: Portfolio performance attribution (factor contributions vs residual)
-      responses: { '200': { description: OK } }
+  security: [ { PortfolioAuth: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioAttributionResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - { portfolio_id: p1, as_of: 2025-08-29, factor: ts7, contribution: 0.004 }
+                      - { portfolio_id: p1, as_of: 2025-08-29, factor: mom90, contribution: 0.002 }
+                      - { portfolio_id: p1, as_of: 2025-08-29, factor: residual, contribution: -0.001 }
   /portfolio/pnl:
     get:
       summary: Portfolio daily PnL (authenticated)
       description: Returns per-day portfolio returns (ret) and realized components for authenticated portfolio (headers x-portfolio-id/secret). Optional days query (<=180).
+  security: [ { PortfolioAuth: [] } ]
       responses: { '200': { description: OK } }
   /api/subscribe:
     post:
@@ -244,6 +385,7 @@ paths:
       responses:
         '200':
           description: OK
+  security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminMetricsResponse' }
@@ -254,6 +396,7 @@ paths:
       responses:
         '200':
           description: OK
+  security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema:
@@ -271,14 +414,17 @@ paths:
                 required: [ok, rows]
   /admin/run-alerts:
     post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
+  security: [ { AdminToken: [] } ]
   /admin/migrations:
     get: { summary: List applied migrations (admin), responses: { '200': { description: OK } } }
+  security: [ { AdminToken: [] } ]
   /admin/version:
     get:
       summary: Version metadata (admin)
       responses:
         '200':
           description: OK
+  security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
@@ -288,22 +434,27 @@ paths:
       description: Coverage counts, latest dates, recent gap heuristics, and staleness flags.
       responses:
         '200': { description: OK }
+  security: [ { AdminToken: [] } ]
   /admin/factor-weights:
     get:
       summary: List factor weights (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factor-weights/auto:
     post:
       summary: Auto derive factor weights from trailing IC (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factor-ic:
     get:
       summary: List factor IC history (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factor-ic/run:
     post:
       summary: Compute and store latest factor IC (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/backtests:
     get:
       summary: List recent backtests (admin)
@@ -311,6 +462,7 @@ paths:
     post:
       summary: Run simple quintile spread backtest (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factors:
     get:
       summary: List factor configuration (admin)
@@ -318,14 +470,17 @@ paths:
     post:
       summary: Upsert factor configuration entry (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factors/toggle:
     post:
       summary: Toggle factor enabled flag (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factors/delete:
     post:
       summary: Delete factor from configuration (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/retention:
     post:
       summary: Run data retention purge (admin)
@@ -336,6 +491,7 @@ paths:
       responses:
         '200':
           description: OK
+  security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RetentionResult' }
@@ -343,24 +499,29 @@ paths:
     get:
       summary: Get backtest details (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/snapshot:
     get:
       summary: Consolidated snapshot (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/anomalies:
     get:
       summary: List recent anomalies (admin)
       description: Optional query param status=open|resolved to filter.
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/anomalies/resolve:
     post:
       summary: Resolve or classify an anomaly (admin)
       description: Actions: ack, dismiss, ignore. Body: { id, action, note? }
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/portfolio-nav:
     get:
       summary: Portfolio NAV history (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/backfill:
     get:
       summary: List recent backfill jobs (admin)
@@ -368,20 +529,24 @@ paths:
     post:
       summary: Create backfill job (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/backfill/{id}:
     get:
       summary: Backfill job detail (admin)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/ingestion/provenance:
     get:
       summary: List ingestion provenance records (admin)
   description: Optional query params: dataset, source, status, limit (<=500)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/ingest/prices:
     post:
       summary: Mock external price ingestion (admin)
       description: Inserts deterministic pseudo price history for recent days (default 3, max 30) and records provenance with source=external-mock.
       responses: { '200': { description: OK } }
+  security: [ { IngestToken: [] } ]
   /admin/ingestion/config:
     get:
       summary: List ingestion configuration entries (admin)
@@ -390,28 +555,49 @@ paths:
       summary: Upsert ingestion configuration entry (admin)
       description: Body: { dataset, source, cursor?, enabled?, meta? }
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/ingestion/run:
     post:
       summary: Run incremental ingestion for enabled config entries (admin)
       description: Advances cursor per (dataset,source) and records provenance; currently supports prices_daily only (deterministic pseudo data scaffold).
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/audit:
     get:
       summary: List mutation audit trail entries (admin)
       description: Optional query params: resource, action, actor_type, resource_id, before_ts (pagination), limit (<=500)
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/audit/stats:
     get:
       summary: Audit action/resource frequency stats
       description: Aggregated counts over trailing hours window (default 24, max 168). Params: hours.
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
   /admin/factor-correlations:
     get:
       summary: Rolling factor return correlation matrix
       description: Computes Pearson correlations of daily factor_returns over trailing days window (default 60, max 180). Returns matrix and avg_abs_corr.
       responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
 components:
   schemas:
+  securitySchemes:
+    AdminToken:
+      type: apiKey
+      in: header
+      name: x-admin-token
+      description: Static admin token (env ADMIN_TOKEN).
+    IngestToken:
+      type: apiKey
+      in: header
+      name: x-ingest-token
+      description: Token required for secured ingestion endpoint.
+    PortfolioAuth:
+      type: apiKey
+      in: header
+      name: x-portfolio-secret
+      description: Per-portfolio secret; must pair with x-portfolio-id.
     Error:
       type: object
       properties:
@@ -428,6 +614,163 @@ components:
         image_url: { type: string, nullable: true }
         types: { type: string, nullable: true, description: 'Pipe-delimited types' }
       required: [id, name]
+    FactorReturnsRow:
+      type: object
+      properties:
+        factor: { type: string }
+        ret: { type: number }
+        ret_7d: { type: number, nullable: true }
+        ret_30d: { type: number, nullable: true }
+      required: [factor, ret]
+    FactorReturnsAggregates:
+      type: object
+      properties:
+        count: { type: integer }
+        avg: { type: number, nullable: true }
+        avg_abs: { type: number, nullable: true }
+        sharpe_30d: { type: number, nullable: true }
+        sharpe_7d: { type: number, nullable: true }
+      required: [count]
+    FactorReturnsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/FactorReturnsRow' } }
+        aggregates: { $ref: '#/components/schemas/FactorReturnsAggregates' }
+      required: [ok, rows]
+    FactorRiskResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        as_of: { type: string, format: date }
+        pairs: { type: array, items: { $ref: '#/components/schemas/FactorRiskPair' } }
+      required: [ok, as_of, pairs]
+    FactorMetricRow:
+      type: object
+      properties:
+        factor: { type: string }
+        vol: { type: number }
+        beta: { type: number }
+      required: [factor, vol, beta]
+    FactorMetricsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        as_of: { type: string, format: date }
+        metrics: { type: array, items: { $ref: '#/components/schemas/FactorMetricRow' } }
+      required: [ok, as_of, metrics]
+    FactorReturnsSmoothedRow:
+      type: object
+      properties:
+        factor: { type: string }
+        ret: { type: number }
+        ret_smoothed: { type: number }
+      required: [factor, ret, ret_smoothed]
+    FactorReturnsSmoothedResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        as_of: { type: string, format: date }
+        returns: { type: array, items: { $ref: '#/components/schemas/FactorReturnsSmoothedRow' } }
+      required: [ok, as_of, returns]
+    SignalQualityRow:
+      type: object
+      properties:
+        factor: { type: string }
+        ic_mean: { type: number }
+        ic_vol: { type: number }
+        ic_autocorr_1d: { type: number }
+        ic_half_life_days: { type: number }
+      required: [factor, ic_mean]
+    SignalQualityResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        as_of: { type: string, format: date }
+        metrics: { type: array, items: { $ref: '#/components/schemas/SignalQualityRow' } }
+      required: [ok, as_of, metrics]
+    FactorIcSummaryRow:
+      type: object
+      properties:
+        factor: { type: string }
+        ic_avg: { type: number, nullable: true }
+        ic_avg_abs: { type: number, nullable: true }
+        ic_ir: { type: number, nullable: true }
+        ic_hit: { type: number, nullable: true }
+        ic_avg_30d: { type: number, nullable: true }
+        ic_avg_abs_30d: { type: number, nullable: true }
+        ic_ir_30d: { type: number, nullable: true }
+        ic_hit_30d: { type: number, nullable: true }
+        ic_avg_7d: { type: number, nullable: true }
+        ic_avg_abs_7d: { type: number, nullable: true }
+        ic_ir_7d: { type: number, nullable: true }
+        ic_hit_7d: { type: number, nullable: true }
+      required: [factor]
+    FactorIcSummaryResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/FactorIcSummaryRow' } }
+      required: [ok, rows]
+    FactorPerformanceRow:
+      type: object
+      properties:
+        factor: { type: string }
+        ic_avg_30d: { type: number, nullable: true }
+        ic_ir_30d: { type: number, nullable: true }
+        ret_30d: { type: number, nullable: true }
+        ret_smoothed: { type: number, nullable: true }
+        weight_suggest: { type: number, nullable: true }
+      required: [factor]
+    FactorPerformanceResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        factors: { type: array, items: { $ref: '#/components/schemas/FactorPerformanceRow' } }
+      required: [ok, factors]
+    PortfolioPnlRow:
+      type: object
+      properties:
+        portfolio_id: { type: string }
+        as_of: { type: string, format: date }
+        ret: { type: number }
+        turnover_cost: { type: number, nullable: true }
+        realized_pnl: { type: number, nullable: true }
+      required: [portfolio_id, as_of, ret]
+    PortfolioPnlResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/PortfolioPnlRow' } }
+      required: [ok, rows]
+    PortfolioExposureHistoryRow:
+      type: object
+      properties:
+        portfolio_id: { type: string }
+        as_of: { type: string, format: date }
+        factor: { type: string }
+        exposure: { type: number }
+      required: [portfolio_id, as_of, factor, exposure]
+    PortfolioExposureHistoryResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/PortfolioExposureHistoryRow' } }
+      required: [ok, rows]
+    PortfolioAttributionRow:
+      type: object
+      properties:
+        portfolio_id: { type: string }
+        as_of: { type: string, format: date }
+        factor: { type: string }
+        contribution: { type: number }
+      required: [portfolio_id, as_of, factor, contribution]
+    PortfolioAttributionResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/PortfolioAttributionRow' } }
+      required: [ok, rows]
     CardWithSignal:
       allOf:
         - $ref: '#/components/schemas/CardBase'
