@@ -12,6 +12,12 @@ All notable changes to this project will be documented here.
 - Retry & backoff for alert email sending with failure metrics aggregation
 - Drop legacy plaintext portfolio_secret column after observation window
 
+## [0.5.32] - 2025-08-30
+### Added
+- Alert email retry with attempt_count + last_error columns (migration 0031) and processing logic (email.retry, email.giveup metrics).
+### Changed
+- OpenAPI metrics example extended with email.retry & email.giveup. Version bump.
+
 ## [0.5.31] - 2025-08-30
 ### Added
 - Email metrics (email.sent, email.send_error, email.no_provider) surfaced in /admin/metrics OpenAPI example.

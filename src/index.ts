@@ -3,7 +3,7 @@
 // Public API preserved; adds POST /admin/run-fast to compute signals only, safely.
 
 import { compositeScore } from './signal_math';
-import { sendEmail } from './email_adapter';
+import { sendEmail, EMAIL_RETRY_MAX } from './email_adapter';
 import { APP_VERSION } from './version';
 import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
@@ -1577,25 +1577,37 @@ export default {
     }
     if (url.pathname === '/admin/alert-queue/send' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT);`).run(); } catch {}
+      try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT, attempt_count INTEGER DEFAULT 0, last_error TEXT);`).run(); } catch {}
+      // Select queued items that either have never been attempted or are below max attempts.
       const rs = await env.DB.prepare(`SELECT id FROM alert_email_queue WHERE status='queued' ORDER BY created_at ASC LIMIT 50`).all();
       const ids = (rs.results||[]).map((r:any)=> r.id);
+      let sentCount = 0; let retryCount = 0; let giveupCount = 0;
       for (const id of ids) {
-        // fetch row for details
-        const rowRes = await env.DB.prepare(`SELECT email, card_id, kind, threshold_usd FROM alert_email_queue WHERE id=?`).bind(id).all();
-        const row: any = rowRes.results?.[0];
-        let status = 'sent';
-        if (row) {
-          const subj = `PokeQuant Alert: ${row.card_id} ${row.kind} ${row.threshold_usd}`;
-          const body = `<p>Card <b>${row.card_id}</b> triggered <b>${row.kind}</b> at threshold ${row.threshold_usd}.</p>`;
-          const sendRes = await sendEmail(env, row.email, subj, body);
-          if (!sendRes.ok) status = 'error';
+        const rowRes = await env.DB.prepare(`SELECT email, card_id, kind, threshold_usd, attempt_count FROM alert_email_queue WHERE id=?`).bind(id).all();
+        const row: any = rowRes.results?.[0]; if (!row) continue;
+        if (Number(row.attempt_count) >= EMAIL_RETRY_MAX) {
+          // Mark terminal failure
+          await env.DB.prepare(`UPDATE alert_email_queue SET status='error', last_error=COALESCE(last_error,'max_attempts'), sent_at=datetime('now') WHERE id=?`).bind(id).run();
+          giveupCount++;
+          continue;
         }
-        await env.DB.prepare(`UPDATE alert_email_queue SET status=?, sent_at=datetime('now') WHERE id=?`).bind(status, id).run();
+        const subj = `PokeQuant Alert: ${row.card_id} ${row.kind} ${row.threshold_usd}`;
+        const body = `<p>Card <b>${row.card_id}</b> triggered <b>${row.kind}</b> at threshold ${row.threshold_usd}.</p>`;
+        const sendRes = await sendEmail(env, row.email, subj, body);
+        if (sendRes.ok) {
+          await env.DB.prepare(`UPDATE alert_email_queue SET status='sent', sent_at=datetime('now'), attempt_count=attempt_count+1 WHERE id=?`).bind(id).run();
+          sentCount++;
+        } else {
+          const attemptsSql = `UPDATE alert_email_queue SET attempt_count=attempt_count+1, last_error=?, sent_at=CASE WHEN attempt_count+1>=? THEN datetime('now') ELSE sent_at END, status=CASE WHEN attempt_count+1>=? THEN 'error' ELSE 'queued' END WHERE id=?`;
+          await env.DB.prepare(attemptsSql).bind(sendRes.error||'error', EMAIL_RETRY_MAX, EMAIL_RETRY_MAX, id).run();
+          if ((Number(row.attempt_count)+1) >= EMAIL_RETRY_MAX) giveupCount++; else retryCount++;
+        }
       }
-      if (ids.length) incMetricBy(env, 'alert.sent', ids.length); // fire & forget
-      await audit(env, { actor_type:'admin', action:'process', resource:'alert_email_queue', details:{ processed: ids.length } });
-      return json({ ok:true, processed: ids.length });
+      if (sentCount) incMetricBy(env, 'alert.sent', sentCount);
+      if (retryCount) incMetricBy(env, 'email.retry', retryCount);
+      if (giveupCount) incMetricBy(env, 'email.giveup', giveupCount);
+      await audit(env, { actor_type:'admin', action:'process', resource:'alert_email_queue', details:{ processed: ids.length, sent: sentCount, retry: retryCount, giveup: giveupCount } });
+      return json({ ok:true, processed: ids.length, sent: sentCount, retry: retryCount, giveup: giveupCount });
     }
     if (url.pathname === '/portfolio' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';

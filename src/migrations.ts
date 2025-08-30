@@ -387,6 +387,34 @@ CREATE INDEX IF NOT EXISTS idx_audit_action ON mutation_audit(action);`
     description: 'Add secret_hash column to portfolios for hashed secret storage',
     sql: `ALTER TABLE portfolios ADD COLUMN secret_hash TEXT;`
   }
+  ,
+  {
+    id: '0029_portfolio_secret_deprecate',
+    description: 'Deprecate plaintext secret column once all hashes populated (sets secret to NULL)',
+    sql: `UPDATE portfolios SET secret=NULL WHERE secret_hash IS NOT NULL;`
+  }
+  ,
+  {
+    id: '0030_alert_email_queue',
+    description: 'Add alert_email_queue table for outbound email simulation',
+    sql: `CREATE TABLE IF NOT EXISTS alert_email_queue (
+  id TEXT PRIMARY KEY,
+  created_at TEXT,
+  email TEXT,
+  card_id TEXT,
+  kind TEXT,
+  threshold_usd REAL,
+  status TEXT,
+  sent_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0031_alert_email_retry',
+    description: 'Add retry metadata columns to alert_email_queue',
+    sql: `ALTER TABLE alert_email_queue ADD COLUMN attempt_count INTEGER DEFAULT 0;
+ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

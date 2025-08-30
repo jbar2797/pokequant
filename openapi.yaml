@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.31
+  version: 0.5.32
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -256,7 +256,12 @@ paths:
   /admin/portfolio-nav/snapshot:
     post:
       summary: Force portfolio NAV snapshot for latest prices
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SimpleOkResponse' }
   security: [ { AdminToken: [] } ]
   /admin/portfolio/force-legacy:
     post:
@@ -277,6 +282,7 @@ paths:
           description: OK
           content:
             application/json:
+              schema: { $ref: '#/components/schemas/ForceLegacyResponse' }
               examples:
                 sample:
                   value: { ok: true, id: 'uuid', had_hash: true }
@@ -398,7 +404,12 @@ paths:
   /portfolio/create:
     post:
       summary: Create portfolio
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioCreateResponse' }
   /portfolio/add-lot:
     post:
       summary: Add portfolio lot
@@ -432,7 +443,12 @@ paths:
   /portfolio/export:
     get:
       summary: Export portfolio
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioExportResponse' }
   /portfolio/exposure:
     get:
       summary: Portfolio factor exposure (latest components)
@@ -565,6 +581,10 @@ paths:
                     latency: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
                     cache_hits: [ { d: 2025-08-29, metric: cache.hit.universe, count: 15 } ]
                     cache_hit_ratios: { universe: 0.65 }
+                    # New email retry metrics (example only)
+                    more_email_metrics:
+                      - { d: 2025-08-29, metric: email.retry, count: 2 }
+                      - { d: 2025-08-29, metric: email.giveup, count: 1 }
   /admin/latency:
     get:
       summary: Latest latency snapshot (admin)
@@ -666,6 +686,8 @@ paths:
                       - { d: 2025-08-29, metric: email.sent, count: 2 }
                       - { d: 2025-08-29, metric: email.send_error, count: 1 }
                       - { d: 2025-08-29, metric: email.no_provider, count: 5 }
+                      - { d: 2025-08-29, metric: email.retry, count: 2 }
+                      - { d: 2025-08-29, metric: email.giveup, count: 1 }
       summary: Run simple quintile spread backtest (admin)
       responses: { '200': { description: OK } }
   security: [ { AdminToken: [] } ]
@@ -864,6 +886,28 @@ components:
         id: { type: string }
         secret: { type: string }
       required: [ok, id, secret]
+    PortfolioCreateResponse:
+      type: object
+      properties:
+        id: { type: string }
+        secret: { type: string }
+      required: [id, secret]
+    PortfolioExportResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        portfolio_id: { type: string }
+        lots:
+          type: array
+          items: { $ref: '#/components/schemas/PortfolioLot' }
+      required: [ok, portfolio_id, lots]
+    ForceLegacyResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        had_hash: { type: boolean }
+      required: [ok, id, had_hash]
     AlertQueueProcessResponse:
       type: object
       properties:

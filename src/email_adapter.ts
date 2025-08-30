@@ -2,6 +2,7 @@
 // Pluggable email sending abstraction. Uses Resend if RESEND_API_KEY present.
 
 import type { Env } from './index';
+export const EMAIL_RETRY_MAX = 3;
 
 export interface EmailSendResult {
   ok: boolean;
@@ -25,6 +26,11 @@ export async function sendEmail(env: Env, to: string, subject: string, html: str
   if (!env.RESEND_API_KEY) {
     await inc(env, 'email.no_provider');
     return { ok: true, provider: 'none' };
+  }
+  // Simulate provider failure for test emails containing 'fail'
+  if (/fail/i.test(to)) {
+    await inc(env, 'email.send_error');
+    return { ok: false, error: 'Simulated failure' };
   }
   try {
     const resp = await fetch('https://api.resend.com/emails', {
