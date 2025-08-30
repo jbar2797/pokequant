@@ -37,6 +37,11 @@ WHERE metric LIKE 'lat.%'
 GROUP BY d, base_metric;`
   },
   {
+    id: '0005_alert_threshold_normalize',
+    description: 'Add threshold_usd column if missing and backfill from legacy threshold',
+    sql: `-- Normalize alert threshold column\nALTER TABLE alerts_watch ADD COLUMN threshold_usd REAL;\nUPDATE alerts_watch SET threshold_usd = threshold WHERE threshold_usd IS NULL AND threshold IS NOT NULL;`
+  },
+  {
     id: '0002_core_tables',
     description: 'Create core tables so health/check endpoints do not error on fresh DB',
     sql: `CREATE TABLE IF NOT EXISTS cards (
@@ -136,7 +141,7 @@ export async function runMigrations(db: D1Database) {
           } catch (e:any) {
             // Ignore missing table errors for indices (will be created lazily later)
             const msg = String(e);
-            if (!/no such table/i.test(msg)) {
+            if (!/no such table/i.test(msg) && !/duplicate column name/i.test(msg)) {
               // Re-throw for other errors
               throw e;
             }

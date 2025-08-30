@@ -1,8 +1,10 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.2.2
-  description: MVP API. Fields may add over time; removals are breaking. Use schema components.
+  version: 0.2.4
+  description: |
+    MVP API. Fields may add over time; removals are breaking. Use schema components.
+    Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
 servers:
   - url: https://pokequant.jonathanbarreneche.workers.dev
 paths:
@@ -14,10 +16,13 @@ paths:
   /api/universe:
     get:
       summary: Universe listing
-      responses: { '200': { description: OK } }
+  description: May return Cache-Control: public, max-age=60
+        responses:
+          '200': { description: OK }
   /api/cards:
     get:
       summary: Cards with latest signals
+  description: May return Cache-Control: public, max-age=30
       responses:
         '200':
           description: List of cards with signals
@@ -29,6 +34,7 @@ paths:
   /api/movers:
     get:
       summary: Top movers
+  description: May return Cache-Control: public, max-age=30
       parameters:
         - in: query
           name: dir
@@ -71,14 +77,14 @@ paths:
                 email: { type: string }
               required: [email]
       responses:
-        '200': { description: OK }
-        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    '200': { description: OK, headers: { 'X-RateLimit-Limit': { schema: { type: integer } }, 'X-RateLimit-Remaining': { schema: { type: integer } }, 'X-RateLimit-Reset': { schema: { type: integer } } } }
+    '429': { description: Rate limited, headers: { 'Retry-After': { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /api/sets:
-    get: { summary: List sets, responses: { '200': { description: OK } } }
+  get: { summary: List sets, description: May return Cache-Control: public, max-age=300, responses: { '200': { description: OK } } }
   /api/rarities:
-    get: { summary: List rarities, responses: { '200': { description: OK } } }
+  get: { summary: List rarities, description: May return Cache-Control: public, max-age=300, responses: { '200': { description: OK } } }
   /api/types:
-    get: { summary: List types, responses: { '200': { description: OK } } }
+  get: { summary: List types, description: May return Cache-Control: public, max-age=300, responses: { '200': { description: OK } } }
   /api/search:
     get:
       summary: Search cards
@@ -87,8 +93,8 @@ paths:
           name: q
           schema: { type: string }
       responses:
-        '200': { description: OK }
-        '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    '200': { description: OK, headers: { 'X-RateLimit-Limit': { schema: { type: integer } }, 'X-RateLimit-Remaining': { schema: { type: integer } }, 'X-RateLimit-Reset': { schema: { type: integer } } } }
+    '429': { description: Rate limited, headers: { 'Retry-After': { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /portfolio/create:
     post:
       summary: Create portfolio
@@ -114,8 +120,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/AlertCreateRequest' }
       responses:
-        '200': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/AlertCreateResponse' } } } }
-        '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    '200': { description: Created, headers: { 'X-RateLimit-Limit': { schema: { type: integer } }, 'X-RateLimit-Remaining': { schema: { type: integer } }, 'X-RateLimit-Reset': { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/AlertCreateResponse' } } } }
+    '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   '429': { description: Rate limited, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /alerts/deactivate:
     get: { summary: Deactivate alert, responses: { '200': { description: OK } } }
@@ -155,6 +161,28 @@ paths:
                       type: object
                       properties:
                         d: { type: string }
+                        base_metric: { type: string }
+                        p50_ms: { type: number, nullable: true }
+                        p95_ms: { type: number, nullable: true }
+                required: [ok, rows]
+  /admin/latency:
+    get:
+      summary: Latest latency snapshot (admin)
+      description: Provides latest p50/p95 latency per tag only (single-day view).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
                         base_metric: { type: string }
                         p50_ms: { type: number, nullable: true }
                         p95_ms: { type: number, nullable: true }

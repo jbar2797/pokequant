@@ -8,14 +8,20 @@ This is the **minimal shape** clients can rely on. Adding fields is OK; removing
 ## `GET /api/universe`
 - 200 JSON: `[{ id, name, set_name, rarity, image_url, price_usd?, price_eur? }, ...]`
 - Size ≤ 250
+- Cache-Control: public, max-age=60
+- ETag supported (If-None-Match => 304)
 
 ## `GET /api/cards`
 - 200 JSON: same shape as universe plus `{ signal, score }`
 - Only rows with current signals (can be 0 early on)
+- Cache-Control: public, max-age=30
+- ETag supported
 
 ## `GET /api/movers?n=<int>`
 - 200 JSON: subset of cards with `{ ts7?, z_svi?, score }`
 - Ordered by `ts7 DESC, score DESC`
+- Cache-Control: public, max-age=30
+- ETag supported
 
 ## `GET /api/card?id=<card_id>&days=<N>`
 - 200 JSON: `{ ok, card, prices:[{d, usd?, eur?}], svi:[{d, svi}], signals:[{d, signal, score, edge_z, exp_ret, exp_sd}], components:[{d, ts7, ts30, dd, vol, z_svi, regime_break}] }`
@@ -46,12 +52,18 @@ This is the **minimal shape** clients can rely on. Adding fields is OK; removing
 
 ## `GET /api/sets`
 - 200: `[ { v: string, n: number }, ... ]` (set name and count)
+- Cache-Control: public, max-age=300
+- ETag supported
 
 ## `GET /api/rarities`
 - 200: `[ { v: string, n: number }, ... ]`
+- Cache-Control: public, max-age=300
+- ETag supported
 
 ## `GET /api/types`
 - 200: `[ { v: string }, ... ]` (unique tokens from `cards.types`)
+- Cache-Control: public, max-age=300
+- ETag supported
 
 ## `GET /api/search?q=&set=&rarity=&type=&limit=&offset=`
 - 200: `[{ id, name, set_name, rarity, image_url, signal?, score?, price_usd?, price_eur? }, ... ]`
@@ -82,6 +94,9 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 	`{ ok:true, rows:[{ d, metric, count }, ...], latency:[{ d, base_metric, p50_ms, p95_ms }, ...] }`
 	- Latency metrics recorded as exponential moving estimates; early values stabilize after several requests.
 
+### `GET /admin/latency`
+- Latest (single snapshot) latency per tag only: `{ ok:true, rows:[{ base_metric, p50_ms, p95_ms }, ...] }`
+
 ### `POST /admin/run-alerts`
 - Manually evaluate alert rules without recomputing signals.
 - 200: `{ ok:true, checked:<n>, fired:<m> }`
@@ -100,6 +115,10 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 - Lists applied migrations: `{ ok:true, rows:[{ id, applied_at, description }, ...] }`
 
 ## Rate Limiting
+## Caching Notes
+Public read-mostly endpoints send short-lived Cache-Control headers (see individual sections). Clients SHOULD respect them to avoid hammering the edge.
+- ETag provides validation; clients may revalidate with If-None-Match to receive 304 and skip body transfer.
+
 Fixed-window counters stored in `rate_limits` D1 table. Defaults:
 - Search: 30 / 5 minutes per IP
 - Subscribe: 5 / day per IP
@@ -111,3 +130,8 @@ Override via environment variables (Wrangler vars):
 - `RL_ALERT_CREATE_LIMIT`, `RL_ALERT_CREATE_WINDOW_SEC`
 
 Exceeded requests return HTTP 429 and body: `{ ok:false, error:'rate_limited', retry_after:<seconds> }`.
+Rate limit response headers (all rate-limited endpoints):
+- `X-RateLimit-Limit`: total requests allowed in window
+- `X-RateLimit-Remaining`: remaining requests (0 when next would be limited)
+- `X-RateLimit-Reset`: epoch seconds when the window resets
+- `Retry-After`: (only on 429) seconds until reset

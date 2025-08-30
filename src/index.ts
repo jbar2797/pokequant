@@ -48,6 +48,21 @@ function isoDaysAgo(days: number) {
   return d.toISOString().slice(0,10);
 }
 
+// Small helper to derive a shared signature for ETag generation across public endpoints.
+// Combines card count + latest price/signal dates. Good enough for short-lived caching windows.
+async function baseDataSignature(env: Env): Promise<string> {
+  try {
+    const rs = await env.DB.prepare(`SELECT
+      (SELECT COUNT(*) FROM cards) AS cards,
+      (SELECT MAX(as_of) FROM prices_daily) AS lp,
+      (SELECT MAX(as_of) FROM signals_daily) AS ls`).all();
+    const row: any = rs.results?.[0] || {};
+    return `v1:${row.cards||0}:${row.lp||''}:${row.ls||''}`;
+  } catch {
+    return 'v1:0::';
+  }
+}
+
 // ---------- performance indices (lazy, one-time per isolate) ----------
 let INDICES_DONE = false;
 async function ensureIndices(env: Env) {
@@ -442,6 +457,12 @@ export default {
   // Ensure at least one row for smoke test / empty preview DBs
   await ensureTestSeed(env);
   await incMetric(env, 'universe.list');
+      const sig = await baseDataSignature(env);
+      const etag = `"${sig}:universe"`;
+      if (req.headers.get('if-none-match') === etag) {
+        const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=60', ...CORS } });
+        return notMod;
+      }
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
                (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
@@ -450,10 +471,19 @@ export default {
         ORDER BY c.set_name, c.name
         LIMIT 250
       `).all();
-  return done(json(rs.results ?? []), 'cards.list');
+  const resp = json(rs.results ?? []);
+  resp.headers.set('Cache-Control', 'public, max-age=60');
+  resp.headers.set('ETag', etag);
+  return done(resp, 'cards.list');
     }
     if (url.pathname === '/api/cards' && req.method === 'GET') {
   await incMetric(env, 'cards.list');
+      const sig = await baseDataSignature(env);
+      const etag = `"${sig}:cards"`;
+      if (req.headers.get('if-none-match') === etag) {
+        const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=30', ...CORS } });
+        return notMod;
+      }
       const rs = await env.DB.prepare(`
         WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
@@ -466,12 +496,21 @@ export default {
         ORDER BY s.score DESC
         LIMIT 250
       `).all();
-  return done(json(rs.results ?? []), 'cards.movers');
+  const resp = json(rs.results ?? []);
+  resp.headers.set('Cache-Control', 'public, max-age=30');
+  resp.headers.set('ETag', etag);
+  return done(resp, 'cards.movers');
     }
 
     // Movers (up/down)
     if (url.pathname === '/api/movers' && req.method === 'GET') {
   await incMetric(env, 'cards.movers');
+      const sig = await baseDataSignature(env);
+      const etag = `"${sig}:movers"`;
+      if (req.headers.get('if-none-match') === etag) {
+        const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=30', ...CORS } });
+        return notMod;
+      }
       const dir = (url.searchParams.get('dir') || 'up').toLowerCase();
       const n = Math.min(50, Math.max(1, parseInt(url.searchParams.get('n') ?? '12', 10)));
       const order = dir === 'down' ? 'ASC' : 'DESC';
@@ -489,7 +528,10 @@ export default {
         ORDER BY COALESCE(sc.z_svi, s.edge_z, s.score) ${order}
         LIMIT ?
       `).bind(n).all();
-      return json(rs.results ?? []);
+  const resp = json(rs.results ?? []);
+  resp.headers.set('Cache-Control', 'public, max-age=30');
+  resp.headers.set('ETag', etag);
+  return resp;
     }
 
     // Single card (modal)
@@ -593,23 +635,47 @@ export default {
     // --- Search & metadata endpoints (MVP completion) ---
     if (url.pathname === '/api/sets' && req.method === 'GET') {
       await ensureTestSeed(env);
+      const sig = await baseDataSignature(env);
+      const etag = `"${sig}:sets"`;
+      if (req.headers.get('if-none-match') === etag) {
+        return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
+      }
       const rs = await env.DB.prepare(`SELECT set_name AS v, COUNT(*) AS n FROM cards GROUP BY set_name ORDER BY n DESC`).all();
-  return done(json(rs.results || []), 'sets');
+  const resp = json(rs.results || []);
+  resp.headers.set('Cache-Control', 'public, max-age=300');
+  resp.headers.set('ETag', etag);
+  return done(resp, 'sets');
     }
     if (url.pathname === '/api/rarities' && req.method === 'GET') {
       await ensureTestSeed(env);
+      const sig = await baseDataSignature(env);
+      const etag = `"${sig}:rarities"`;
+      if (req.headers.get('if-none-match') === etag) {
+        return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
+      }
       const rs = await env.DB.prepare(`SELECT rarity AS v, COUNT(*) AS n FROM cards GROUP BY rarity ORDER BY n DESC`).all();
-  return done(json(rs.results || []), 'rarities');
+  const resp = json(rs.results || []);
+  resp.headers.set('Cache-Control', 'public, max-age=300');
+  resp.headers.set('ETag', etag);
+  return done(resp, 'rarities');
     }
     if (url.pathname === '/api/types' && req.method === 'GET') {
       await ensureTestSeed(env);
+      const sig = await baseDataSignature(env);
+      const etag = `"${sig}:types"`;
+      if (req.headers.get('if-none-match') === etag) {
+        return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
+      }
       const rs = await env.DB.prepare(`SELECT DISTINCT types FROM cards WHERE types IS NOT NULL`).all();
       const out: { v: string }[] = [];
       for (const r of (rs.results||[]) as any[]) {
         const parts = String(r.types||'').split('|').filter(Boolean);
         for (const p of parts) out.push({ v: p });
       }
-  return done(json(out), 'types');
+  const resp = json(out);
+  resp.headers.set('Cache-Control', 'public, max-age=300');
+  resp.headers.set('ETag', etag);
+  return done(resp, 'types');
     }
     if (url.pathname === '/api/search' && req.method === 'GET') {
       await ensureTestSeed(env);
