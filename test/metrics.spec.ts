@@ -22,5 +22,9 @@ describe('Admin metrics', () => {
     expect(j.latency === undefined || Array.isArray(j.latency)).toBe(true);
     // cache_hits should be an array (may be empty if ETag flow not triggered)
     expect(j.cache_hits === undefined || Array.isArray(j.cache_hits)).toBe(true);
+    // ratios object optional
+    if (j.cache_hit_ratios) {
+      expect(typeof j.cache_hit_ratios).toBe('object');
+    }
   });
 });

@@ -461,8 +461,10 @@ export default {
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:universe"`;
       if (req.headers.get('if-none-match') === etag) {
-        const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=60', ...CORS } });
-        return notMod;
+  // Increment cache hit metric for universe endpoint
+  await incMetric(env, 'cache.hit.universe');
+  const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=60', ...CORS } });
+  return notMod;
       }
       const rs = await env.DB.prepare(`
         SELECT c.id, c.name, c.set_name, c.rarity, c.image_url, c.types,
@@ -482,8 +484,9 @@ export default {
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:cards"`;
       if (req.headers.get('if-none-match') === etag) {
-        const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=30', ...CORS } });
-        return notMod;
+  await incMetric(env, 'cache.hit.cards');
+  const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=30', ...CORS } });
+  return notMod;
       }
       const rs = await env.DB.prepare(`
         WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
@@ -509,8 +512,9 @@ export default {
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:movers"`;
       if (req.headers.get('if-none-match') === etag) {
-        const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=30', ...CORS } });
-        return notMod;
+  await incMetric(env, 'cache.hit.movers');
+  const notMod = new Response(null, { status: 304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=30', ...CORS } });
+  return notMod;
       }
       const dir = (url.searchParams.get('dir') || 'up').toLowerCase();
       const n = Math.min(50, Math.max(1, parseInt(url.searchParams.get('n') ?? '12', 10)));
@@ -639,7 +643,8 @@ export default {
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:sets"`;
       if (req.headers.get('if-none-match') === etag) {
-        return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
+  await incMetric(env, 'cache.hit.sets');
+  return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
       }
       const rs = await env.DB.prepare(`SELECT set_name AS v, COUNT(*) AS n FROM cards GROUP BY set_name ORDER BY n DESC`).all();
   const resp = json(rs.results || []);
@@ -652,7 +657,8 @@ export default {
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:rarities"`;
       if (req.headers.get('if-none-match') === etag) {
-        return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
+  await incMetric(env, 'cache.hit.rarities');
+  return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
       }
       const rs = await env.DB.prepare(`SELECT rarity AS v, COUNT(*) AS n FROM cards GROUP BY rarity ORDER BY n DESC`).all();
   const resp = json(rs.results || []);
@@ -665,7 +671,8 @@ export default {
       const sig = await baseDataSignature(env);
       const etag = `"${sig}:types"`;
       if (req.headers.get('if-none-match') === etag) {
-        return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
+  await incMetric(env, 'cache.hit.types');
+  return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
       }
       const rs = await env.DB.prepare(`SELECT DISTINCT types FROM cards WHERE types IS NOT NULL`).all();
       const out: { v: string }[] = [];
@@ -831,7 +838,26 @@ export default {
         } catch { /* view may not exist yet */ }
   // Derive simple cache hit rate summary for front-end: group metrics with prefix cache.hit.
   const cacheHits = (rs.results||[]).filter((r:any)=> typeof r.metric === 'string' && r.metric.startsWith('cache.hit.'));
-  return json({ ok:true, rows: rs.results || [], latency, cache_hits: cacheHits });
+  // Derive simple ratios if base metrics exist (e.g., universe.list vs cache.hit.universe)
+  const baseMap = new Map<string, number>();
+  for (const r of (rs.results||[]) as any[]) {
+    if (typeof r.metric === 'string') baseMap.set(r.metric, Number(r.count)||0);
+  }
+  const ratios: Record<string, number> = {};
+  const pairs: [string,string][] = [
+    ['universe','universe.list'],
+    ['cards','cards.list'],
+    ['movers','cards.movers'],
+    ['sets','sets'],
+    ['rarities','rarities'],
+    ['types','types']
+  ];
+  for (const [short, base] of pairs) {
+    const hit = baseMap.get(`cache.hit.${short}`) || 0;
+    const total = (baseMap.get(base) || 0) + hit; // base metric increments on normal 200s; hits only added on 304
+    if (total > 0) ratios[short] = +(hit / total).toFixed(3);
+  }
+  return json({ ok:true, rows: rs.results || [], latency, cache_hits: cacheHits, cache_hit_ratios: ratios });
       } catch {
         return json({ ok:true, rows: [] });
       }
