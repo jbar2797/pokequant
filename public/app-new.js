@@ -9,7 +9,7 @@ const rootVersionEl = document.getElementById('appVersion');
 if(rootVersionEl) rootVersionEl.textContent = VERSION;
 
 // Simple state
-const state = { cards: [], view: 'overview', filtered: [] };
+const state = { cards: [], view: 'overview', filtered: [], page:1, pageSize:50 };
 
 // Navigation
 function switchView(v){
@@ -43,7 +43,29 @@ function renderCards(){
   if(!host) return;
   const list = state.filtered;
   if(!list.length){ host.innerHTML = '<tr><td colspan="6">No data</td></tr>'; return; }
-  host.innerHTML = list.slice(0,200).map(c=> row(c)).join('');
+  const start = (state.page-1)*state.pageSize;
+  const slice = list.slice(start, start+state.pageSize);
+  host.innerHTML = slice.map(c=> row(c)).join('');
+  renderPager();
+}
+function renderPager(){
+  const pager = document.getElementById('cardsPager');
+  if(!pager) return;
+  const total = state.filtered.length;
+  const pages = Math.max(1, Math.ceil(total/state.pageSize));
+  if(state.page>pages) state.page=pages;
+  pager.innerHTML = `
+    <button data-page="prev" ${state.page===1?'disabled':''} style="padding:4px 8px;background:#162132;color:#e5ecf5;border:1px solid #253349;border-radius:6px;cursor:pointer;${state.page===1?'opacity:.4;cursor:not-allowed':''}">Prev</button>
+    <span>Page <strong>${state.page}</strong> / ${pages} • ${total} rows</span>
+    <button data-page="next" ${state.page===pages?'disabled':''} style="padding:4px 8px;background:#162132;color:#e5ecf5;border:1px solid #253349;border-radius:6px;cursor:pointer;${state.page===pages?'opacity:.4;cursor:not-allowed':''}">Next</button>
+    <label style="margin-left:auto;display:flex;align-items:center;gap:4px">Page Size
+      <select id="cardsPageSize" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:4px 6px;border-radius:6px">
+        ${[25,50,100,200].map(n=> `<option ${n===state.pageSize?'selected':''}>${n}</option>`).join('')}
+      </select>
+    </label>`;
+  pager.querySelector('[data-page="prev"]').onclick = ()=> { if(state.page>1){ state.page--; renderCards(); } };
+  pager.querySelector('[data-page="next"]').onclick = ()=> { const pages2=Math.ceil(state.filtered.length/state.pageSize); if(state.page<pages2){ state.page++; renderCards(); } };
+  pager.querySelector('#cardsPageSize').onchange = (e)=> { state.pageSize=Number(e.target.value)||50; state.page=1; renderCards(); };
 }
 function row(c){
   const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—');
@@ -73,12 +95,25 @@ async function showCard(id){
     const j = await fetchJSON(`/api/card?id=${encodeURIComponent(id)}&days=90`);
     const c = j.card || { id };
     const img = c.image_url || PLACEHOLDER;
+    // simple mini time series (if available) using inline canvas
+    let prices = j.prices || [];
+    const priceSpark = prices.slice(-40).map(p=> p.usd ?? p.eur ?? null).filter(v=> v!=null);
+    let sparkHtml = '';
+    if(priceSpark.length){
+      const min = Math.min(...priceSpark), max=Math.max(...priceSpark) || 1;
+      const points = priceSpark.map((v,i)=> {
+        const x = (i/(priceSpark.length-1))*100; const y = 100 - ((v-min)/(max-min))*100;
+        return `${x.toFixed(2)},${y.toFixed(2)}`;
+      }).join(' ');
+      sparkHtml = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:40px"><polyline fill="none" stroke="#6366f1" stroke-width="2" points="${points}" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+    }
     sidePanelBody.innerHTML = `<div style="display:flex;gap:16px;align-items:flex-start">
       <div style="width:110px;height:160px;background:#1e293b;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center"><img src="${img}" alt="${c.name||id}" style="max-height:150px" onerror="this.src='${PLACEHOLDER}'"/></div>
       <div style="flex:1;min-width:0">
         <h4 style="margin:0 0 4px;font-size:16px;font-weight:600;letter-spacing:.3px">${c.name||id}</h4>
         <div style="font-size:11px;opacity:.7;margin-bottom:10px">${c.set_name||''}${c.number? ' · #'+c.number:''}</div>
         <div id="cardMetaInline" style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px"></div>
+        <div style="margin-top:14px">${sparkHtml||'<span style="font-size:10px;opacity:.5">No recent prices</span>'}</div>
       </div>
     </div>`;
   } catch(e){ sidePanelBody.innerHTML='<div style="padding:40px;text-align:center;color:#f87171">Failed to load card</div>'; }
@@ -90,6 +125,9 @@ document.addEventListener('click', e=> {
   const row = e.target.closest('tr[data-card-id]');
   if(row) showCard(row.dataset.cardId);
 });
+
+// keyboard accessibility to close side panel
+document.addEventListener('keydown', e=> { if(e.key==='Escape' && sidePanel && sidePanel.style.width!=='0px'){ closeSidePanel(); } });
 
 // Simple client-side filter bound to globalSearch
 loadMovers().catch(()=> setStatus('Movers load failed','error'));

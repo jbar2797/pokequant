@@ -102,13 +102,14 @@
                   <tbody id="cardsTableBody"></tbody>
                 </table>
               </div>
+              <div id="cardsPager" style="margin-top:10px;font-size:11px;display:flex;align-items:center;gap:8px"></div>
             </div>
           </section>
         </div>
       </div>
     </div>
     <!-- Card side panel -->
-    <div id="cardSidePanel" style="position:fixed;top:0;right:0;height:100%;width:0;overflow:hidden;background:#101726;border-left:1px solid #253349;box-shadow:-4px 0 18px -6px rgba(0,0,0,.6);transition:width .3s;z-index:320;display:flex;flex-direction:column" aria-labelledby="cardPanelTitle" role="dialog" aria-modal="false">
+  <div id="cardSidePanel" style="position:fixed;top:0;right:0;height:100%;width:0;overflow:hidden;background:#101726;border-left:1px solid #253349;box-shadow:-4px 0 18px -6px rgba(0,0,0,.6);transition:width .3s;z-index:320;display:flex;flex-direction:column" aria-labelledby="cardPanelTitle" role="dialog" aria-modal="false" tabindex="-1">
       <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #253349">
         <h3 id="cardPanelTitle" style="margin:0;font-size:14px;font-weight:600;letter-spacing:.5px">Card</h3>
         <div style="flex:1"></div>
@@ -116,6 +117,7 @@
       </div>
       <div id="cardPanelBody" style="padding:16px;overflow:auto;font-size:12px;line-height:1.4"></div>
     </div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-4jGoJZ9jUkZOtJ0i0kBWKGZHJ8L7Kr9d5EnYzWx/juE=" crossorigin="anonymous"></script>
   <!-- Modal removed to fix persistent rectangle; will reintroduce later with proper lifecycle -->
   <script type="module" src="/core.js?v=0.7.2"></script>
   <script type="module" src="/movers.js?v=0.7.2"></script>
