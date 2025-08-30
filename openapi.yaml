@@ -191,6 +191,11 @@ paths:
     post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
   /admin/migrations:
     get: { summary: List applied migrations (admin), responses: { '200': { description: OK } } }
+  /admin/version:
+    get:
+      summary: Version metadata (admin)
+      responses:
+        '200': { description: OK }
 components:
   schemas:
     Error:

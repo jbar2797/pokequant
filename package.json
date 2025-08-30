@@ -11,7 +11,8 @@
 		"lint": "eslint 'src/**/*.ts'",
 		"format": "prettier -w .",
 		"cf-typegen": "wrangler types",
-		"contract": "node scripts/contract-check.js"
+		"contract": "node scripts/contract-check.js",
+		"version-check": "node scripts/version-check.js"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.8.19",

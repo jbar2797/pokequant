@@ -114,6 +114,9 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 ### `GET /admin/migrations`
 - Lists applied migrations: `{ ok:true, rows:[{ id, applied_at, description }, ...] }`
 
+### `GET /admin/version`
+- Returns deployment version: `{ ok:true, version }`
+
 ## Rate Limiting
 ## Caching Notes
 Public read-mostly endpoints send short-lived Cache-Control headers (see individual sections). Clients SHOULD respect them to avoid hammering the edge.

@@ -3,6 +3,7 @@
 // Public API preserved; adds POST /admin/run-fast to compute signals only, safely.
 
 import { compositeScore } from './signal_math';
+import { APP_VERSION } from './version';
 import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
 // Structured logging helper (can be disabled via LOG_ENABLED=0)
@@ -851,6 +852,12 @@ export default {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const rows = await listMigrations(env.DB);
       return json({ ok:true, rows });
+    }
+
+    if (url.pathname === '/admin/version' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      // Spec version duplicated in openapi.yaml (info.version). Keeping a single source via APP_VERSION.
+      return json({ ok:true, version: APP_VERSION });
     }
 
     // Run alerts only (for tests / manual)

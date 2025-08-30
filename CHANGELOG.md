@@ -8,6 +8,7 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Track cache hit metrics (cache.hit.*) for public read endpoints
+ - Add /admin/version for version introspection
 
 ## [0.2.4] - 2025-08-29
 - Add lightweight ETag support on public read endpoints (conditional GETs)
