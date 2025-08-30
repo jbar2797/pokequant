@@ -828,7 +828,9 @@ export default {
           const lrs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d >= date('now','-3 day') ORDER BY d DESC, base_metric ASC`).all();
           latency = lrs.results || [];
         } catch { /* view may not exist yet */ }
-        return json({ ok:true, rows: rs.results || [], latency });
+  // Derive simple cache hit rate summary for front-end: group metrics with prefix cache.hit.
+  const cacheHits = (rs.results||[]).filter((r:any)=> typeof r.metric === 'string' && r.metric.startsWith('cache.hit.'));
+  return json({ ok:true, rows: rs.results || [], latency, cache_hits: cacheHits });
       } catch {
         return json({ ok:true, rows: [] });
       }
