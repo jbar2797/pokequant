@@ -79,268 +79,80 @@
         <div id="status" class="hidden p-2 border rounded bg-amber-500/10 text-amber-300 text-xs light:text-amber-800 light:bg-amber-50 light:border-amber-200" role="status" aria-live="polite"></div>
       </div>
       <main class="flex-1 w-full max-w-7xl mx-auto px-4 py-8 space-y-12" id="mainContent">
-      <!-- Overview View -->
-      <section data-panel="overview" class="space-y-8" aria-labelledby="panel-overview-h">
-        <div class="grid md:grid-cols-12 gap-6">
-          <div class="md:col-span-8 space-y-6">
-            <div class="section-card">
-              <div class="flex items-center justify-between mb-4">
-                <h2 class="text-lg font-semibold flex items-center gap-2">Top Movers <span class="text-xs font-normal text-slate-400" id="moversTs"></span></h2>
-                <div class="flex gap-2 text-xs">
-                  <button id="reloadMovers" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Reload</button>
-                </div>
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8"/>
+          <meta name="viewport" content="width=device-width,initial-scale=1"/>
+        <title>PokeQuant v0.7.2</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <link rel="stylesheet" href="/styles.css?v=0.7.2" />
+        </head>
+        <body>
+        <div class="deploy-banner">DEPLOY OVERHAUL 0.7.2 — NEW SHELL ACTIVE</div>
+          <div class="app-shell">
+            <aside class="sidebar">
+              <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
+              <nav class="nav">
+                <button data-view="overview" class="active">Overview</button>
+                <button data-view="cards">Cards</button>
+              </nav>
+              <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
+            </aside>
+            <div class="main">
+              <div class="topbar">
+                <div style="font-weight:600;letter-spacing:.5px">Overview</div>
+                <div class="grow"></div>
+                <input id="globalSearch" placeholder="Search cards…" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:12px;padding:6px 10px;border-radius:8px;min-width:240px" />
               </div>
-              <div id="movers" class="grid-movers"></div>
-            </div>
-            <div class="section-card">
-              <h2 class="text-lg font-semibold mb-3">Biggest Losers</h2>
-              <div id="losers" class="grid-movers"></div>
+              <div style="padding:26px 26px 60px;display:flex;flex-direction:column;gap:40px">
+                <section data-panel="overview" class="fade-in" style="display:flex;flex-direction:column;gap:34px">
+                  <div class="panel">
+                    <h2>Top Movers</h2>
+                    <div id="moversUp" class="grid-tiles"></div>
+                  </div>
+                  <div class="panel">
+                    <h2>Biggest Losers</h2>
+                    <div id="moversDown" class="grid-tiles"></div>
+                  </div>
+                </section>
+                <section data-panel="cards" hidden>
+                  <div class="panel" style="overflow:auto">
+                    <h2>Cards (sample)</h2>
+                    <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
+                      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:880px">
+                        <thead style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
+                          <tr>
+                            <th style="text-align:left;padding:8px 10px;font-weight:600">Card</th>
+                            <th style="text-align:left;padding:8px 10px;font-weight:600">Set</th>
+                            <th style="text-align:left;padding:8px 10px;font-weight:600">Rarity</th>
+                            <th style="text-align:left;padding:8px 10px;font-weight:600">Price</th>
+                            <th style="text-align:left;padding:8px 10px;font-weight:600">Signal</th>
+                            <th style="text-align:left;padding:8px 10px;font-weight:600">ID</th>
+                          </tr>
+                        </thead>
+                        <tbody id="cardsTableBody"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </section>
+              </div>
             </div>
           </div>
-          <div class="md:col-span-4 space-y-6">
-            <div class="section-card">
-              <h3 class="font-semibold mb-3">Email Alerts</h3>
-              <form id="sub" class="space-y-2">
-                <input id="email" type="email" placeholder="you@domain.com" class="w-full bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 rounded px-3 py-2 text-sm" required>
-                <button class="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-600 hover:from-indigo-400 hover:to-fuchsia-500 text-white rounded px-3 py-2 text-sm font-medium">Subscribe</button>
-              </form>
-              <p class="text-xs text-slate-400 mt-2">Get notified when signals change or alerts fire.</p>
-            </div>
-            <div class="section-card">
-              <h3 class="font-semibold mb-3">Create Price Alert</h3>
-              <div class="space-y-2 text-sm">
-                <input id="alertCardQuick" class="w-full px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300" placeholder="Card ID (e.g., cardA)">
-                <input id="alertEmailQuick" class="w-full px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300" placeholder="Email">
-                <div class="flex gap-2">
-                  <select id="alertKindQuick" class="px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 flex-1">
-                    <option value="price_below">Price ≤</option>
-                    <option value="price_above">Price ≥</option>
-                  </select>
-                  <input id="alertThrQuick" type="number" step="0.01" class="px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 flex-1" placeholder="Threshold">
-                </div>
-                <div class="flex gap-2 items-center">
-                  <input id="alertSnoozeQuick" type="number" min="1" max="10080" class="px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 w-24" placeholder="Snooze (m)">
-                  <button id="alertCreateQuick" class="flex-1 bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 rounded px-3 py-2">Create</button>
-                </div>
-                <div id="alertCreateMeta" class="text-[11px] text-slate-400 hidden"></div>
-              </div>
-            </div>
-            <div class="section-card">
-              <h3 class="font-semibold mb-3">Latest Metrics (sample)</h3>
-              <ul id="metricsMini" class="space-y-1 text-xs font-mono"></ul>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- Cards View -->
-      <section data-panel="cards" class="hidden space-y-6" aria-labelledby="panel-cards-h">
-        <div class="section-card space-y-4">
-          <h2 id="panel-cards-h" class="text-lg font-semibold">Cards Explorer</h2>
-          <div class="flex flex-wrap gap-2 text-xs items-end">
-            <div class="flex flex-col">
-              <label for="q" class="text-[10px] uppercase tracking-wide">Query</label>
-              <input id="q" class="px-2 py-1 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Search…"/>
+          <!-- New minimal modal -->
+          <div id="cardModalNew" hidden style="position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:300;padding:30px">
+            <div style="background:#101726;border:1px solid #253349;border-radius:18px;max-width:880px;width:100%;padding:32px;position:relative">
+              <button id="cardModalCloseNew" style="position:absolute;top:10px;right:12px;background:#162132;border:1px solid #253349;color:#e5ecf5;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Close</button>
+              <div id="cardModalBodyNew"></div>
             </div>
-            <div class="flex flex-col">
-              <label for="set" class="text-[10px] uppercase tracking-wide">Set</label>
-              <select id="set" class="px-2 py-1 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 min-w-[140px]"></select>
-            </div>
-            <div class="flex flex-col">
-              <label for="rarity" class="text-[10px] uppercase tracking-wide">Rarity</label>
-              <select id="rarity" class="px-2 py-1 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300">
-                <option value="">All</option><option>Common</option><option>Uncommon</option><option>Rare</option><option>Ultra Rare</option>
-              </select>
-            </div>
-            <div class="flex flex-col">
-              <label for="cardsPageSize" class="text-[10px] uppercase tracking-wide">Page Size</label>
-              <select id="cardsPageSize" class="px-2 py-1 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300">
+          </div>
+
+        <script type="module" src="/core.js?v=0.7.2"></script>
+        <script type="module" src="/movers.js?v=0.7.2"></script>
+        <script type="module" src="/app-new.js?v=0.7.2"></script>
+        </body>
+      </html>
                 <option>25</option><option selected>50</option><option>100</option>
-              </select>
-            </div>
-            <button id="btnReload" class="ml-auto px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Reload</button>
-          </div>
-          <div class="overflow-auto border border-slate-800 light:border-slate-200 rounded" role="table" aria-label="Cards table">
-            <table class="min-w-full text-xs">
-              <thead class="bg-slate-900/70 light:bg-slate-100 sticky top-0">
-                <tr>
-                  <th class="p-2 text-left">Card</th>
-                  <th class="p-2 text-left">Set</th>
-                  <th class="p-2 text-left">Rarity</th>
-                  <th class="p-2 text-left">Price</th>
-                  <th class="p-2 text-left">Signal</th>
-                  <th class="p-2 text-left">Score</th>
-                  <th class="p-2 text-left">Alert</th>
-                  <th class="p-2 text-left">ID</th>
-                </tr>
-              </thead>
-              <tbody id="rows"></tbody>
-            </table>
-          </div>
-          <div id="cardsPager" class="flex items-center justify-between text-[10px] text-slate-400"></div>
-        </div>
-      </section>
-
-      <!-- Portfolio View -->
-      <section data-panel="portfolio" class="hidden space-y-6" aria-labelledby="panel-portfolio-h">
-        <div class="section-card space-y-4">
-          <h2 id="panel-portfolio-h" class="text-lg font-semibold">Portfolio</h2>
-          <div class="grid md:grid-cols-3 gap-4 text-xs">
-            <div class="space-y-2">
-              <div class="flex gap-2"><button id="pfCreate" class="flex-1 px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500">Create</button><button id="pfRotate" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Rotate Secret</button></div>
-              <input id="pfId" placeholder="portfolio id" class="w-full px-2 py-1 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300"/>
-              <input id="pfSecret" placeholder="secret" class="w-full px-2 py-1 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300"/>
-              <div class="flex gap-2"><button id="pfLoad" class="flex-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Load</button><button id="pfAddLotBtn" class="flex-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Add Lot</button></div>
-            </div>
-            <div class="md:col-span-2 space-y-2">
-              <div class="overflow-auto border border-slate-800 light:border-slate-200 rounded" aria-label="Lots table">
-                <table class="min-w-full text-[11px]">
-                  <thead class="bg-slate-900/60 light:bg-slate-100 sticky top-0">
-                    <tr><th class="p-1 text-left">Card</th><th class="p-1 text-right">Qty</th><th class="p-1 text-right">Cost</th><th class="p-1 text-right">Price</th><th class="p-1"></th></tr>
-                  </thead>
-                  <tbody id="pfLots"></tbody>
-                </table>
-                <div id="pfLotsEmpty" class="p-2 text-[11px] text-slate-400 hidden">No lots yet</div>
-              </div>
-              <div id="pfTotals" class="text-xs text-slate-300"></div>
-            </div>
-          </div>
-        </div>
-        <div class="grid md:grid-cols-2 gap-6">
-          <div class="section-card space-y-3">
-            <h3 class="font-semibold">Targets & Orders</h3>
-            <div class="flex flex-wrap gap-2 text-xs">
-              <button id="pfLoadTargets" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Load Targets</button>
-              <button id="pfCreateOrder" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500">Create Order</button>
-              <button id="pfListOrders" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Orders</button>
-            </div>
-            <div id="pfTargets" class="text-xs font-mono text-slate-400"></div>
-            <div id="pfOrders" class="text-xs font-mono text-slate-400 space-y-1"></div>
-            <div id="pfOrderDetail" class="text-xs font-mono text-slate-300"></div>
-          </div>
-          <div class="section-card space-y-3">
-            <h3 class="font-semibold">PnL (Latest)</h3>
-            <canvas id="pnlSpark" height="50"></canvas>
-            <div id="pfPnl" class="text-xs font-mono text-slate-400"></div>
-            <div class="mt-4">
-              <h4 class="font-semibold text-xs mb-1">Exposure Trend (Top Factors)</h4>
-              <canvas id="exposureTrend" height="90" aria-label="Portfolio exposure trend chart"></canvas>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Analytics View -->
-      <section data-panel="analytics" class="hidden space-y-6" aria-labelledby="panel-analytics-h">
-        <div class="section-card">
-          <h3 class="font-semibold mb-4">Factor Performance (Sample)</h3>
-          <canvas id="factorChart" height="140"></canvas>
-          <div id="factorChartLegend" class="text-[11px] text-slate-400 mt-2"></div>
-        </div>
-        <div class="section-card">
-          <h3 class="font-semibold mb-3">IC Summary (30d)</h3>
-          <div id="icSummary" class="grid md:grid-cols-3 gap-3 text-xs"></div>
-        </div>
-        <div class="section-card">
-          <h3 class="font-semibold mb-3">Factor Correlations (Heatmap)</h3>
-            <canvas id="corrHeatmap" height="300" aria-label="Factor correlation heatmap"></canvas>
-            <div id="corrLegend" class="text-[11px] text-slate-400 mt-2"></div>
-        </div>
-      </section>
-
-      <!-- Admin View -->
-      <section data-panel="admin" class="hidden space-y-6" aria-labelledby="panel-admin-h">
-        <div class="grid md:grid-cols-3 gap-6">
-          <div class="section-card space-y-3 md:col-span-1">
-            <h3 class="font-semibold">Admin Auth</h3>
-            <input id="admToken" type="password" placeholder="x-admin-token" class="w-full px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 text-sm"/>
-            <button id="admSet" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded px-2 py-2 text-xs">Set Token</button>
-          </div>
-          <div class="section-card space-y-3 md:col-span-2">
-            <div class="flex items-center justify-between">
-              <h3 class="font-semibold">Alerts Stats</h3>
-              <div class="flex gap-2 text-xs">
-                <button id="admRefreshAlerts" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Refresh</button>
-              </div>
-            </div>
-            <div id="admAlertStats" class="text-xs font-mono text-slate-300"></div>
-            <div id="admAlertsList" class="max-h-64 overflow-auto border border-slate-800 light:border-slate-200 rounded text-xs"></div>
-          </div>
-        </div>
-        <div class="grid md:grid-cols-2 gap-6">
-          <div class="section-card space-y-3">
-            <h3 class="font-semibold">Ingestion Schedule</h3>
-            <div class="flex gap-2 text-xs">
-              <button id="admRunDue" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Run Due (ingest)</button>
-            </div>
-            <div id="admRunDueResult" class="text-xs font-mono text-slate-300"></div>
-          </div>
-          <div class="section-card space-y-3">
-            <h3 class="font-semibold">Metrics Snapshot</h3>
-            <div id="admMetrics" class="text-xs font-mono text-slate-300"></div>
-          </div>
-        </div>
-      </section>
-      </main>
-    </div>
-  </div>
-
-  <!-- Toast host -->
-  <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2 pointer-events-none"></div>
-
-  <!-- Add Lot Modal -->
-  <div id="lotModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 z-50 p-4">
-    <div class="w-full max-w-sm rounded-xl glass border border-slate-700 light:border-slate-200 p-5 relative">
-      <button id="lotModalClose" class="absolute top-2 right-2 text-slate-400 hover:text-white">✕</button>
-      <h3 class="font-semibold mb-3">Add Lot</h3>
-      <div class="space-y-2 text-sm">
-        <input id="lotCard" class="w-full px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Card ID"/>
-        <div class="flex gap-2">
-          <input id="lotQty" type="number" step="1" class="flex-1 px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Qty"/>
-          <input id="lotCost" type="number" step="0.01" class="flex-1 px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Cost USD"/>
-        </div>
-        <button id="lotAdd" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded px-3 py-2">Add</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Card Details Modal -->
-  <div id="cardModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 z-50 p-4">
-    <div class="w-full max-w-3xl rounded-xl glass border border-slate-700 light:border-slate-200 p-4 md:p-6 relative">
-      <button id="cardModalClose" class="absolute top-2 right-2 text-slate-400 hover:text-white" aria-label="Close card modal">✕</button>
-      <div id="cardModalBody" class="space-y-4">
-        <div class="flex gap-4 items-start">
-          <div class="w-20 h-28 rounded bg-slate-800/40 overflow-hidden flex items-center justify-center"><img id="cardModalImg" alt="" class="max-h-28"/></div>
-          <div class="flex-1 min-w-0">
-            <div class="text-lg font-semibold truncate" id="cardModalName"></div>
-            <div class="text-[12px] text-slate-400" id="cardModalMeta"></div>
-            <div class="text-sm font-mono" id="cardModalPrice"></div>
-          </div>
-          <div class="flex flex-col gap-2 text-xs">
-            <a id="cardCsv" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 text-center" target="_blank" rel="noopener">Download CSV</a>
-            <button id="cardAlertBtn" class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white">Create Alert</button>
-          </div>
-        </div>
-        <div class="grid md:grid-cols-3 gap-4">
-          <div class="section-card">
-            <div class="text-xs font-semibold mb-1">Price</div>
-            <canvas id="cardPriceChart" height="80" aria-label="Price chart"></canvas>
-          </div>
-          <div class="section-card">
-            <div class="text-xs font-semibold mb-1">Signal</div>
-            <canvas id="cardSignalChart" height="80" aria-label="Signal chart"></canvas>
-          </div>
-          <div class="section-card">
-            <div class="text-xs font-semibold mb-1">SVI</div>
-            <canvas id="cardSviChart" height="80" aria-label="SVI chart"></canvas>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-  <script type="module" src="/app.js?v=0.6.5"></script>
-  <script>
-    document.getElementById('deployTime').textContent = new Date().toISOString();
-  </script>
-</body>
-</html>

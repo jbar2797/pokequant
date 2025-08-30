@@ -23,6 +23,18 @@ All notable changes to this project will be documented here.
 ## [0.7.0] - 2025-08-30
 ### Added
 - Front-end overhaul kickoff: version bump placeholder. (Implementation in progress.)
+## [0.7.1] - 2025-08-30
+### Added
+- Front-end overhaul skeleton: added `public/styles.css` with design tokens & base layout.
+- Modular JS foundation: `core.js` (fetch helpers, formatting), `movers.js` (movers feature), `app-new.js` (new entry entrypoint wiring limited views).
+### Notes
+- Not yet activated in `index.html` in this version (staged only).
+## [0.7.2] - 2025-08-30
+### Changed
+- Replaced legacy HTML with new minimal shell and activated modular scripts (`core.js`, `movers.js`, `app-new.js`).
+- Added deployment banner to force cache bust & visual confirmation.
+### Deprecated
+- Legacy monolithic `public/app.js` retained temporarily for reference; to be removed once remaining features (portfolio, analytics, admin) are ported.
 ## [0.6.5] - 2025-08-30
 ### Added
 - Stronger deploy verification banner (gradient with timestamp) to confirm Pages propagation.
