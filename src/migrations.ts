@@ -415,6 +415,34 @@ CREATE INDEX IF NOT EXISTS idx_audit_action ON mutation_audit(action);`
     sql: `ALTER TABLE alert_email_queue ADD COLUMN attempt_count INTEGER DEFAULT 0;
 ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
   }
+  ,
+  {
+    id: '0032_portfolio_orders',
+    description: 'Add portfolio_orders table to record proposed and executed trades for optimization feature',
+    sql: `CREATE TABLE IF NOT EXISTS portfolio_orders (
+  id TEXT PRIMARY KEY,
+  portfolio_id TEXT,
+  created_at TEXT,
+  status TEXT,
+  objective TEXT,
+  params TEXT,
+  suggestions JSON,
+  executed_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0033_portfolio_targets',
+    description: 'Add portfolio_targets table to store desired factor or asset targets',
+    sql: `CREATE TABLE IF NOT EXISTS portfolio_targets (
+  portfolio_id TEXT,
+  kind TEXT, -- 'factor' or 'asset'
+  target_key TEXT, -- factor name or card_id
+  target_value REAL,
+  created_at TEXT,
+  PRIMARY KEY(portfolio_id, kind, target_key)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;
