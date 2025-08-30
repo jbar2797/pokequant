@@ -20,6 +20,11 @@ All notable changes to this project will be documented here.
 ## [0.6.2] - 2025-08-30
 ## [0.6.3] - 2025-08-30
 ## [0.6.4] - 2025-08-30
+## [0.6.5] - 2025-08-30
+### Added
+- Stronger deploy verification banner (gradient with timestamp) to confirm Pages propagation.
+### Changed
+- Version bump to 0.6.5 across code/spec and cache-busted script reference.
 ### Added
 - Temporary conspicuous deployment test banner (0.6.4) in UI to verify Cloudflare Pages updates; slight header background tweak.
 ### Changed
