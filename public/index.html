@@ -158,10 +158,10 @@
               <ul id="adminMetricsList" style="list-style:none;padding:0;margin:0;font-size:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px"></ul>
             </div>
             <div class="panel" id="factorAnalyticsPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Factor Analytics <button type="button" id="factorAnalyticsRefresh" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
-              <div id="factorAnalyticsStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh.</div>
-              <div id="factorPerformanceHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:300px;margin-bottom:14px"></div>
-              <div id="factorCorrelationsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
+              <h2 class="flex items-center gap-10">Factor Analytics <button type="button" id="factorAnalyticsRefresh" class="btn btn-sm mla">Refresh</button></h2>
+              <div id="factorAnalyticsStatus" class="note-sm mb-2">Set admin token & refresh.</div>
+              <div id="factorPerformanceHost" class="scroll-wrap max-h-300 mb-3"></div>
+              <div id="factorCorrelationsHost" class="scroll-wrap max-h-260"></div>
             </div>
             <div class="panel" id="anomaliesPanel">
               <h2 class="flex items-center gap-10">Anomalies <div class="flex gap-6 mla"><button id="anomaliesRefresh" type="button" class="btn btn-sm">Refresh</button><button id="anomaliesExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
@@ -227,63 +227,63 @@
               </form>
             </div>
             <div class="panel" id="factorIcPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Factor IC <button id="factorIcRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
-              <div id="factorIcStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh.</div>
-              <div id="factorIcSummaryHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px;margin-bottom:12px"></div>
-              <div id="factorIcHistoryHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
-              <div style="margin-top:14px;display:flex;align-items:center;gap:8px;font-size:11px">
-                <label style="display:flex;align-items:center;gap:4px">Chart Factor
-                  <select id="factorIcChartSelect" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:4px 6px;border-radius:6px"></select>
+              <h2 class="flex items-center gap-10">Factor IC <button id="factorIcRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
+              <div id="factorIcStatus" class="note-sm mb-2">Set admin token & refresh.</div>
+              <div id="factorIcSummaryHost" class="scroll-wrap max-h-220 mb-3"></div>
+              <div id="factorIcHistoryHost" class="scroll-wrap max-h-260"></div>
+              <div class="mt-3 flex items-center gap-8 f11">
+                <label class="flex items-center gap-4">Chart Factor
+                  <select id="factorIcChartSelect" class="field field-sm"></select>
                 </label>
-                <button id="factorIcChartRefresh" type="button" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Update Chart</button>
+                <button id="factorIcChartRefresh" type="button" class="btn btn-sm">Update Chart</button>
               </div>
-              <div style="margin-top:10px"><canvas id="factorIcChart" height="140" aria-label="Factor IC Chart" role="img"></canvas></div>
+              <div class="mt-3"><canvas id="factorIcChart" height="140" aria-label="Factor IC Chart" role="img"></canvas></div>
             </div>
             <div class="panel" id="portfolioPerfPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Portfolio Performance <button id="portfolioPerfRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
-              <form id="portfolioPerfAuth" style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;margin-bottom:10px">
-                <label style="display:flex;flex-direction:column;gap:4px">ID <input name="pid" placeholder="portfolio id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Secret <input name="psec" placeholder="secret" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:160px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Days <input name="days" type="number" value="60" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:80px" /></label>
-                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
+              <h2 class="flex items-center gap-10">Portfolio Performance <button id="portfolioPerfRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
+              <form id="portfolioPerfAuth" class="form-inline f11 mb-2">
+                <label class="vcol">ID <input name="pid" placeholder="portfolio id" class="field field-sm w-140" /></label>
+                <label class="vcol">Secret <input name="psec" placeholder="secret" class="field field-sm w-160" /></label>
+                <label class="vcol">Days <input name="days" type="number" value="60" class="field field-sm w-80" /></label>
+                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
               </form>
-              <div id="portfolioPnlHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px;margin-bottom:12px"></div>
-              <div id="portfolioAttributionHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px"></div>
-              <div style="margin-top:14px"><canvas id="portfolioPnlChart" height="140" aria-label="Portfolio PnL Chart" role="img"></canvas></div>
+              <div id="portfolioPnlHost" class="scroll-wrap max-h-220 mb-3"></div>
+              <div id="portfolioAttributionHost" class="scroll-wrap max-h-220"></div>
+              <div class="mt-3"><canvas id="portfolioPnlChart" height="140" aria-label="Portfolio PnL Chart" role="img"></canvas></div>
             </div>
             <div class="panel" id="factorWeightsPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Factor Weights <button id="factorWeightsRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
-              <div id="factorWeightsStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh or derive.</div>
-              <div style="display:flex;gap:8px;margin-bottom:10px;font-size:11px">
-                <button id="factorWeightsAuto" type="button" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Auto Derive</button>
+              <h2 class="flex items-center gap-10">Factor Weights <button id="factorWeightsRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
+              <div id="factorWeightsStatus" class="note-sm mb-2">Set admin token & refresh or derive.</div>
+              <div class="flex gap-8 mb-2 f11">
+                <button id="factorWeightsAuto" type="button" class="btn btn-indigo btn-sm">Auto Derive</button>
               </div>
-              <div id="factorWeightsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:240px"></div>
+              <div id="factorWeightsHost" class="scroll-wrap max-h-240"></div>
             </div>
             <div class="panel" id="backtestsPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Backtests <button id="backtestsRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
-              <div id="backtestsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px;margin-bottom:10px"></div>
-              <div id="backtestsPager" style="margin-top:4px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
-              <div id="backtestDetailHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
+              <h2 class="flex items-center gap-10">Backtests <button id="backtestsRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
+              <div id="backtestsHost" class="scroll-wrap max-h-260 mb-2"></div>
+              <div id="backtestsPager" class="pager-bar mt-2"></div>
+              <div id="backtestDetailHost" class="scroll-wrap max-h-260"></div>
             </div>
             <div class="panel" id="auditPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Audit Trail <div style="margin-left:auto;display:flex;gap:6px"><button id="auditRefresh" type="button" class="btn btn-sm">Refresh</button><button id="auditExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
-              <form id="auditFilter" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px">
-                <label style="display:flex;flex-direction:column;gap:4px">Resource <input name="resource" placeholder="portfolio" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Action <input name="action" placeholder="update" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Actor <input name="actor_type" placeholder="admin" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Limit <input name="limit" type="number" value="50" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:80px" /></label>
-                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
-                <button type="button" id="auditStatsBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Stats</button>
+              <h2 class="flex items-center gap-10">Audit Trail <div class="flex gap-6 mla"><button id="auditRefresh" type="button" class="btn btn-sm">Refresh</button><button id="auditExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
+              <form id="auditFilter" class="form-inline f11 mb-2">
+                <label class="vcol">Resource <input name="resource" placeholder="portfolio" class="field field-sm w-140" /></label>
+                <label class="vcol">Action <input name="action" placeholder="update" class="field field-sm w-120" /></label>
+                <label class="vcol">Actor <input name="actor_type" placeholder="admin" class="field field-sm w-120" /></label>
+                <label class="vcol">Limit <input name="limit" type="number" value="50" class="field field-sm w-80" /></label>
+                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
+                <button type="button" id="auditStatsBtn" class="btn btn-ghost btn-lg h-40">Stats</button>
               </form>
-              <div id="auditStats" style="font-size:11px;opacity:.65;margin-bottom:6px"></div>
-              <div id="auditHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:280px"></div>
-              <div id="auditPager" style="margin-top:8px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
+              <div id="auditStats" class="note-sm mb-2"></div>
+              <div id="auditHost" class="scroll-wrap max-h-280"></div>
+              <div id="auditPager" class="pager-bar"></div>
             </div>
           </section>
           <section data-panel="cards" hidden>
-            <div class="panel" style="overflow:auto">
-              <h2 style="display:flex;align-items:center;gap:10px">Cards (sample) <button id="cardsExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">Export CSV</button></h2>
-              <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
+            <div class="panel">
+              <h2 class="flex items-center gap-10">Cards (sample) <button id="cardsExportCsv" type="button" class="btn btn-sm btn-outline mla">Export CSV</button></h2>
+              <div class="scroll-wrap max-h-520" style="border-radius:12px">
                 <table class="pq-table" style="font-size:12px;min-width:880px">
                   <thead id="cardsHeader" class="table-head-sticky">
                     <tr>
@@ -298,21 +298,14 @@
                   <tbody id="cardsTableBody"></tbody>
                 </table>
               </div>
-              <div id="cardsPager" style="margin-top:10px;font-size:11px;display:flex;align-items:center;gap:8px"></div>
+              <div id="cardsPager" class="pager-bar mt-2 f11"></div>
             </div>
           </section>
         </div>
       </div>
     </div>
     <!-- Card side panel -->
-  <div id="cardSidePanel" style="position:fixed;top:0;right:0;height:100%;width:0;overflow:hidden;background:#101726;border-left:1px solid #253349;box-shadow:-4px 0 18px -6px rgba(0,0,0,.6);transition:width .3s;z-index:320;display:flex;flex-direction:column" aria-labelledby="cardPanelTitle" role="dialog" aria-modal="false" tabindex="-1">
-      <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid #253349">
-        <h3 id="cardPanelTitle" style="margin:0;font-size:14px;font-weight:600;letter-spacing:.5px">Card</h3>
-        <div style="flex:1"></div>
-        <button id="cardPanelClose" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer">Close</button>
-      </div>
-      <div id="cardPanelBody" style="padding:16px;overflow:auto;font-size:12px;line-height:1.4"></div>
-    </div>
+  <div id="cardSidePanel" class="hidden" aria-labelledby="cardPanelTitle" role="dialog" aria-modal="false" tabindex="-1"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-4jGoJZ9jUkZOtJ0i0kBWKGZHJ8L7Kr9d5EnYzWx/juE=" crossorigin="anonymous"></script>
   <!-- Modal removed to fix persistent rectangle; will reintroduce later with proper lifecycle -->
   <script type="module" src="/core.js?v=0.7.3"></script>
