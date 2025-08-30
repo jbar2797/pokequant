@@ -118,9 +118,18 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 - Returns deployment version: `{ ok:true, version }`
 
 ## Rate Limiting
-## Caching Notes
-Public read-mostly endpoints send short-lived Cache-Control headers (see individual sections). Clients SHOULD respect them to avoid hammering the edge.
-- ETag provides validation; clients may revalidate with If-None-Match to receive 304 and skip body transfer.
+
+## Caching & Validation
+Public read-mostly endpoints send short-lived Cache-Control headers (see individual sections).
+
+Validation model:
+- Strong ETag per logical dataset variant (base data signature + endpoint tag)
+- Clients SHOULD cache 200 responses with their ETag and use `If-None-Match` on subsequent requests until local TTL expires; a 304 response reuses cached body.
+- 304 responses still count toward latency metrics and increment cache hit counters (`cache.hit.*`).
+
+Response headers (public cacheable endpoints):
+- `Cache-Control`: short max-age (30–300s)
+- `ETag`: strong validator
 
 Fixed-window counters stored in `rate_limits` D1 table. Defaults:
 - Search: 30 / 5 minutes per IP

@@ -16,25 +16,34 @@ paths:
   /api/universe:
     get:
       summary: Universe listing
-  description: May return Cache-Control: public, max-age=60
-        responses:
-          '200': { description: OK }
+      description: May return Cache-Control: public, max-age=60; supports conditional GET with ETag
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string } }
+            ETag: { schema: { type: string }, description: Strong ETag for base data signature }
+        '304': { description: Not Modified }
   /api/cards:
     get:
       summary: Cards with latest signals
-  description: May return Cache-Control: public, max-age=30
+      description: May return Cache-Control: public, max-age=30; supports conditional GET with ETag
       responses:
         '200':
           description: List of cards with signals
+          headers:
+            Cache-Control: { schema: { type: string } }
+            ETag: { schema: { type: string } }
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/CardWithSignal' }
+        '304': { description: Not Modified }
   /api/movers:
     get:
       summary: Top movers
-  description: May return Cache-Control: public, max-age=30
+      description: May return Cache-Control: public, max-age=30; supports conditional GET with ETag
       parameters:
         - in: query
           name: dir
@@ -42,7 +51,13 @@ paths:
         - in: query
           name: n
           schema: { type: integer, minimum: 1, maximum: 50 }
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string } }
+            ETag: { schema: { type: string } }
+        '304': { description: Not Modified }
   /api/card:
     get:
       summary: Single card timeseries
@@ -80,11 +95,26 @@ paths:
     '200': { description: OK, headers: { 'X-RateLimit-Limit': { schema: { type: integer } }, 'X-RateLimit-Remaining': { schema: { type: integer } }, 'X-RateLimit-Reset': { schema: { type: integer } } } }
     '429': { description: Rate limited, headers: { 'Retry-After': { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
   /api/sets:
-  get: { summary: List sets, description: May return Cache-Control: public, max-age=300, responses: { '200': { description: OK } } }
+    get:
+      summary: List sets
+      description: May return Cache-Control: public, max-age=300; supports conditional GET with ETag
+      responses:
+        '200': { description: OK, headers: { Cache-Control: { schema: { type: string } }, ETag: { schema: { type: string } } } }
+        '304': { description: Not Modified }
   /api/rarities:
-  get: { summary: List rarities, description: May return Cache-Control: public, max-age=300, responses: { '200': { description: OK } } }
+    get:
+      summary: List rarities
+      description: May return Cache-Control: public, max-age=300; supports conditional GET with ETag
+      responses:
+        '200': { description: OK, headers: { Cache-Control: { schema: { type: string } }, ETag: { schema: { type: string } } } }
+        '304': { description: Not Modified }
   /api/types:
-  get: { summary: List types, description: May return Cache-Control: public, max-age=300, responses: { '200': { description: OK } } }
+    get:
+      summary: List types
+      description: May return Cache-Control: public, max-age=300; supports conditional GET with ETag
+      responses:
+        '200': { description: OK, headers: { Cache-Control: { schema: { type: string } }, ETag: { schema: { type: string } } } }
+        '304': { description: Not Modified }
   /api/search:
     get:
       summary: Search cards
