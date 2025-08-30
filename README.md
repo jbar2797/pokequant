@@ -39,11 +39,12 @@ GitHub Actions workflow runs:
 Fail-fast on contract or version drift to keep spec, code, and version aligned.
 
 ## Roadmap (next increments)
-- Rate limiting (KV token bucket) for search & alerts
-- Expanded signal model (robust stats, factor attribution)
-- Extended test coverage (portfolio P&L calc, alert firing happy + edge cases)
-- Structured error schema + OpenAPI components
-- Metrics export (durations, counts) via logs
+Refined goals:
+- Historical backfill tooling for missing days
+- Portfolio performance time-series endpoint
+- Alert delivery integration (email/send provider)
+- Enhanced signal explainability (component breakdown in API)
+- Coverage threshold increases (ratchet up over time)
 
 ## License
 Proprietary (set desired license).
