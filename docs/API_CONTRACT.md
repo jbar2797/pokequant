@@ -117,6 +117,52 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 ### `GET /admin/version`
 - Returns deployment version: `{ ok:true, version }`
 
+### Factor & Portfolio Analytics (v0.5.17)
+- `GET /admin/factor-returns`: latest factor returns (with rolling aggregates described in OpenAPI path description)
+- `POST /admin/factor-returns/run`: force recompute latest day factor returns
+- `GET /admin/factor-performance`: consolidated returns + IC + suggested weights
+- `GET /admin/factor-risk`: pairwise covariance & correlation (rolling window)
+- `GET /admin/factor-metrics`: per-factor volatility & beta snapshot
+- `GET /admin/factor-returns-smoothed`: Bayesian-smoothed returns per factor
+- `GET /admin/signal-quality`: IC stability metrics (mean, vol, lag1 autocorr, half-life)
+- `GET /admin/portfolio-pnl`: portfolio daily PnL (ret, turnover_cost, realized_pnl)
+- `POST /admin/portfolio-exposure/snapshot`: snapshot exposures for latest components day
+- `POST /admin/portfolio-nav/snapshot`: snapshot portfolio NAV
+
+### Backtests
+- `POST /admin/backtests`: run spread backtest (params: lookbackDays, txCostBps, slippageBps)
+- `GET /admin/backtests`: list recent backtests
+- `GET /admin/backtests/{id}`: backtest detail with equity curve
+
+### Audit & Integrity (earlier versions, expanded)
+- `GET /admin/audit`: list mutation audit events (filters: resource, action, actor_type, resource_id, limit, before_ts)
+- `GET /admin/audit/stats`: summary counts over trailing hours window (param: hours)
+- `GET /admin/integrity`: dataset coverage & freshness snapshot
+
+### Factor Configuration & Weights
+- `GET /admin/factors`, `POST /admin/factors`, `POST /admin/factors/toggle`, `POST /admin/factors/delete`
+- `GET /admin/factor-weights`, `POST /admin/factor-weights` (bulk upsert), `POST /admin/factor-weights/auto`
+
+### Ingestion & Provenance
+- `POST /admin/ingest/prices`: mock external ingestion
+- `POST /admin/ingestion/config` / `GET /admin/ingestion/config`: config rows
+- `POST /admin/ingestion/run`: run incremental ingestion across enabled configs
+- `GET /admin/ingestion/provenance`: ingestion provenance listing (filters)
+
+### Misc
+- `GET /admin/factor-correlations`: (legacy path) rolling correlation matrix (superseded by /admin/factor-risk)
+- `GET /admin/snapshot`: consolidated snapshot (integrity, factor_ic, active_weights, factor_returns)
+
+## Portfolio Analytics (Non-admin)
+### `GET /portfolio/exposure`
+- Auth headers: `x-portfolio-id`, `x-portfolio-secret`; returns latest factor exposure averages.
+### `GET /portfolio/exposure/history`
+- Historical exposure snapshots.
+### `GET /portfolio/attribution`
+- Factor vs residual attribution for portfolio returns.
+### `GET /portfolio/pnl`
+- Daily portfolio returns (ret) & realized components (ret, turnover_cost, realized_pnl), optional `days` (<=180).
+
 ## Rate Limiting
 
 ## Caching & Validation
