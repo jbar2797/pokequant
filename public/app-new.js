@@ -719,6 +719,169 @@ if(ingestionConfigForm){
   });
 }
 
+// --- Factor IC ---
+const factorIcRefresh = document.getElementById('factorIcRefresh');
+const factorIcSummaryHost = document.getElementById('factorIcSummaryHost');
+const factorIcHistoryHost = document.getElementById('factorIcHistoryHost');
+const factorIcStatus = document.getElementById('factorIcStatus');
+async function loadFactorIC(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  if(factorIcStatus) factorIcStatus.textContent='Loading IC…';
+  await Promise.all([loadFactorIcSummary(), loadFactorIcHistory()]);
+  if(factorIcStatus) factorIcStatus.textContent='IC loaded';
+  announce('Factor IC loaded','success');
+}
+async function loadFactorIcSummary(){
+  try {
+    const r = await fetchJSON('/admin/factor-ic/summary',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.rows||[];
+    factorIcSummaryHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:820px'>
+      <thead style='position:sticky;top:0;background:#101726'><tr>
+        <th style='text-align:left;padding:6px 8px'>Factor</th>
+        <th style='text-align:left;padding:6px 8px'>IC Avg</th>
+        <th style='text-align:left;padding:6px 8px'>IC Abs</th>
+        <th style='text-align:left;padding:6px 8px'>IR</th>
+        <th style='text-align:left;padding:6px 8px'>Hit</th>
+        <th style='text-align:left;padding:6px 8px'>IC30</th>
+        <th style='text-align:left;padding:6px 8px'>IC7</th>
+      </tr></thead><tbody>
+      ${rows.map(r=> `<tr><td style='padding:4px 6px;font-weight:600'>${r.factor}</td><td style='padding:4px 6px'>${fmtNum(r.ic_avg)}</td><td style='padding:4px 6px'>${fmtNum(r.ic_avg_abs)}</td><td style='padding:4px 6px'>${fmtNum(r.ic_ir)}</td><td style='padding:4px 6px'>${fmtNum(r.ic_hit)}</td><td style='padding:4px 6px'>${fmtNum(r.ic_avg_30d)}</td><td style='padding:4px 6px'>${fmtNum(r.ic_avg_7d)}</td></tr>`).join('')||'<tr><td colspan="7" style="padding:6px 8px;opacity:.6">No summary</td></tr>'}
+      </tbody></table>`;
+  } catch(e){ factorIcSummaryHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Summary failed</div>'; }
+}
+async function loadFactorIcHistory(){
+  try {
+    const r = await fetchJSON('/admin/factor-ic',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.rows||[];
+    factorIcHistoryHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:9px;min-width:880px'>
+      <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Date</th>${Array.from(new Set(rows.map(x=> x.factor))).sort().map(f=> `<th style='padding:4px 6px'>${f}</th>`).join('')}</tr></thead><tbody></tbody></table>`;
+    const tbl = factorIcHistoryHost.querySelector('table tbody');
+    const factors = Array.from(new Set(rows.map(x=> x.factor))).sort();
+    const byDate = {};
+    rows.forEach(r2=> { (byDate[r2.d] ||= {})[r2.factor]=r2.ic; });
+    const dates = Object.keys(byDate).sort().slice(-120);
+    tbl.innerHTML = dates.map(d=> `<tr><td style='padding:2px 4px;font-size:9px'>${d}</td>${factors.map(f=> {
+      const v = byDate[d][f];
+      const color = v==null? '#334155': (v>0? `rgba(16,185,129,${Math.min(1,Math.abs(v))})`:`rgba(239,68,68,${Math.min(1,Math.abs(v))})`);
+      return `<td style='padding:2px 4px;text-align:center;background:${color};color:#fff'>${v!=null? v.toFixed(2):''}</td>`; }).join('')}</tr>`).join('');
+  } catch(e){ factorIcHistoryHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">History failed</div>'; }
+}
+if(factorIcRefresh) factorIcRefresh.addEventListener('click', loadFactorIC);
+
+// --- Portfolio Performance (PnL & Attribution) ---
+const portfolioPerfRefresh = document.getElementById('portfolioPerfRefresh');
+const portfolioPerfAuth = document.getElementById('portfolioPerfAuth');
+const portfolioPnlHost = document.getElementById('portfolioPnlHost');
+const portfolioAttributionHost = document.getElementById('portfolioAttributionHost');
+async function loadPortfolioPerformance(ev){
+  if(ev) ev.preventDefault();
+  const fd = new FormData(portfolioPerfAuth);
+  const pid = fd.get('pid')?.toString().trim();
+  const psec = fd.get('psec')?.toString().trim();
+  const days = parseInt(fd.get('days'),10)||60;
+  if(!pid||!psec) return announce('Portfolio creds required','error');
+  const headers = { 'x-portfolio-id': pid, 'x-portfolio-secret': psec };
+  try {
+    const pnl = await fetchJSON('/portfolio/pnl?days='+days,{ headers });
+    renderPnlTable(pnl.rows||[]);
+  } catch(e){ portfolioPnlHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">PnL failed</div>'; }
+  try {
+    const attrib = await fetchJSON('/portfolio/attribution',{ headers });
+    renderAttributionTable(attrib.rows||[]);
+  } catch(e){ portfolioAttributionHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Attribution failed</div>'; }
+  announce('Portfolio performance loaded','success');
+}
+function renderPnlTable(rows){
+  if(!rows.length){ portfolioPnlHost.innerHTML = '<div style="font-size:11px;opacity:.6;padding:8px">No PnL rows</div>'; return; }
+  portfolioPnlHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:560px'>
+    <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Date</th><th style='text-align:left;padding:4px 6px'>Ret</th><th style='text-align:left;padding:4px 6px'>Turnover</th><th style='text-align:left;padding:4px 6px'>Realized</th></tr></thead>
+    <tbody>${rows.slice(-180).map(r=> `<tr><td style='padding:2px 4px'>${r.as_of||r.d}</td><td style='padding:2px 4px'>${fmtNum(r.ret)}</td><td style='padding:2px 4px'>${fmtNum(r.turnover_cost)}</td><td style='padding:2px 4px'>${fmtNum(r.realized_pnl)}</td></tr>`).join('')}</tbody></table>`;
+}
+function renderAttributionTable(rows){
+  if(!rows.length){ portfolioAttributionHost.innerHTML = '<div style="font-size:11px;opacity:.6;padding:8px">No attribution rows</div>'; return; }
+  // Group by date; show factor contributions stacked per date
+  const byDate={}; rows.forEach(r=> { (byDate[r.as_of] ||= []).push(r); });
+  const dates = Object.keys(byDate).sort().slice(-90);
+  portfolioAttributionHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:620px'>
+    <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Date</th><th style='text-align:left;padding:4px 6px'>Contributions</th></tr></thead>
+    <tbody>${dates.map(d=> `<tr><td style='padding:2px 4px'>${d}</td><td style='padding:2px 4px'>${byDate[d].map(c=> `<span style='border:1px solid #253349;background:#162132;padding:2px 4px;border-radius:4px;margin:2px;display:inline-block'>${c.factor}: ${fmtNum(c.contribution)}</span>`).join('')}</td></tr>`).join('')}</tbody></table>`;
+}
+if(portfolioPerfAuth) portfolioPerfAuth.addEventListener('submit', loadPortfolioPerformance);
+if(portfolioPerfRefresh) portfolioPerfRefresh.addEventListener('click', loadPortfolioPerformance);
+
+// --- Backtests ---
+const backtestsRefresh = document.getElementById('backtestsRefresh');
+const backtestsHost = document.getElementById('backtestsHost');
+const backtestDetailHost = document.getElementById('backtestDetailHost');
+async function loadBacktests(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  backtestsHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading…</div>';
+  try {
+    const r = await fetchJSON('/admin/backtests',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.rows || r.backtests || [];
+    if(!rows.length){ backtestsHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">No backtests</div>'; return; }
+    backtestsHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:700px'>
+      <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>ID</th><th style='text-align:left;padding:4px 6px'>Factor</th><th style='text-align:left;padding:4px 6px'>Span</th><th style='text-align:left;padding:4px 6px'>Ret</th><th style='text-align:left;padding:4px 6px'>Sharpe</th><th style='text-align:left;padding:4px 6px'>Created</th><th style='text-align:left;padding:4px 6px'>Actions</th></tr></thead>
+      <tbody>${rows.slice(0,200).map(b=> `<tr data-backtest-id='${b.id}'>
+        <td style='padding:2px 4px;font-family:monospace'>${(b.id||'').toString().slice(0,8)}</td>
+        <td style='padding:2px 4px'>${b.factor||''}</td>
+        <td style='padding:2px 4px'>${b.days||''}</td>
+        <td style='padding:2px 4px'>${fmtNum(b.ret)}</td>
+        <td style='padding:2px 4px'>${fmtNum(b.sharpe)}</td>
+        <td style='padding:2px 4px;font-size:9px'>${(b.created_at||'').replace('T',' ').slice(0,16)}</td>
+        <td style='padding:2px 4px'><button data-backtest-detail='${b.id}' style='background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Detail</button></td>
+      </tr>`).join('')}</tbody></table>`;
+    backtestsHost.querySelectorAll('button[data-backtest-detail]').forEach(btn=> btn.addEventListener('click', ()=> loadBacktestDetail(btn.getAttribute('data-backtest-detail'))));
+  } catch(e){ backtestsHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Backtests load failed</div>'; }
+}
+async function loadBacktestDetail(id){
+  if(!ADMIN_TOKEN) return;
+  backtestDetailHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading detail…</div>';
+  try {
+    const r = await fetchJSON(`/admin/backtests/${encodeURIComponent(id)}`,{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    // Guess structure; display JSON pretty.
+    backtestDetailHost.innerHTML = `<pre style='margin:0;font-size:10px;white-space:pre-wrap;word-break:break-word;padding:8px'>${escapeHtml(JSON.stringify(r,null,2)).slice(0,8000)}</pre>`;
+  } catch(e){ backtestDetailHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Detail load failed</div>'; }
+}
+if(backtestsRefresh) backtestsRefresh.addEventListener('click', loadBacktests);
+
+// --- Audit Trail ---
+const auditRefresh = document.getElementById('auditRefresh');
+const auditFilter = document.getElementById('auditFilter');
+const auditHost = document.getElementById('auditHost');
+const auditStatsBtn = document.getElementById('auditStatsBtn');
+const auditStats = document.getElementById('auditStats');
+async function loadAudit(ev){
+  if(ev) ev.preventDefault();
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  auditHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading…</div>';
+  const fd = new FormData(auditFilter);
+  const params = new URLSearchParams();
+  ['resource','action','actor_type','limit'].forEach(k=> { const v = fd.get(k); if(v) params.append(k,v.toString()); });
+  try {
+    const r = await fetchJSON('/admin/audit'+(params.toString()? '?'+params.toString():''),{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.rows || [];
+    if(!rows.length){ auditHost.innerHTML='<div style="padding:8px;font-size:11px;opacity:.6">No audit rows</div>'; return; }
+    auditHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:820px'>
+      <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Time</th><th style='text-align:left;padding:4px 6px'>Resource</th><th style='text-align:left;padding:4px 6px'>Action</th><th style='text-align:left;padding:4px 6px'>Actor</th><th style='text-align:left;padding:4px 6px'>Resource ID</th><th style='text-align:left;padding:4px 6px'>Meta</th></tr></thead>
+      <tbody>${rows.slice(0,500).map(a=> `<tr><td style='padding:2px 4px'>${(a.ts||'').replace('T',' ').slice(0,19)}</td><td style='padding:2px 4px'>${a.resource||''}</td><td style='padding:2px 4px'>${a.action||''}</td><td style='padding:2px 4px'>${a.actor_type||''}</td><td style='padding:2px 4px;font-size:9px'>${a.resource_id||''}</td><td style='padding:2px 4px;font-size:9px;max-width:240px;overflow:hidden;text-overflow:ellipsis'>${formatMeta(a.meta)}</td></tr>`).join('')}</tbody></table>`;
+  } catch(e){ auditHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Audit load failed</div>'; }
+}
+async function loadAuditStats(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  auditStats.textContent='Loading stats…';
+  try { const r = await fetchJSON('/admin/audit/stats',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    auditStats.innerHTML = Object.entries(r.counts||r.stats||{}).slice(0,12).map(([k,v])=> `<span style='border:1px solid #253349;background:#162132;padding:4px 6px;border-radius:6px;margin:2px;font-size:10px'>${k}: ${v}</span>`).join('')||'No stats';
+  } catch(e){ auditStats.textContent='Stats failed'; announce('Audit stats failed','error'); }
+}
+if(auditFilter) auditFilter.addEventListener('submit', loadAudit);
+if(auditRefresh) auditRefresh.addEventListener('click', loadAudit);
+if(auditStatsBtn) auditStatsBtn.addEventListener('click', loadAuditStats);
+
+// Helpers
+function escapeHtml(s){ return s?.replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]) ); }
+function formatMeta(m){ if(!m) return ''; if(typeof m==='string') return m.slice(0,80); try { return JSON.stringify(m).slice(0,120); } catch(e){ return ''; } }
+
 // --- Alerts Admin Panel ---
 const alertAdminBody = document.getElementById('alertAdminBody');
 const alertAdminFilters = document.getElementById('alertAdminFilters');
@@ -818,6 +981,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion, loadFactorIC, loadBacktests, loadAudit, loadPortfolioPerformance };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');

@@ -224,6 +224,41 @@
                 <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Upsert Config</button>
               </form>
             </div>
+            <div class="panel" id="factorIcPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Factor IC <button id="factorIcRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <div id="factorIcStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh.</div>
+              <div id="factorIcSummaryHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px;margin-bottom:12px"></div>
+              <div id="factorIcHistoryHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
+            </div>
+            <div class="panel" id="portfolioPerfPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Portfolio Performance <button id="portfolioPerfRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <form id="portfolioPerfAuth" style="display:flex;flex-wrap:wrap;gap:10px;font-size:11px;margin-bottom:10px">
+                <label style="display:flex;flex-direction:column;gap:4px">ID <input name="pid" placeholder="portfolio id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Secret <input name="psec" placeholder="secret" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:160px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Days <input name="days" type="number" value="60" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:80px" /></label>
+                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
+              </form>
+              <div id="portfolioPnlHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px;margin-bottom:12px"></div>
+              <div id="portfolioAttributionHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px"></div>
+            </div>
+            <div class="panel" id="backtestsPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Backtests <button id="backtestsRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <div id="backtestsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px;margin-bottom:10px"></div>
+              <div id="backtestDetailHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
+            </div>
+            <div class="panel" id="auditPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Audit Trail <button id="auditRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <form id="auditFilter" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px">
+                <label style="display:flex;flex-direction:column;gap:4px">Resource <input name="resource" placeholder="portfolio" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Action <input name="action" placeholder="update" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Actor <input name="actor_type" placeholder="admin" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px" /></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Limit <input name="limit" type="number" value="50" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:80px" /></label>
+                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
+                <button type="button" id="auditStatsBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Stats</button>
+              </form>
+              <div id="auditStats" style="font-size:11px;opacity:.65;margin-bottom:6px"></div>
+              <div id="auditHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:280px"></div>
+            </div>
           </section>
           <section data-panel="cards" hidden>
             <div class="panel" style="overflow:auto">
