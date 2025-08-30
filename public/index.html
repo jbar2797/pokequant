@@ -109,40 +109,40 @@
             </div>
             <div class="panel" id="portfolioPanel">
               <h2>Portfolio Summary</h2>
-              <form id="portfolioAuth" style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;margin-bottom:12px">
-                <label style="display:flex;flex-direction:column;gap:4px">ID <input name="pid" placeholder="portfolio id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:150px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Secret <input name="psec" placeholder="secret" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:170px" /></label>
-                <button type="button" id="portfolioLoadBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer">Load</button>
-                <button type="button" id="portfolioRefreshBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer" title="Refresh">↻</button>
-                <button type="button" id="portfolioRotateSecretBtn" style="background:#162132;border:1px solid #7c3aed;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer" title="Rotate secret">Rotate Secret</button>
+              <form id="portfolioAuth" class="form-inline f12" style="gap:10px;margin-bottom:12px">
+                <label class="vcol">ID <input name="pid" placeholder="portfolio id" class="field" style="width:150px" /></label>
+                <label class="vcol">Secret <input name="psec" placeholder="secret" class="field" style="width:170px" /></label>
+                <button type="button" id="portfolioLoadBtn" class="btn btn-ghost btn-lg">Load</button>
+                <button type="button" id="portfolioRefreshBtn" class="btn btn-ghost btn-lg" title="Refresh">↻</button>
+                <button type="button" id="portfolioRotateSecretBtn" class="btn btn-indigo btn-lg" title="Rotate secret">Rotate Secret</button>
               </form>
-              <div id="portfolioSummary" style="font-size:12px;opacity:.75">Enter credentials & load.</div>
-              <div id="portfolioLotsMini" style="margin-top:12px;font-size:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px"></div>
-              <div id="portfolioCrudSection" style="margin-top:18px;display:none;flex-direction:column;gap:12px">
-                <h3 style="margin:0;font-size:14px;font-weight:600">Lots</h3>
-                <form id="portfolioAddLotForm" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;align-items:flex-end">
-                  <label style="display:flex;flex-direction:column;gap:4px">Card ID <input required name="card_id" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:130px" /></label>
-                  <label style="display:flex;flex-direction:column;gap:4px">Qty <input required type="number" step="1" name="qty" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:80px" /></label>
-                  <label style="display:flex;flex-direction:column;gap:4px">Cost USD <input required type="number" step="0.01" name="cost_usd" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:100px" /></label>
-                  <label style="display:flex;flex-direction:column;gap:4px">Acquired <input type="date" name="acquired_at" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
-                  <button type="submit" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600">Add Lot</button>
+              <div id="portfolioSummary" class="f12" style="opacity:.75">Enter credentials & load.</div>
+              <div id="portfolioLotsMini" class="grid grid-auto-tiles f11 mt-3" style="gap:8px"></div>
+              <div id="portfolioCrudSection" class="flex flex-col gap-12" style="margin-top:18px;display:none">
+                <h3 class="f14 fw-600" style="margin:0">Lots</h3>
+                <form id="portfolioAddLotForm" class="form-inline items-end f11">
+                  <label class="vcol">Card ID <input required name="card_id" class="field field-sm" style="width:130px" /></label>
+                  <label class="vcol">Qty <input required type="number" step="1" name="qty" class="field field-sm" style="width:80px" /></label>
+                  <label class="vcol">Cost USD <input required type="number" step="0.01" name="cost_usd" class="field field-sm" style="width:100px" /></label>
+                  <label class="vcol">Acquired <input type="date" name="acquired_at" class="field field-sm" style="width:140px" /></label>
+                  <button type="submit" class="btn btn-indigo btn-sm" style="font-weight:600">Add Lot</button>
                 </form>
-                <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:360px">
-                  <table id="portfolioLotsTable" style="width:100%;border-collapse:collapse;font-size:11px;min-width:620px">
-                    <thead style="position:sticky;top:0;background:#101726">
+                <div class="scroll-wrap max-h-360">
+                  <table id="portfolioLotsTable" class="pq-table f11 min-w-620">
+                    <thead class="table-head-sticky">
                       <tr>
-                        <th style="text-align:left;padding:6px 8px">Card</th>
-                        <th style="text-align:left;padding:6px 8px">Qty</th>
-                        <th style="text-align:left;padding:6px 8px">Cost</th>
-                        <th style="text-align:left;padding:6px 8px">MV</th>
-                        <th style="text-align:left;padding:6px 8px">Unrlzd</th>
-                        <th style="text-align:left;padding:6px 8px">Actions</th>
+                        <th>Card</th>
+                        <th>Qty</th>
+                        <th>Cost</th>
+                        <th>MV</th>
+                        <th>Unrlzd</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody id="portfolioLotsBody"></tbody>
                   </table>
                 </div>
-                <div id="portfolioLotsEmpty" style="font-size:11px;opacity:.6;display:none">No lots yet.</div>
+                <div id="portfolioLotsEmpty" class="f11" style="opacity:.6;display:none">No lots yet.</div>
               </div>
               <div id="portfolioTargetsSection" style="margin-top:24px;display:none;flex-direction:column;gap:10px">
                 <h3 style="margin:0;font-size:14px;font-weight:600">Factor Targets (Coming Soon)</h3>

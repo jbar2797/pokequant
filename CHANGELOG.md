@@ -16,6 +16,7 @@ All notable changes to this project will be documented here.
  - Refactor: Introduced additional utility classes (flex/spacing/border/radius/background/sizing) and initial skeleton row helper; removed deprecated `public/app.js` legacy script.
  - UI Polish: Added skeleton loading rows for alerts/anomalies/backtests/audit/cards and print-friendly stylesheet.
  - Cleanup: Replaced many inline styles (alerts quick/admin forms & tables) with utility classes (vcol, form-inline, scroll-wrap, pager-bar) and added shared spacing/typography helpers.
+ - Cleanup: Extended utility refactor to portfolio auth & lots sections (form-inline, vcol, scroll-wrap, pq-table) reducing repetitive inline CSS.
 ### Added
 - Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
 - Front-end refactor: extracted inline script into `public/app.js` module; added toast notifications, loading skeletons for movers, slow-request warning toasts (>1500ms), light polling (60s) for movers, safer null guards, and improved error surfacing.
