@@ -29,6 +29,13 @@ export interface Env {
   RL_ALERT_CREATE_WINDOW_SEC?: string; // default 86400
 }
 
+// Lightweight SHA-256 hex helper (Workers runtime has subtle differences vs node, keep minimal)
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest)).map(b=> b.toString(16).padStart(2,'0')).join('');
+}
+
 // ---------- utils ----------
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -1490,8 +1497,11 @@ export default {
       const id = crypto.randomUUID();
       const secretBytes = new Uint8Array(16); crypto.getRandomValues(secretBytes);
       const secret = Array.from(secretBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      await env.DB.prepare(`INSERT INTO portfolios (id, secret, created_at) VALUES (?,?,datetime('now'))`).bind(id, secret).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
+  const hash = await sha256Hex(secret);
+  // secret retained for now (legacy); secret_hash added by migration 0028
+  try { await env.DB.prepare(`ALTER TABLE portfolios ADD COLUMN secret_hash TEXT`).run(); } catch {/* ignore */}
+  await env.DB.prepare(`INSERT INTO portfolios (id, secret, secret_hash, created_at) VALUES (?,?,?,datetime('now'))`).bind(id, secret, hash).run();
   await audit(env, { actor_type:'public', action:'create', resource:'portfolio', resource_id:id });
   return json({ id, secret });
     }
@@ -1502,7 +1512,8 @@ export default {
       const LotSchema = z.object({ card_id: z.string().min(1), qty: z.number().positive(), cost_usd: z.number().min(0), acquired_at: z.string().optional() });
       const parsed = LotSchema.safeParse(body);
       if (!parsed.success) return json({ ok:false, error:'invalid_body', issues: parsed.error.issues },400);
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
       const lotId = crypto.randomUUID();
@@ -1511,11 +1522,28 @@ export default {
   await audit(env, { actor_type:'portfolio', actor_id:pid, action:'add_lot', resource:'lot', resource_id:lotId, details:{ card_id: parsed.data.card_id, qty: parsed.data.qty } });
   return json({ ok:true, lot_id: lotId });
     }
+
+    // Portfolio secret rotation (returns new secret). Client must replace stored secret immediately.
+    if (url.pathname === '/portfolio/rotate-secret' && req.method === 'POST') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const providedHash = await sha256Hex(psec);
+      const row = await env.DB.prepare(`SELECT id FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
+      if (!(row.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+      const newBytes = new Uint8Array(16); crypto.getRandomValues(newBytes);
+      const newSecret = Array.from(newBytes).map(b=> b.toString(16).padStart(2,'0')).join('');
+      const newHash = await sha256Hex(newSecret);
+      // Keep legacy secret column updated for now but store hash authoritative
+      await env.DB.prepare(`UPDATE portfolios SET secret=?, secret_hash=? WHERE id=?`).bind(newSecret, newHash, pid).run();
+      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'rotate_secret', resource:'portfolio', resource_id:pid });
+      return json({ ok:true, id: pid, secret: newSecret });
+    }
     if (url.pathname === '/portfolio' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       const lots = await env.DB.prepare(`SELECT l.id AS lot_id,l.card_id,l.qty,l.cost_usd,l.acquired_at,
         (SELECT price_usd FROM prices_daily p WHERE p.card_id=l.card_id ORDER BY as_of DESC LIMIT 1) AS price_usd
@@ -1527,7 +1555,8 @@ export default {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       const lots = await env.DB.prepare(`SELECT * FROM lots WHERE portfolio_id=?`).bind(pid).all();
       return json({ ok:true, portfolio_id: pid, lots: lots.results||[] });
@@ -2100,7 +2129,8 @@ export default {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
       const d = (latest.results?.[0] as any)?.d;
@@ -2119,7 +2149,8 @@ export default {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       const rs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? ORDER BY as_of DESC, factor ASC LIMIT 700`).bind(pid).all();
       return json({ ok:true, rows: rs.results||[] });
@@ -2128,7 +2159,8 @@ export default {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
       const rows = await computePortfolioAttribution(env, pid, days);
@@ -2138,7 +2170,8 @@ export default {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+  const providedHash = await sha256Hex(psec);
+  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
       if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
       const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
       const rs = await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all();

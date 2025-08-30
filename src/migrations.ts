@@ -381,6 +381,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_action ON mutation_audit(action);`
   PRIMARY KEY(as_of, factor)
 );`
   }
+  ,
+  {
+    id: '0028_portfolio_secret_hash',
+    description: 'Add secret_hash column to portfolios for hashed secret storage',
+    sql: `ALTER TABLE portfolios ADD COLUMN secret_hash TEXT;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

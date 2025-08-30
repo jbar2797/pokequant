@@ -8,6 +8,12 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+## [0.5.24] - 2025-08-29
+### Added
+- Portfolio secret hashing (SHA-256) with backward compatibility and new /portfolio/rotate-secret endpoint.
+### Changed
+- Auth checks now accept hashed secrets (secret_hash) or legacy plaintext until migration fully adopted.
+- Version bump to 0.5.24.
 ## [0.5.23] - 2025-08-29
 ### Added
 - OpenAPI examples for public & admin metrics endpoints; SECURITY.md; monitoring checklist & portfolio secrets docs.
