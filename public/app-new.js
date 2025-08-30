@@ -554,6 +554,85 @@ async function loadFactorCorrelations(){
 }
 
 function fmtNum(v){ return v==null? '—': Number(v).toFixed(3); }
+// --- Factor Weights ---
+const factorWeightsRefresh = document.getElementById('factorWeightsRefresh');
+const factorWeightsAuto = document.getElementById('factorWeightsAuto');
+const factorWeightsHost = document.getElementById('factorWeightsHost');
+const factorWeightsStatus = document.getElementById('factorWeightsStatus');
+async function loadFactorWeights(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  if(factorWeightsStatus) factorWeightsStatus.textContent = 'Loading weights…';
+  try {
+    const r = await fetchJSON('/admin/factor-weights',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.weights||[];
+    if(!rows.length){ factorWeightsHost.innerHTML = '<div style="font-size:11px;opacity:.6;padding:8px">No weights</div>'; }
+    else {
+      factorWeightsHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:11px;min-width:480px'>
+        <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:6px 8px'>Factor</th><th style='text-align:left;padding:6px 8px'>Weight</th><th style='text-align:left;padding:6px 8px'>Auto</th></tr></thead>
+        <tbody>${rows.map(w=> `<tr><td style='padding:4px 6px;font-weight:600'>${w.factor}</td><td style='padding:4px 6px'>${fmtNum(w.weight)}</td><td style='padding:4px 6px'>${w.auto? '✅':'—'}</td></tr>`).join('')}</tbody></table>`;
+    }
+    if(factorWeightsStatus) factorWeightsStatus.textContent = 'Weights loaded';
+    announce('Weights loaded','success');
+  } catch(e){ factorWeightsHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Weights load failed</div>'; if(factorWeightsStatus) factorWeightsStatus.textContent='Load failed'; announce('Weights load failed','error'); }
+}
+async function autoFactorWeights(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  try { await fetchJSON('/admin/factor-weights/auto',{ method:'POST', headers:{ 'x-admin-token': ADMIN_TOKEN } }); announce('Weights auto derived','success'); loadFactorWeights(); } catch(e){ announce('Auto derive failed','error'); }
+}
+if(factorWeightsRefresh) factorWeightsRefresh.addEventListener('click', loadFactorWeights);
+if(factorWeightsAuto) factorWeightsAuto.addEventListener('click', autoFactorWeights);
+
+// --- Charts (IC & PnL) ---
+let factorIcChart, portfolioPnlChart;
+function ensureChart(ctx, type, data, options){
+  if(!window.Chart) return null;
+  if(ctx._chart){ ctx._chart.destroy(); }
+  ctx._chart = new Chart(ctx, { type, data, options });
+  return ctx._chart;
+}
+// Build IC chart from factorIcHistoryHost table for selected factor
+function rebuildFactorIcChart(){
+  const select = document.getElementById('factorIcChartSelect');
+  const canvas = document.getElementById('factorIcChart');
+  if(!select || !canvas) return;
+  const factor = select.value; if(!factor) return;
+  // parse table data
+  const tbl = factorIcHistoryHost?.querySelector('table tbody');
+  if(!tbl){ return; }
+  const rows = Array.from(tbl.querySelectorAll('tr'));
+  const labels = []; const values=[];
+  // Determine column index for factor
+  const headerCells = factorIcHistoryHost.querySelectorAll('thead th');
+  let colIdx=-1; headerCells.forEach((th,i)=> { if(th.textContent===factor) colIdx=i; });
+  if(colIdx===-1) return;
+  rows.slice(-90).forEach(r=> { const cells = r.querySelectorAll('td'); const date=cells[0].textContent; const txt=cells[colIdx].textContent; const v=parseFloat(txt); if(date){ labels.push(date); values.push(Number.isFinite(v)?v:null); } });
+  ensureChart(canvas.getContext('2d'),'line',{ labels, datasets:[{ label: factor+' IC', data: values, borderColor:'#6366f1', backgroundColor:'rgba(99,102,241,.2)', spanGaps:true, tension:.25 }] }, { responsive:true, scales:{ y:{ beginAtZero:false } }, plugins:{ legend:{ display:false } } });
+}
+function populateFactorIcChartSelect(){
+  const select = document.getElementById('factorIcChartSelect');
+  if(!select) return; if(!factorIcHistoryHost) return;
+  const headerCells = factorIcHistoryHost.querySelectorAll('thead th');
+  const factors=[]; headerCells.forEach((th,i)=> { if(i>0) factors.push(th.textContent); });
+  select.innerHTML = '<option value="">(pick)</option>'+factors.map(f=> `<option>${f}</option>`).join('');
+}
+document.getElementById('factorIcChartRefresh')?.addEventListener('click', ()=> { rebuildFactorIcChart(); });
+if(factorIcRefresh){ factorIcRefresh.addEventListener('click', ()=> { setTimeout(()=> { populateFactorIcChartSelect(); }, 50); }); }
+
+// Portfolio PnL chart build from PnL table
+function rebuildPortfolioPnlChart(){
+  const canvas = document.getElementById('portfolioPnlChart'); if(!canvas) return;
+  const tbl = portfolioPnlHost?.querySelector('table tbody'); if(!tbl) return;
+  const rows = Array.from(tbl.querySelectorAll('tr'));
+  const labels=[]; const values=[]; rows.forEach(r=> { const cells = r.querySelectorAll('td'); if(cells.length>=2){ const d=cells[0].textContent; const v=parseFloat(cells[1].textContent); if(d){ labels.push(d); values.push(Number.isFinite(v)?v:null); } } });
+  ensureChart(canvas.getContext('2d'),'bar',{ labels, datasets:[{ label:'Daily Return', data: values, backgroundColor: values.map(v=> v==null? '#334155': v>=0?'#10b981':'#ef4444') }] }, { responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true } } });
+}
+// Hook into portfolio performance load to update chart
+if(portfolioPerfAuth){
+  portfolioPerfAuth.addEventListener('submit', ()=> setTimeout(rebuildPortfolioPnlChart, 80));
+}
+if(portfolioPerfRefresh){
+  portfolioPerfRefresh.addEventListener('click', ()=> setTimeout(rebuildPortfolioPnlChart, 80));
+}
 function correlationTable(factors, matrix){
   return `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:720px'>
     <thead style='position:sticky;top:0;background:#101726'><tr><th style='padding:4px 6px;text-align:left'>Factor</th>${factors.map(f=> `<th style='padding:4px 6px'>${f}</th>`).join('')}</tr></thead>
@@ -981,6 +1060,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion, loadFactorIC, loadBacktests, loadAudit, loadPortfolioPerformance };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion, loadFactorIC, loadBacktests, loadAudit, loadPortfolioPerformance, loadFactorWeights, rebuildFactorIcChart, rebuildPortfolioPnlChart };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');

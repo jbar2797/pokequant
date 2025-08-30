@@ -229,6 +229,13 @@
               <div id="factorIcStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh.</div>
               <div id="factorIcSummaryHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px;margin-bottom:12px"></div>
               <div id="factorIcHistoryHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
+              <div style="margin-top:14px;display:flex;align-items:center;gap:8px;font-size:11px">
+                <label style="display:flex;align-items:center;gap:4px">Chart Factor
+                  <select id="factorIcChartSelect" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:4px 6px;border-radius:6px"></select>
+                </label>
+                <button id="factorIcChartRefresh" type="button" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Update Chart</button>
+              </div>
+              <div style="margin-top:10px"><canvas id="factorIcChart" height="140" aria-label="Factor IC Chart" role="img"></canvas></div>
             </div>
             <div class="panel" id="portfolioPerfPanel">
               <h2 style="display:flex;align-items:center;gap:10px">Portfolio Performance <button id="portfolioPerfRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
@@ -240,6 +247,15 @@
               </form>
               <div id="portfolioPnlHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px;margin-bottom:12px"></div>
               <div id="portfolioAttributionHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px"></div>
+              <div style="margin-top:14px"><canvas id="portfolioPnlChart" height="140" aria-label="Portfolio PnL Chart" role="img"></canvas></div>
+            </div>
+            <div class="panel" id="factorWeightsPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Factor Weights <button id="factorWeightsRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <div id="factorWeightsStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh or derive.</div>
+              <div style="display:flex;gap:8px;margin-bottom:10px;font-size:11px">
+                <button id="factorWeightsAuto" type="button" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Auto Derive</button>
+              </div>
+              <div id="factorWeightsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:240px"></div>
             </div>
             <div class="panel" id="backtestsPanel">
               <h2 style="display:flex;align-items:center;gap:10px">Backtests <button id="backtestsRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
