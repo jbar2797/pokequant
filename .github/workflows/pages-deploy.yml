@@ -12,6 +12,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate required secrets/vars
+        if: ${{ !secrets.CF_API_TOKEN || !secrets.CF_ACCOUNT_ID || !vars.PAGES_PROJECT_NAME }}
+        run: |
+          echo "::error::Missing GitHub Secrets/Vars for Cloudflare Pages deploy. Required: CF_API_TOKEN (secret), CF_ACCOUNT_ID (secret), PAGES_PROJECT_NAME (variable)."
+          exit 1
+
       - name: Deploy public/ to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
@@ -20,3 +26,4 @@ jobs:
           projectName: ${{ vars.PAGES_PROJECT_NAME }}
           directory: public
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          wranglerVersion: '3'
