@@ -28,6 +28,12 @@ All notable changes to this project will be documented here.
 - Add /admin/snapshot consolidated metadata endpoint
 - Scheduled job computes daily factor IC
 
+## [0.4.0] - 2025-08-29
+- Add anomalies detection & /admin/anomalies (migration 0010)
+- Add portfolio NAV snapshots & /admin/portfolio-nav (migration 0011)
+- Integrate anomaly + portfolio NAV + IC + completeness into cron
+- Add /admin/backfill placeholder endpoint
+
 ## [0.2.4] - 2025-08-29
 - Add lightweight ETag support on public read endpoints (conditional GETs)
 - Add standard X-RateLimit-* headers + Retry-After

@@ -165,6 +165,30 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   PRIMARY KEY(as_of, factor)
 );`
   }
+  ,
+  {
+    id: '0010_anomalies',
+    description: 'Add anomalies table for large day-over-day moves',
+    sql: `CREATE TABLE IF NOT EXISTS anomalies (
+  id TEXT PRIMARY KEY,
+  as_of DATE,
+  card_id TEXT,
+  kind TEXT,
+  magnitude REAL,
+  created_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0011_portfolio_nav',
+    description: 'Add portfolio_nav table to store daily market value snapshots',
+    sql: `CREATE TABLE IF NOT EXISTS portfolio_nav (
+  portfolio_id TEXT,
+  as_of DATE,
+  market_value REAL,
+  PRIMARY KEY(portfolio_id, as_of)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

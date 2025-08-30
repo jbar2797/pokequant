@@ -435,6 +435,47 @@ async function updateDataCompleteness(env: Env) {
   }
 }
 
+// ----- Anomaly detection (large price move >25% day over day) -----
+async function detectAnomalies(env: Env) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS anomalies (id TEXT PRIMARY KEY, as_of DATE, card_id TEXT, kind TEXT, magnitude REAL, created_at TEXT);`).run();
+    const rs = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest))
+      SELECT c.id AS card_id,
+        (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id AND p.as_of=(SELECT d FROM latest)) AS px_l,
+        (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id AND p.as_of=(SELECT d FROM prev)) AS px_p
+      FROM cards c`).all();
+    const today = new Date().toISOString().slice(0,10);
+    for (const r of (rs.results||[]) as any[]) {
+      const a = Number(r.px_p)||0, b=Number(r.px_l)||0; if (!a||!b) continue;
+      const ch = (b - a)/a;
+      if (Math.abs(ch) >= 0.25) {
+        const id = crypto.randomUUID();
+        await env.DB.prepare(`INSERT OR REPLACE INTO anomalies (id, as_of, card_id, kind, magnitude, created_at) VALUES (?,?,?,?,?,datetime('now'))`).bind(id, today, r.card_id, ch>0? 'price_spike':'price_crash', ch,).run();
+      }
+    }
+  } catch (e) { log('anomaly_error', { error:String(e) }); }
+}
+
+// ----- Portfolio NAV snapshot -----
+async function snapshotPortfolioNAV(env: Env) {
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_nav (portfolio_id TEXT, as_of DATE, market_value REAL, PRIMARY KEY(portfolio_id,as_of));`).run();
+    const ports = await env.DB.prepare(`SELECT id FROM portfolios`).all();
+    const today = new Date().toISOString().slice(0,10);
+    for (const p of (ports.results||[]) as any[]) {
+      const lots = await env.DB.prepare(`SELECT l.card_id,l.qty,(SELECT price_usd FROM prices_daily px WHERE px.card_id=l.card_id ORDER BY as_of DESC LIMIT 1) AS px FROM lots l WHERE l.portfolio_id=?`).bind(p.id).all();
+      let mv=0; for (const r of (lots.results||[]) as any[]) { mv += (Number(r.px)||0) * (Number(r.qty)||0); }
+      await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_nav (portfolio_id, as_of, market_value) VALUES (?,?,?)`).bind(p.id, today, mv).run();
+    }
+  } catch (e) { log('portfolio_nav_error', { error:String(e) }); }
+}
+
+// ----- Stub email send for alerts (no external provider integrated) -----
+async function sendEmailAlert(_env: Env, _to: string, _subject: string, _body: string) {
+  // Placeholder – integrate provider (Resend) later. Logged only.
+  log('email_stub', { to: _to, subject: _subject });
+}
+
 // ----- Factor IC computation (simple rank IC for today's factors vs future return placeholder) -----
 async function computeFactorIC(env: Env) {
   try {
@@ -1107,6 +1148,28 @@ export default {
       }
     }
 
+    // Anomalies list
+    if (url.pathname === '/admin/anomalies' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT as_of, card_id, kind, magnitude FROM anomalies ORDER BY as_of DESC LIMIT 200`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+
+    // Portfolio NAV history (admin)
+    if (url.pathname === '/admin/portfolio-nav' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT portfolio_id, as_of, market_value FROM portfolio_nav ORDER BY as_of DESC LIMIT 500`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+
+    // Backfill skeleton (no-op placeholder for future historical ingestion)
+    if (url.pathname === '/admin/backfill' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      // Accept dataset & days parameters but currently just acknowledges
+      const body: any = await req.json().catch(()=>({}));
+      return json({ ok:true, accepted:true, dataset: body.dataset||'all', days: body.days||null });
+    }
+
     // Migrations list
     if (url.pathname === '/admin/migrations' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1269,6 +1332,8 @@ export default {
   await runAlerts(env);
   await updateDataCompleteness(env);
   await computeFactorIC(env); // daily IC update
+  await detectAnomalies(env);
+  await snapshotPortfolioNAV(env);
   log('cron_run', bulk);
     } catch (e) {
   log('cron_error', { error: String(e) });
