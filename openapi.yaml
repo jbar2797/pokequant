@@ -108,6 +108,14 @@ paths:
                   responses:
                     '200':
                       description: ok
+              /admin/test-insert:
+                post:
+                  summary: (Test) Insert rows into allowlisted tables for test seeding
+                  security:
+                    - AdminToken: []
+                  responses:
+                    '200':
+                      description: ok
               /portfolio/exposure/history:
                 get:
                   summary: Portfolio factor exposure history (snapshots)

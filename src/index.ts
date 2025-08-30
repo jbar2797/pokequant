@@ -1516,6 +1516,25 @@ export default {
       const out = await computeFactorReturns(env);
       return json(out);
     }
+    // Test support: generic row insert into allowlisted tables (non-prod usage)
+    if (url.pathname === '/admin/test-insert' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const table = (body.table||'').toString();
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      const allow = new Set(['signal_components_daily','factor_returns','portfolio_nav','portfolio_factor_exposure']);
+      if (!allow.has(table)) return json({ ok:false, error:'table_not_allowed' },400);
+      if (!rows.length) return json({ ok:false, error:'no_rows' },400);
+      for (const r of rows) {
+        const cols = Object.keys(r).filter(k=> /^[a-zA-Z0-9_]+$/.test(k));
+        if (!cols.length) continue;
+        const placeholders = cols.map(()=> '?').join(',');
+        const sql = `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${placeholders})`;
+        const stmt = env.DB.prepare(sql).bind(...cols.map(c=> (r as any)[c]));
+        await stmt.run();
+      }
+      return json({ ok:true, inserted: rows.length, table });
+    }
     if (url.pathname === '/admin/portfolio-exposure/snapshot' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       await snapshotPortfolioFactorExposure(env);
