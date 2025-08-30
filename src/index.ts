@@ -435,6 +435,105 @@ async function updateDataCompleteness(env: Env) {
   }
 }
 
+// ----- Factor IC computation (simple rank IC for today's factors vs future return placeholder) -----
+async function computeFactorIC(env: Env) {
+  try {
+    // We approximate next-day return with difference between last two prices for now (since we may not have forward returns yet)
+    const rs = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest))
+      SELECT p.card_id,
+        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=(SELECT d FROM latest)) AS px_latest,
+        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=(SELECT d FROM prev)) AS px_prev,
+        (SELECT ts7 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=(SELECT MAX(as_of) FROM signal_components_daily)) AS ts7,
+        (SELECT ts30 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=(SELECT MAX(as_of) FROM signal_components_daily)) AS ts30,
+        (SELECT z_svi FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=(SELECT MAX(as_of) FROM signal_components_daily)) AS z_svi
+      FROM prices_daily p
+      WHERE p.as_of=(SELECT d FROM prev)`).all();
+    const rows = (rs.results||[]) as any[];
+    if (!rows.length) return { ok:false, skipped:true };
+    const rets: number[] = []; // simple daily return
+    for (const r of rows) {
+      const a = Number(r.px_prev)||0, b=Number(r.px_latest)||0;
+      rets.push(a>0? (b-a)/a : 0);
+    }
+    if (!rets.some(x=>x!==0)) return { ok:false, skipped:true };
+    function rankIC(fvals: number[]): number|null {
+      const pairs = fvals.map((v,i)=>({v, r: rets[i]})).filter(p=> Number.isFinite(p.v) && Number.isFinite(p.r));
+      if (pairs.length < 5) return null;
+      const sortedF = [...pairs].sort((a,b)=> a.v-b.v).map((p,i)=> ({...p, fr: i+1}));
+      const sortedR = [...sortedF].sort((a,b)=> a.r-b.r);
+      const rankMap = new Map<any, number>();
+      sortedR.forEach((p,i)=> rankMap.set(p, i+1));
+      // tie with object ref not robust; simplified: recompute arrays
+      const xf = sortedF.map(p=>p.fr);
+      const yr = [...sortedF].map((p,i)=> { return sortedR.indexOf(p)+1; });
+      const n=xf.length; if (n!==yr.length||n<3) return null;
+      const mean = (a:number[])=> a.reduce((s,x)=>s+x,0)/a.length;
+      const mx=mean(xf), my=mean(yr);
+      let num=0, dx=0, dy=0;
+      for (let i=0;i<n;i++){ const xv=xf[i]-mx, yv=yr[i]-my; num += xv*yv; dx += xv*xv; dy += yv*yv; }
+      const den = Math.sqrt(dx*dy)||0; if (!den) return null; return num/den;
+    }
+    const factors: Record<string, number|null> = {
+      ts7: rankIC(rows.map(r=> Number(r.ts7))),
+      ts30: rankIC(rows.map(r=> Number(r.ts30))),
+      z_svi: rankIC(rows.map(r=> Number(r.z_svi)))
+    };
+    const today = new Date().toISOString().slice(0,10);
+    for (const [f, ic] of Object.entries(factors)) {
+      if (ic === null) continue;
+      await env.DB.prepare(`INSERT OR REPLACE INTO factor_ic (as_of,factor,ic) VALUES (?,?,?)`).bind(today, f, ic).run();
+    }
+    return { ok:true, factors };
+  } catch (e) {
+    log('factor_ic_error', { error:String(e) });
+    return { ok:false, error:String(e) };
+  }
+}
+
+// ----- Simple backtest: rank cards by latest composite score and form top-quintile vs bottom-quintile spread cumulative -----
+async function runBacktest(env: Env, params: { lookbackDays?: number } ) {
+  const look = params.lookbackDays ?? 90;
+  // Collect per-day scores (signals_daily.score) and prices to compute daily return of top vs bottom quintile each day.
+  const since = isoDaysAgo(look);
+  const rs = await env.DB.prepare(`SELECT s.card_id, s.as_of, s.score,
+    (SELECT price_usd FROM prices_daily p WHERE p.card_id=s.card_id AND p.as_of=s.as_of) AS px
+    FROM signals_daily s WHERE s.as_of >= ? ORDER BY s.as_of ASC, s.score DESC`).bind(since).all();
+  const rows = (rs.results||[]) as any[];
+  if (!rows.length) return { ok:false, error:'no_data' };
+  // group by day
+  const byDay = new Map<string, any[]>();
+  for (const r of rows) { const d = String(r.as_of); const arr = byDay.get(d)||[]; arr.push(r); byDay.set(d, arr); }
+  const dates = Array.from(byDay.keys()).sort();
+  let equity = 1; const curve: { d:string; equity:number; spreadRet:number }[] = [];
+  for (let i=1;i<dates.length;i++) { // need prior day price to compute return; simplified using px field
+    const todayD = dates[i];
+    const arr = byDay.get(todayD)||[];
+    if (arr.length < 10) continue;
+    const q = Math.floor(arr.length/5)||1;
+    const top = arr.slice(0,q);
+    const bottom = arr.slice(-q);
+    const avg = (xs:number[])=> xs.reduce((a,b)=>a+b,0)/ (xs.length||1);
+    const topPx = avg(top.map(r=> Number(r.px)||0));
+    const bottomPx = avg(bottom.map(r=> Number(r.px)||0));
+    // naive day-over-day diff approximated by comparing to previous day averages (not fully accurate but placeholder)
+    const prevArr = byDay.get(dates[i-1])||[];
+    const prevTopPx = avg(prevArr.slice(0,q).map(r=> Number(r.px)||0));
+    const prevBottomPx = avg(prevArr.slice(-q).map(r=> Number(r.px)||0));
+    if (prevTopPx>0 && prevBottomPx>0 && topPx>0 && bottomPx>0) {
+      const retTop = (topPx - prevTopPx)/prevTopPx;
+      const retBottom = (bottomPx - prevBottomPx)/prevBottomPx;
+      const spread = retTop - retBottom;
+      equity *= (1 + spread);
+      curve.push({ d: todayD, equity: +equity.toFixed(6), spreadRet: +spread.toFixed(6) });
+    }
+  }
+  const metrics = { final_equity: equity, days: curve.length };
+  const id = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO backtests (id, created_at, params, metrics, equity_curve) VALUES (?,?,?, ?, ? )`)
+    .bind(id, new Date().toISOString(), JSON.stringify(params), JSON.stringify(metrics), JSON.stringify(curve)).run();
+  return { ok:true, id, metrics, points: curve.length };
+}
+
 // ---------- HTTP ----------
 export default {
   async fetch(req: Request, env: Env) {
@@ -1063,6 +1162,52 @@ export default {
       }
     }
 
+    // Factor IC on demand
+    if (url.pathname === '/admin/factor-ic/run' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const out = await computeFactorIC(env);
+      return json(out);
+    }
+    if (url.pathname === '/admin/factor-ic' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 300`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+
+    // Run backtest
+    if (url.pathname === '/admin/backtests' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const lookbackDays = Number(body.lookbackDays)||90;
+      const out = await runBacktest(env, { lookbackDays });
+      return json(out);
+    }
+    if (url.pathname === '/admin/backtests' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT id, created_at, params, metrics FROM backtests ORDER BY created_at DESC LIMIT 50`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname.startsWith('/admin/backtests/') && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const id = url.pathname.split('/').pop() || '';
+      const rs = await env.DB.prepare(`SELECT id, created_at, params, metrics, equity_curve FROM backtests WHERE id=?`).bind(id).all();
+      return json({ ok:true, row: rs.results?.[0]||null });
+    }
+
+    // Snapshot endpoint (metadata bundle)
+    if (url.pathname === '/admin/snapshot' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const [integrity, ic, weights] = await Promise.all([
+        (async ()=> {
+          const r = await fetch(new URL('/admin/integrity', url.origin).toString(), { headers: { 'x-admin-token': req.headers.get('x-admin-token')||'' }}).catch(()=>null);
+          return r ? await r.json().catch(()=>({})) : {};
+        })(),
+        env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 30`).all(),
+        env.DB.prepare(`SELECT version, factor, weight, active FROM factor_weights WHERE active=1`).all()
+      ]);
+      return json({ ok:true, integrity, factor_ic: (ic as any).results||[], active_weights: (weights as any).results||[] });
+    }
+
     // Test seed utility (not documented) to insert cards & prices
     if (url.pathname === '/admin/test-seed' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1123,6 +1268,7 @@ export default {
   const bulk = await computeSignalsBulk(env, 365);
   await runAlerts(env);
   await updateDataCompleteness(env);
+  await computeFactorIC(env); // daily IC update
   log('cron_run', bulk);
     } catch (e) {
   log('cron_error', { error: String(e) });

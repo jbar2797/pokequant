@@ -22,6 +22,12 @@ All notable changes to this project will be documented here.
 ## [0.2.7] - 2025-08-29
 - Add factor_weights table (migration 0007) with dynamic composite weighting and admin endpoints (/admin/factor-weights)
 
+## [0.3.0] - 2025-08-29
+- Add backtests table (migration 0008) & quintile spread backtest endpoints (/admin/backtests)
+- Add factor_ic table (migration 0009) & IC endpoints (/admin/factor-ic, /admin/factor-ic/run)
+- Add /admin/snapshot consolidated metadata endpoint
+- Scheduled job computes daily factor IC
+
 ## [0.2.4] - 2025-08-29
 - Add lightweight ETag support on public read endpoints (conditional GETs)
 - Add standard X-RateLimit-* headers + Retry-After

@@ -142,6 +142,29 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   PRIMARY KEY(version, factor)
 );`
   }
+  ,
+  {
+    id: '0008_backtests',
+    description: 'Add backtests table for strategy evaluation storage',
+    sql: `CREATE TABLE IF NOT EXISTS backtests (
+  id TEXT PRIMARY KEY,
+  created_at TEXT,
+  params TEXT,
+  metrics JSON,
+  equity_curve JSON
+);`
+  }
+  ,
+  {
+    id: '0009_factor_ic',
+    description: 'Add factor_ic table to store daily information coefficients per factor',
+    sql: `CREATE TABLE IF NOT EXISTS factor_ic (
+  as_of DATE NOT NULL,
+  factor TEXT NOT NULL,
+  ic REAL,
+  PRIMARY KEY(as_of, factor)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

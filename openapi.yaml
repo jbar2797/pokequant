@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.2.7
+  version: 0.3.0
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -235,6 +235,29 @@ paths:
   /admin/factor-weights:
     get:
       summary: List factor weights (admin)
+      responses: { '200': { description: OK } }
+  /admin/factor-ic:
+    get:
+      summary: List factor IC history (admin)
+      responses: { '200': { description: OK } }
+  /admin/factor-ic/run:
+    post:
+      summary: Compute and store latest factor IC (admin)
+      responses: { '200': { description: OK } }
+  /admin/backtests:
+    get:
+      summary: List recent backtests (admin)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Run simple quintile spread backtest (admin)
+      responses: { '200': { description: OK } }
+  /admin/backtests/{id}:
+    get:
+      summary: Get backtest details (admin)
+      responses: { '200': { description: OK } }
+  /admin/snapshot:
+    get:
+      summary: Consolidated snapshot (admin)
       responses: { '200': { description: OK } }
     post:
       summary: Upsert active factor weight version (admin)
