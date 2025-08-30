@@ -17,6 +17,8 @@ import { incMetric, incMetricBy, recordLatency } from './lib/metrics';
 import { audit } from './lib/audit';
 import { portfolioAuth } from './lib/portfolio_auth';
 import { getFactorUniverse, computeFactorReturns, computeFactorRiskModel, smoothFactorReturns, computeSignalQuality, computeFactorIC } from './lib/factors';
+import { computeIntegritySnapshot, updateDataCompleteness } from './lib/integrity';
+import { purgeOldData } from './lib/retention';
 import { ensureTestSeed, ensureAlertsTable, getAlertThresholdCol } from './lib/data';
 import { runIncrementalIngestion } from './lib/ingestion';
 import { baseDataSignature } from './lib/base_data';
@@ -294,103 +296,6 @@ async function pipelineRun(env: Env) {
   };
 }
 
-// ----- Data completeness ledger helpers -----
-async function updateDataCompleteness(env: Env) {
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS data_completeness (dataset TEXT, as_of DATE, rows INTEGER, PRIMARY KEY(dataset,as_of));`).run();
-    const today = new Date().toISOString().slice(0,10);
-    const datasets: [string,string][] = [
-      ['prices_daily','SELECT COUNT(*) AS n FROM prices_daily WHERE as_of=?'],
-      ['signals_daily','SELECT COUNT(*) AS n FROM signals_daily WHERE as_of=?'],
-      ['svi_daily','SELECT COUNT(*) AS n FROM svi_daily WHERE as_of=?'],
-      ['signal_components_daily','SELECT COUNT(*) AS n FROM signal_components_daily WHERE as_of=?']
-    ];
-    for (const [ds, sql] of datasets) {
-      const r = await env.DB.prepare(sql).bind(today).all();
-      const n = Number(r.results?.[0]?.n)||0;
-      await env.DB.prepare(`INSERT OR REPLACE INTO data_completeness (dataset, as_of, rows) VALUES (?,?,?)`).bind(ds, today, n).run();
-    }
-  } catch (e) {
-    log('data_completeness_update_error', { error: String(e) });
-  }
-}
-
-// Helper to compute integrity snapshot (shared by /admin/integrity and /admin/snapshot to avoid nested fetch overhead)
-async function computeIntegritySnapshot(env: Env) {
-  try {
-    const [cards, lp, ls, lsv, lc, cp, cs, csv, cc] = await Promise.all([
-      env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all(),
-      env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all(),
-      env.DB.prepare(`SELECT MAX(as_of) AS d FROM signals_daily`).all(),
-      env.DB.prepare(`SELECT MAX(as_of) AS d FROM svi_daily`).all(),
-      env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all(),
-      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM prices_daily WHERE as_of=(SELECT MAX(as_of) FROM prices_daily)`).all(),
-      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM signals_daily WHERE as_of=(SELECT MAX(as_of) FROM signals_daily)`).all(),
-      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM svi_daily WHERE as_of=(SELECT MAX(as_of) FROM svi_daily)`).all(),
-      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM signal_components_daily WHERE as_of=(SELECT MAX(as_of) FROM signal_components_daily)`).all()
-    ]);
-    const today = new Date().toISOString().slice(0,10);
-    const windowDays = 30;
-    const gapQuery = async (table: string) => {
-      try {
-        const res = await env.DB.prepare(`SELECT MIN(as_of) AS min_d, COUNT(DISTINCT as_of) AS days FROM ${table} WHERE as_of >= date('now','-${windowDays-1} day')`).all();
-        const row: any = res.results?.[0] || {};
-        const minD = row.min_d as string | null;
-        const distinct = Number(row.days)||0;
-        let expected = windowDays;
-        if (minD) {
-          const ms = (Date.parse(today) - Date.parse(minD));
-          if (Number.isFinite(ms)) {
-            const spanDays = Math.floor(ms/86400000)+1;
-            if (spanDays < expected) expected = spanDays;
-          }
-        }
-        return Math.max(0, expected - distinct);
-      } catch { return 0; }
-    };
-    const [gp, gs, gsv, gcc] = await Promise.all([
-      gapQuery('prices_daily'),
-      gapQuery('signals_daily'),
-      gapQuery('svi_daily'),
-      gapQuery('signal_components_daily')
-    ]);
-    const latest = {
-      prices_daily: lp.results?.[0]?.d || null,
-      signals_daily: ls.results?.[0]?.d || null,
-      svi_daily: lsv.results?.[0]?.d || null,
-      signal_components_daily: lc.results?.[0]?.d || null
-    } as Record<string,string|null>;
-    const stale: string[] = [];
-    const staleThresholdDays = 2;
-    for (const [k,v] of Object.entries(latest)) {
-      if (v) {
-        const age = Math.floor((Date.parse(today) - Date.parse(v))/86400000);
-        if (age > staleThresholdDays) stale.push(k);
-      }
-    }
-    let completeness: any[] = [];
-    try {
-      const crs = await env.DB.prepare(`SELECT dataset, as_of, rows FROM data_completeness WHERE as_of >= date('now','-13 day') ORDER BY as_of DESC, dataset`).all();
-      completeness = crs.results || [];
-    } catch { /* ignore */ }
-    return {
-      ok: true,
-      total_cards: cards.results?.[0]?.n ?? 0,
-      latest,
-      coverage_latest: {
-        prices_daily: cp.results?.[0]?.n ?? 0,
-        signals_daily: cs.results?.[0]?.n ?? 0,
-        svi_daily: csv.results?.[0]?.n ?? 0,
-        signal_components_daily: cc.results?.[0]?.n ?? 0
-      },
-      gaps_last_30: { prices_daily: gp, signals_daily: gs, svi_daily: gsv, signal_components_daily: gcc },
-      stale,
-      completeness
-    };
-  } catch (e:any) {
-    return { ok:false, error:String(e) };
-  }
-}
 
 // ----- Anomaly detection (large price move >25% day over day) -----
 async function detectAnomalies(env: Env) {
@@ -1552,62 +1457,3 @@ export default {
   }
 };
 
-// Lightweight retention (placed after export for clarity)
-async function purgeOldData(env: Env, overrides?: Record<string, number>) {
-  try {
-    // Retention windows (days)
-    const windows: Record<string, number> = {
-      backtests: 30,
-      mutation_audit: 30,
-      anomalies: 30,
-      metrics_daily: 14,
-      data_completeness: 30
-    };
-    // Env overrides (RETENTION_<TABLE>_DAYS) if present
-    for (const k of Object.keys(windows)) {
-      const envKey = `RETENTION_${k.toUpperCase()}_DAYS` as keyof Env;
-      const raw = (env as any)[envKey];
-      if (raw !== undefined) {
-        const v = parseInt(String(raw),10);
-        if (Number.isFinite(v) && v>=0 && v<=365) windows[k] = v;
-      }
-    }
-    // Body overrides (validated) take precedence
-    if (overrides) {
-      for (const [k,v] of Object.entries(overrides)) {
-        if (windows[k] !== undefined) windows[k] = v;
-      }
-    }
-    const out: Record<string, number> = {};
-    // Helper executes DELETE only if table exists
-    for (const [table, days] of Object.entries(windows)) {
-      try {
-        const exists = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).bind(table).all();
-        if (!(exists.results||[]).length) continue;
-        let cond = '';
-        if (table === 'backtests') cond = `created_at < datetime('now','-${days} day')`;
-        else if (table === 'mutation_audit') cond = `ts < datetime('now','-${days} day')`;
-        else if (table === 'metrics_daily' || table === 'data_completeness') cond = `as_of IS NOT NULL AND as_of < date('now','-${days} day')`; // metrics_daily uses d column but we map alias
-        else if (table === 'anomalies') cond = `created_at < datetime('now','-${days} day')`;
-        // Adjust column names
-        if (table === 'metrics_daily') {
-          const del = await env.DB.prepare(`DELETE FROM metrics_daily WHERE d < date('now','-${days} day')`).run();
-          out[table] = (del as any).meta?.changes || 0;
-          continue;
-        }
-        if (table === 'data_completeness') {
-          const del = await env.DB.prepare(`DELETE FROM data_completeness WHERE as_of < date('now','-${days} day')`).run();
-          out[table] = (del as any).meta?.changes || 0;
-          continue;
-        }
-        if (!cond) continue;
-        const del = await env.DB.prepare(`DELETE FROM ${table} WHERE ${cond}`).run();
-        out[table] = (del as any).meta?.changes || 0;
-      } catch (e) { log('retention_table_error', { table, error: String(e) }); }
-    }
-    return out;
-  } catch (e) {
-    log('retention_error', { error: String(e) });
-    return {};
-  }
-}
