@@ -71,6 +71,7 @@
       <!-- Global search / status bar -->
       <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-800 light:border-slate-200 bg-slate-950/60 light:bg-white/60 backdrop-blur sticky top-0 z-30">
         <input id="globalSearch" placeholder="Quick search cards…" class="flex-1 max-w-md text-sm px-3 py-2 rounded bg-slate-900/70 light:bg-white border border-slate-700 light:border-slate-300" aria-label="Global card search" />
+        <div id="healthBanner" class="hidden text-[11px] px-2 py-1 rounded border border-slate-700 light:border-slate-300 text-slate-300 light:text-slate-700" role="status" aria-live="polite"></div>
         <div id="status" class="hidden p-2 border rounded bg-amber-500/10 text-amber-300 text-xs light:text-amber-800 light:bg-amber-50 light:border-amber-200" role="status" aria-live="polite"></div>
       </div>
       <main class="flex-1 w-full max-w-7xl mx-auto px-4 py-8 space-y-12" id="mainContent">
@@ -295,6 +296,41 @@
           <input id="lotCost" type="number" step="0.01" class="flex-1 px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Cost USD"/>
         </div>
         <button id="lotAdd" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded px-3 py-2">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card Details Modal -->
+  <div id="cardModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 z-50 p-4">
+    <div class="w-full max-w-3xl rounded-xl glass border border-slate-700 light:border-slate-200 p-4 md:p-6 relative">
+      <button id="cardModalClose" class="absolute top-2 right-2 text-slate-400 hover:text-white" aria-label="Close card modal">✕</button>
+      <div id="cardModalBody" class="space-y-4">
+        <div class="flex gap-4 items-start">
+          <div class="w-20 h-28 rounded bg-slate-800/40 overflow-hidden flex items-center justify-center"><img id="cardModalImg" alt="" class="max-h-28"/></div>
+          <div class="flex-1 min-w-0">
+            <div class="text-lg font-semibold truncate" id="cardModalName"></div>
+            <div class="text-[12px] text-slate-400" id="cardModalMeta"></div>
+            <div class="text-sm font-mono" id="cardModalPrice"></div>
+          </div>
+          <div class="flex flex-col gap-2 text-xs">
+            <a id="cardCsv" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 text-center" target="_blank" rel="noopener">Download CSV</a>
+            <button id="cardAlertBtn" class="px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white">Create Alert</button>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-3 gap-4">
+          <div class="section-card">
+            <div class="text-xs font-semibold mb-1">Price</div>
+            <canvas id="cardPriceChart" height="80" aria-label="Price chart"></canvas>
+          </div>
+          <div class="section-card">
+            <div class="text-xs font-semibold mb-1">Signal</div>
+            <canvas id="cardSignalChart" height="80" aria-label="Signal chart"></canvas>
+          </div>
+          <div class="section-card">
+            <div class="text-xs font-semibold mb-1">SVI</div>
+            <canvas id="cardSviChart" height="80" aria-label="SVI chart"></canvas>
+          </div>
+        </div>
       </div>
     </div>
   </div>

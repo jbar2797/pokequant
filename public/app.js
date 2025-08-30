@@ -1,5 +1,7 @@
 // Front-end application module (refactored from inline script)
 const WORKER_BASE = 'https://pokequant.jonathanbarreneche.workers.dev';
+// Local placeholder image for missing card art
+const PLACEHOLDER = '/placeholder-card.svg';
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -71,16 +73,17 @@ async function fetchJSON(u, opts){
 }
 
 // ---------- Movers ----------
-async function loadMovers(){ ensureMoverHosts(); const moversEl=$('#movers'); const losersEl=$('#losers'); if(moversEl) moversEl.innerHTML = skeletonTiles(); if(losersEl) losersEl.innerHTML=skeletonTiles();
+async function loadMovers(){ ensureMoverHosts(); const moversEl=document.getElementById('movers'); const losersEl=document.getElementById('losers'); if(moversEl) moversEl.innerHTML = skeletonTiles(); if(losersEl) losersEl.innerHTML=skeletonTiles();
   try { const [up,down] = await Promise.all([
     fetchJSON(WORKER_BASE+'/api/movers?n=12'), fetchJSON(WORKER_BASE+'/api/movers?dir=down&n=12')]);
-    if(moversEl) moversEl.innerHTML = up.map(tile).join('');
-    if(losersEl) losersEl.innerHTML = down.map(tile).join('');
-    $('#moversTs') && ($('#moversTs').textContent = new Date().toLocaleTimeString());
+    if(moversEl) moversEl.innerHTML = (up.length? up.map(tile).join('') : '<div class="text-xs text-slate-400">No movers yet.</div>');
+    if(losersEl) losersEl.innerHTML = (down.length? down.map(tile).join('') : '<div class="text-xs text-slate-400">No losers yet.</div>');
+    document.getElementById('moversTs') && (document.getElementById('moversTs').textContent = new Date().toLocaleTimeString());
+    enhanceClickable();
   } catch(e){ setStatus('Failed movers','error'); }
 }
 function abbreviateSet(name){ if(!name) return ''; return name.split(/\s+/).map(w=> w[0]).join('').slice(0,4).toUpperCase(); }
-function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const setAbbr = abbreviateSet(c.set_name); const number = c.number || ''; const img = c.image_url || 'https://placehold.co/160x223?text=Card'; return `<div class="card-tiny text-xs space-y-2 bg-slate-800/40 border border-slate-600/40 hover:border-slate-500 transition-colors">
+function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const setAbbr = abbreviateSet(c.set_name); const number = c.number || ''; const img = c.image_url || PLACEHOLDER; return `<div class="card-tiny text-xs space-y-2 bg-slate-800/40 border border-slate-600/40 hover:border-slate-500 transition-colors" data-card-id="${c.id}">
   <div class="flex gap-3 items-start">
     <div class="w-12 h-16 bg-slate-700/40 rounded overflow-hidden flex items-center justify-center"><img src="${img}" alt="${c.name}" class="max-h-16" loading="lazy"/></div>
     <div class="flex-1 min-w-0">
@@ -103,7 +106,7 @@ function ensureMoverHosts(){ if(!document.getElementById('movers')){ const el=do
 let UNIVERSE = [];
 function unique(arr){ return Array.from(new Set(arr)); }
 function buildSetOptions(){ const sets = unique(UNIVERSE.map(c=>c.set_name).filter(Boolean)).sort(); const sel=$('#set'); if(!sel) return; sel.innerHTML = '<option value="">All sets</option>' + sets.map(s=>`<option>${s}</option>`).join(''); }
-function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); const setAb = abbreviateSet(c.set_name); const img = c.image_url || 'https://placehold.co/160x223?text=Card'; return `<tr class="hover-row">
+function renderCards(data){ const tb=document.getElementById('rows'); if(!tb) return; if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards yet. Try Reload or check Admin & Health.</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); const setAb = abbreviateSet(c.set_name); const img = c.image_url || PLACEHOLDER; return `<tr class="hover-row" data-card-id="${c.id}">
   <td class="p-2"><div class="flex gap-2 items-center"><div class=\"w-10 h-14 rounded bg-slate-700/40 overflow-hidden flex items-center justify-center\"><img src=\"${img}\" class=\"max-h-14\" loading=\"lazy\"/></div><div class="leading-4"><div class="font-medium truncate max-w-[140px]" title="${c.name}">${c.name}</div><div class="text-[10px] text-slate-400">${setAb}${c.number? ' • #'+c.number:''}</div></div></div></td>
   <td class="p-2 text-xs">${c.set_name||''}</td>
   <td class="p-2 text-xs">${c.rarity||''}</td>
@@ -112,8 +115,8 @@ function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length
   <td class="p-2 text-xs">${c.score!=null?Number(c.score).toFixed(1):'—'}</td>
   <td class="p-2 text-xs"><button class="underline" data-alert="${c.id}">Alert</button></td>
   <td class="p-2 text-[10px] text-slate-500 font-mono">${c.id}</td>
-</tr>`; }).join(''); tb.querySelectorAll('button[data-alert]').forEach(b=> b.addEventListener('click',()=> { $('#alertCardQuick').value = b.getAttribute('data-alert'); switchView('overview'); toast('Card ID prefilled','success'); })); }
-function filterCards(){ const q=$('#q')?.value.toLowerCase()||''; const set=$('#set')?.value||''; const rarity=$('#rarity')?.value.toLowerCase()||''; let list=UNIVERSE; if(q) list=list.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q))); if(set) list=list.filter(c=> c.set_name===set); if(rarity) list=list.filter(c=> (c.rarity||'').toLowerCase()===rarity); FILTERED=list; CARDS_PAGE=1; applyCardsPagination(); }
+</tr>`; }).join(''); tb.querySelectorAll('button[data-alert]').forEach(b=> b.addEventListener('click',()=> { document.getElementById('alertCardQuick').value = b.getAttribute('data-alert'); switchView('overview'); toast('Card ID prefilled','success'); })); enhanceClickable(); }
+async function filterCards(){ const q=$('#q')?.value.toLowerCase()||''; const set=$('#set')?.value||''; const rarity=$('#rarity')?.value.toLowerCase()||''; let list=UNIVERSE; if(q) list=list.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q))); if(set) list=list.filter(c=> c.set_name===set); if(rarity) list=list.filter(c=> (c.rarity||'').toLowerCase()===rarity); FILTERED=list; CARDS_PAGE=1; applyCardsPagination(); }
 async function loadUniverse(){ setStatus('Loading cards…'); try { let data = await fetchJSON(WORKER_BASE+'/api/cards'); if(!data.length) data = await fetchJSON(WORKER_BASE+'/api/universe');
   // Normalize to ensure number field exists (backend may omit currently)
   UNIVERSE = data.map(c=> ({ ...c, number: c.number || c.card_number || '' }));
@@ -158,8 +161,8 @@ let ADMIN_TOKEN = localStorage.getItem('pq_admin_token')||''; if(ADMIN_TOKEN) $(
 $('#admSet')?.addEventListener('click',()=>{ ADMIN_TOKEN=$('#admToken').value.trim(); localStorage.setItem('pq_admin_token', ADMIN_TOKEN); setStatus('Admin token set','success'); refreshAdmin(); });
 $('#admRefreshAlerts')?.addEventListener('click', refreshAdmin);
 $('#admRunDue')?.addEventListener('click', async()=> { try { const j = await fetchJSON(WORKER_BASE+'/admin/ingestion-schedule/run-due?run=1',{ method:'POST', headers: { 'content-type':'application/json', ...admHeaders() }, body: '{}' }); $('#admRunDueResult').textContent = JSON.stringify(j,null,1); setStatus('Run-due executed','success'); } catch(e){ setStatus('Run-due failed','error'); } });
-async function refreshAdmin(){ loadMiniMetrics(); try { const stats = await fetchJSON(WORKER_BASE+'/admin/alerts/stats',{ headers: admHeaders() }); $('#admAlertStats').textContent = JSON.stringify(stats,null,1); const list = await fetchJSON(WORKER_BASE+'/admin/alerts',{ headers: admHeaders() }); $('#admAlertsList').innerHTML = '<table class="w-full"><thead class="sticky top-0 bg-slate-900 text-[10px]"><tr><th class="p-1 text-left">ID</th><th class="p-1">Email</th><th class="p-1">Card</th><th class="p-1">Kind</th><th class="p-1">Fired</th><th class="p-1">Supp</th></tr></thead><tbody>'+ (list.rows||[]).slice(0,100).map(a=> `<tr class="border-b border-slate-800/40"><td class="p-1 text-[10px] font-mono">${a.id.slice(0,8)}</td><td class="p-1 text-[10px]">${a.email}</td><td class="p-1 text-[10px]">${a.card_id}</td><td class="p-1 text-[10px]">${a.kind}</td><td class="p-1 text-[10px]">${a.fired_count||0}</td><td class="p-1 text-[10px]">${a.suppressed_until?'Y':'N'}</td></tr>`).join('') +'</tbody></table>'; } catch(e){ $('#admAlertStats').textContent='Admin endpoints require valid token.'; }
-  try { const m = await fetchJSON(WORKER_BASE+'/admin/metrics',{ headers: admHeaders() }); $('#admMetrics').textContent = JSON.stringify(m.rows.slice(0,20),null,1); } catch(e){ /* ignore */ }
+async function refreshAdmin(){ loadMiniMetrics(); try { const stats = await fetchJSON(WORKER_BASE+'/admin/alerts/stats',{ headers: admHeaders() }); document.getElementById('admAlertStats').textContent = JSON.stringify(stats,null,1); const list = await fetchJSON(WORKER_BASE+'/admin/alerts',{ headers: admHeaders() }); document.getElementById('admAlertsList').innerHTML = '<table class="w-full"><thead class="sticky top-0 bg-slate-900 text-[10px]"><tr><th class="p-1 text-left">ID</th><th class="p-1">Email</th><th class="p-1">Card</th><th class="p-1">Kind</th><th class="p-1">Fired</th><th class="p-1">Supp</th></tr></thead><tbody>'+ (list.rows||[]).slice(0,100).map(a=> `<tr class="border-b border-slate-800/40"><td class="p-1 text-[10px] font-mono">${a.id.slice(0,8)}</td><td class="p-1 text-[10px]">${a.email}</td><td class="p-1 text-[10px]">${a.card_id}</td><td class="p-1 text-[10px]">${a.kind}</td><td class="p-1 text-[10px]">${a.fired_count||0}</td><td class="p-1 text-[10px]">${a.suppressed_until?'Y':'N'}</td></tr>`).join('') +'</tbody></table>'; } catch(e){ document.getElementById('admAlertStats').textContent='Admin endpoints require valid token.'; }
+  try { const m = await fetchJSON(WORKER_BASE+'/admin/metrics',{ headers: admHeaders() }); document.getElementById('admMetrics').textContent = JSON.stringify(m.rows.slice(0,20),null,1); } catch(e){ /* ignore */ }
 }
 
 // ---------- Polling (lightweight) ----------
@@ -210,3 +213,107 @@ if(mobileMenuBtn){
 
 // Expose minimal debugging hooks
 window.PQ = { reload: { movers: loadMovers, cards: loadUniverse, portfolio: loadPortfolio, analytics: ()=>{loadFactorPerformance();loadIcSummary();}, admin: refreshAdmin } };
+
+// Health banner
+async function loadHealth(){
+  try {
+    const j = await fetchJSON(WORKER_BASE + '/health');
+    const latest = j.latest || {};
+    const parts = [];
+    if(latest.prices_daily?.d) parts.push(`prices: ${latest.prices_daily.d}`);
+    if(latest.signals_daily?.d) parts.push(`signals: ${latest.signals_daily.d}`);
+    if(latest.svi_daily?.d) parts.push(`svi: ${latest.svi_daily.d}`);
+    const el = document.getElementById('healthBanner');
+    if(el){ el.textContent = parts.length? `Data up to ${parts.join(' | ')}` : 'Health ok'; el.classList.remove('hidden'); }
+  } catch {}
+}
+
+// Card modal state
+let cardPriceChart, cardSignalChart, cardSviChart;
+function openCardModal(){ const m = document.getElementById('cardModal'); if(m){ m.classList.remove('hidden'); m.classList.add('flex'); } }
+function closeCardModal(){ const m = document.getElementById('cardModal'); if(m){ m.classList.add('hidden'); m.classList.remove('flex'); }
+  // cleanup charts to avoid leaks
+  [cardPriceChart, cardSignalChart, cardSviChart].forEach(c=> { try{ c && c.destroy(); } catch{} });
+  cardPriceChart = cardSignalChart = cardSviChart = null;
+}
+
+document.getElementById('cardModalClose')?.addEventListener('click', closeCardModal);
+window.addEventListener('keydown', (e)=> { if(e.key==='Escape') closeCardModal(); });
+
+async function showCard(id){
+  try {
+    const j = await fetchJSON(WORKER_BASE + `/api/card?id=${encodeURIComponent(id)}&days=180`);
+    const card = j.card || {}; const prices = j.prices||[]; const signals = j.signals||[]; const svi = j.svi||[];
+  const img = card.image_url || PLACEHOLDER;
+    document.getElementById('cardModalImg').src = img;
+    document.getElementById('cardModalName').textContent = card.name || id;
+    const setAb = abbreviateSet(card.set_name);
+    document.getElementById('cardModalMeta').textContent = `${setAb}${card.number? ' • #'+card.number:''} • ${card.set_name||''}`;
+    // latest price
+    const last = prices[prices.length-1];
+    document.getElementById('cardModalPrice').textContent = last? (last.usd!=null? fmtUSD(last.usd) : (last.eur!=null? '€'+Number(last.eur).toFixed(2) : '—')) : '—';
+    document.getElementById('cardCsv').href = WORKER_BASE + `/research/card-csv?id=${encodeURIComponent(id)}&days=180`;
+    document.getElementById('cardAlertBtn').onclick = ()=> { const input = document.getElementById('alertCardQuick'); if(input){ input.value = id; switchView('overview'); toast('Card ID prefilled','success'); closeCardModal(); }};
+    // charts
+    const pxCtx = document.getElementById('cardPriceChart');
+    const sgCtx = document.getElementById('cardSignalChart');
+    const svCtx = document.getElementById('cardSviChart');
+    const labels = prices.map(r=> r.d);
+    const pxData = prices.map(r=> r.usd ?? r.eur ?? null);
+    if (pxCtx){
+      cardPriceChart && cardPriceChart.destroy();
+      cardPriceChart = new Chart(pxCtx, {
+        type:'line',
+        data:{ labels, datasets:[{ data: pxData, borderColor:'#f59e0b', pointRadius:0, tension:0.25 }] },
+        options:{ plugins:{ legend:{display:false} }, scales:{ x:{ display:false }, y:{ display:false } } }
+      });
+    }
+    const sgLabels = signals.map(r=> r.d);
+    const score = signals.map(r=> r.score ?? null);
+    if (sgCtx){
+      cardSignalChart && cardSignalChart.destroy();
+      cardSignalChart = new Chart(sgCtx, {
+        type:'line',
+        data:{ labels: sgLabels, datasets:[{ data: score, borderColor:'#6366f1', pointRadius:0, tension:0.25 }]},
+        options:{ plugins:{ legend:{display:false} }, scales:{ x:{ display:false }, y:{ display:false } } }
+      });
+    }
+    const svLabels = svi.map(r=> r.d);
+    const svData = svi.map(r=> r.svi ?? null);
+    if (svCtx){
+      cardSviChart && cardSviChart.destroy();
+      cardSviChart = new Chart(svCtx, {
+        type:'line',
+        data:{ labels: svLabels, datasets:[{ data: svData, borderColor:'#10b981', pointRadius:0, tension:0.25 }]},
+        options:{ plugins:{ legend:{display:false} }, scales:{ x:{ display:false }, y:{ display:false } } }
+      });
+    }
+    openCardModal();
+  } catch(e){ toast('Card load failed','error'); }
+}
+
+// Hook tiles and table rows to open modal
+function enhanceClickable(){
+  // tiles in movers/losers
+  ['movers','losers'].forEach(id=> {
+    const host = document.getElementById(id);
+    if(!host) return;
+    host.querySelectorAll('[data-card-id]')?.forEach(el=> {
+      el.addEventListener('click', ()=> showCard(el.getAttribute('data-card-id')));
+    });
+  });
+  // table rows
+  const tb = document.getElementById('rows');
+  if(tb){
+    tb.querySelectorAll('tr[data-card-id]')?.forEach(tr=> {
+      // avoid clicking inside buttons
+      tr.addEventListener('click', (e)=> { if(e.target.closest('button')) return; showCard(tr.getAttribute('data-card-id')); });
+      tr.classList.add('cursor-pointer');
+    });
+  }
+}
+
+// Note: renderers already set data-card-id and wire events; no extra wrapping needed.
+
+// Run health banner fetch during initial load
+(async()=> { try{ await loadHealth(); } catch{} })();
