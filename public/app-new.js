@@ -53,14 +53,26 @@ function row(c){
   </tr>`;
 }
 
-// Card modal (minimal for now)
+// Card modal (minimal for now + close handlers)
 const modal = document.getElementById('cardModalNew');
 const modalBody = document.getElementById('cardModalBodyNew');
+let lastFocus = null;
 function openCard(id){
   if(!modal) return;
+  lastFocus = document.activeElement;
   modal.hidden=false;
   modalBody.innerHTML = '<div style="padding:30px;text-align:center">Loading card…</div>';
   loadCardDetail(id);
+  // focus close button for accessibility
+  setTimeout(()=> {
+    const closeBtn = document.getElementById('cardModalCloseNew');
+    closeBtn && closeBtn.focus();
+  }, 30);
+}
+function closeModal(){
+  if(!modal) return;
+  modal.hidden = true;
+  if(lastFocus && typeof lastFocus.focus === 'function') setTimeout(()=> lastFocus.focus(), 30);
 }
 async function loadCardDetail(id){
   try {
@@ -83,7 +95,12 @@ document.addEventListener('click', e=> {
   if(tile) openCard(tile.dataset.cardId);
   const row = e.target.closest('tr[data-card-id]');
   if(row) openCard(row.dataset.cardId);
-  if(e.target.id==='cardModalCloseNew'){ modal.hidden=true; }
+  if(e.target.id==='cardModalCloseNew'){ closeModal(); }
+  if(e.target === modal){ closeModal(); }
+});
+
+document.addEventListener('keydown', e=> {
+  if(e.key==='Escape' && !modal.hidden){ closeModal(); }
 });
 
 // Movers wiring

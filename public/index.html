@@ -17,6 +17,7 @@
         <nav class="nav" aria-label="Primary">
           <button data-view="overview" class="active" aria-current="page">Overview</button>
           <button data-view="cards">Cards</button>
+          <button data-view="portfolio">Portfolio</button>
         </nav>
         <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
       </aside>
@@ -57,6 +58,13 @@
               </div>
             </div>
           </section>
+          <section data-panel="portfolio" hidden>
+            <div class="panel">
+              <h2>Portfolio (preview)</h2>
+              <div id="portfolioSummary" style="font-size:12px;opacity:.75">Loading portfolio…</div>
+              <div id="portfolioLots" style="margin-top:16px;font-size:12px"></div>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -67,7 +75,8 @@
       </div>
     </div>
     <script type="module" src="/core.js?v=0.7.2"></script>
-    <script type="module" src="/movers.js?v=0.7.2"></script>
-    <script type="module" src="/app-new.js?v=0.7.2"></script>
+  <script type="module" src="/movers.js?v=0.7.2"></script>
+  <script type="module" src="/portfolio.js?v=0.7.2"></script>
+  <script type="module" src="/app-new.js?v=0.7.2"></script>
   </body>
 </html>
