@@ -10,20 +10,20 @@
   <link rel="stylesheet" href="/styles.css?v=0.7.3" />
   </head>
   <body>
-  <a href="#mainContent" style="position:absolute;left:-999px;top:auto;width:1px;height:1px;overflow:hidden" onfocus="this.style.cssText='position:absolute;left:8px;top:8px;background:#162132;color:#e5ecf5;padding:6px 10px;border:1px solid #253349;border-radius:6px;z-index:500'" onblur="this.style.left='-999px'">Skip to content</a>
+  <a href="#mainContent" class="sr-only" onfocus="this.classList.remove('sr-only');this.style.cssText='position:absolute;left:8px;top:8px;background:#162132;color:#e5ecf5;padding:6px 10px;border:1px solid #253349;border-radius:6px;z-index:500'" onblur="this.classList.add('sr-only');this.removeAttribute('style')">Skip to content</a>
   <!-- Deployment banner removed post verification -->
   <div id="srLive" aria-live="polite" style="position:absolute;left:-999px;height:1px;width:1px;overflow:hidden"></div>
-    <div id="toastHost" style="position:fixed;top:46px;right:14px;display:flex;flex-direction:column;gap:8px;z-index:400"></div>
-    <div id="statusBanner" style="position:fixed;top:24px;left:50%;transform:translateX(-50%);background:#162132;color:#e5ecf5;font-size:11px;padding:6px 10px;border:1px solid #253349;border-radius:8px;display:none;z-index:380"></div>
+  <div id="toastHost" style="position:fixed;top:46px;right:14px;z-index:400" class="flex flex-col gap-8"></div>
+  <div id="statusBanner" style="position:fixed;top:24px;left:50%;transform:translateX(-50%);display:none;z-index:380" class="f11 btn-ghost"></div>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
-  <button id="themeToggle" class="btn" style="border-radius:8px">🌙</button>
+    <div class="brand"><div class="brand-badge"></div> PokeQuant <span class="note" id="appVersion"></span></div>
+  <button id="themeToggle" class="btn btn-pill">🌙</button>
         <nav class="nav" aria-label="Primary">
           <button data-view="overview" class="active" aria-current="page">Overview</button>
           <button data-view="cards">Cards</button>
         </nav>
-        <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
+  <div class="note" style="margin-top:auto;line-height:1.4">Prototype UI. Not investment advice.</div>
       </aside>
       <div class="main">
         <div class="topbar">
@@ -31,8 +31,8 @@
           <div class="grow"></div>
           <input id="globalSearch" placeholder="Search cards…" aria-label="Search cards" class="field" style="min-width:240px" />
         </div>
-  <div id="mainContent" role="main" style="padding:26px 26px 60px;display:flex;flex-direction:column;gap:40px">
-          <section data-panel="overview" class="fade-in" style="display:flex;flex-direction:column;gap:34px">
+  <div id="mainContent" role="main" style="padding:26px 26px 60px" class="flex flex-col gap-40">
+          <section data-panel="overview" class="fade-in flex flex-col" style="gap:34px">
             <div class="panel">
               <h2>Top Movers</h2>
               <div id="moversUp" class="grid-tiles"></div>
@@ -43,69 +43,69 @@
             </div>
             <div class="panel">
               <h2>System Health</h2>
-              <div id="healthInfo" style="font-size:12px;opacity:.75">Loading health…</div>
+              <div id="healthInfo" class="f12" style="opacity:.75">Loading health…</div>
             </div>
             <div class="panel" id="alertPanel">
               <h2>Create Alert (Quick)</h2>
-              <form id="alertQuickForm" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;font-size:12px">
-                <label style="display:flex;flex-direction:column;gap:4px">Email <input required name="email" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:190px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Card ID <input required name="card_id" placeholder="e.g. card123" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:140px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Kind
-                  <select name="kind" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px">
+              <form id="alertQuickForm" class="form-inline items-end f12" style="gap:10px">
+                <label class="vcol">Email <input required name="email" class="field" style="width:190px" /></label>
+                <label class="vcol">Card ID <input required name="card_id" placeholder="e.g. card123" class="field" style="width:140px" /></label>
+                <label class="vcol">Kind
+                  <select name="kind" class="field">
                     <option value="above">above</option>
                     <option value="below">below</option>
                   </select>
                 </label>
-                <label style="display:flex;flex-direction:column;gap:4px">Threshold
-                  <input required name="threshold" type="number" step="0.01" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:110px" />
+                <label class="vcol">Threshold
+                  <input required name="threshold" type="number" step="0.01" class="field" style="width:110px" />
                 </label>
-                <label style="display:flex;flex-direction:column;gap:4px">Snooze (min)
-                  <input name="snooze" type="number" step="1" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:90px" />
+                <label class="vcol">Snooze (min)
+                  <input name="snooze" type="number" step="1" class="field" style="width:90px" />
                 </label>
-                <button type="submit" class="btn btn-indigo btn-lg" style="border-radius:8px;font-weight:600;letter-spacing:.5px">Create</button>
+                <button type="submit" class="btn btn-indigo btn-lg" style="font-weight:600;letter-spacing:.5px">Create</button>
               </form>
-              <div id="alertQuickResult" style="margin-top:10px;font-size:11px;opacity:.75"></div>
+              <div id="alertQuickResult" class="f11" style="margin-top:10px;opacity:.75"></div>
             </div>
             <div class="panel" id="alertAdminPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Alerts (Admin) <button id="alertExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">CSV</button></h2>
-              <form id="alertAdminFilters" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px">
-                <label style="display:flex;flex-direction:column;gap:4px">Email <input name="email" placeholder="filter email" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:170px" /></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Active
-                  <select name="active" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:100px">
+              <h2 class="flex items-center gap-10">Alerts (Admin) <button id="alertExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">CSV</button></h2>
+              <form id="alertAdminFilters" class="form-inline f11" style="margin-bottom:10px">
+                <label class="vcol">Email <input name="email" placeholder="filter email" class="field field-sm" style="width:170px" /></label>
+                <label class="vcol">Active
+                  <select name="active" class="field field-sm" style="width:100px">
                     <option value="">(any)</option>
                     <option value="1">Active</option>
                     <option value="0">Inactive</option>
                   </select>
                 </label>
-                <label style="display:flex;flex-direction:column;gap:4px">Suppressed
-                  <select name="suppressed" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px">
+                <label class="vcol">Suppressed
+                  <select name="suppressed" class="field field-sm" style="width:120px">
                     <option value="">(any)</option>
                     <option value="1">Suppressed</option>
                     <option value="0">Unsuppressed</option>
                   </select>
                 </label>
-                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
-                <button type="button" id="alertAdminStatsBtn" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Stats</button>
+                <button type="submit" class="btn btn-ghost btn-lg" style="height:40px">Load</button>
+                <button type="button" id="alertAdminStatsBtn" class="btn btn-ghost btn-lg" style="height:40px">Stats</button>
               </form>
-              <div id="alertAdminStats" style="font-size:11px;opacity:.75;margin-bottom:6px"></div>
-              <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:320px">
-                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:780px">
-                  <thead style="position:sticky;top:0;background:#101726"><tr>
-                    <th style="text-align:left;padding:6px 8px">ID</th>
-                    <th style="text-align:left;padding:6px 8px">Email</th>
-                    <th style="text-align:left;padding:6px 8px">Card</th>
-                    <th style="text-align:left;padding:6px 8px">Kind</th>
-                    <th style="text-align:left;padding:6px 8px">Thresh</th>
-                    <th style="text-align:left;padding:6px 8px">Active</th>
-                    <th style="text-align:left;padding:6px 8px">Suppressed Until</th>
-                    <th style="text-align:left;padding:6px 8px">Fired</th>
-                    <th style="text-align:left;padding:6px 8px">Actions</th>
+              <div id="alertAdminStats" class="f11" style="opacity:.75;margin-bottom:6px"></div>
+              <div class="scroll-wrap max-h-320">
+                <table class="pq-table f11" style="min-width:780px">
+                  <thead class="table-head-sticky"><tr>
+                    <th>ID</th>
+                    <th>Email</th>
+                    <th>Card</th>
+                    <th>Kind</th>
+                    <th>Thresh</th>
+                    <th>Active</th>
+                    <th>Suppressed Until</th>
+                    <th>Fired</th>
+                    <th>Actions</th>
                   </tr></thead>
                   <tbody id="alertAdminBody"></tbody>
                 </table>
               </div>
-              <div id="alertPager" style="margin-top:8px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
-              <div style="font-size:10px;opacity:.55;margin-top:6px">Snooze requires manage token (returned on creation). Deactivate may not require token (admin flow).</div>
+              <div id="alertPager" class="pager-bar"></div>
+              <div class="note" style="margin-top:6px">Snooze requires manage token (returned on creation). Deactivate may not require token (admin flow).</div>
             </div>
             <div class="panel" id="portfolioPanel">
               <h2>Portfolio Summary</h2>

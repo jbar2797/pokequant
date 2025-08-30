@@ -74,17 +74,22 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 .flex-col { flex-direction:column; }
 .flex-wrap { flex-wrap:wrap; }
 .items-center { align-items:center; }
+.items-end { align-items:flex-end; }
 .justify-between { justify-content:space-between; }
 .gap-4 { gap:4px; }
 .gap-6 { gap:6px; }
 .gap-8 { gap:8px; }
 .gap-10 { gap:10px; }
+.gap-12 { gap:12px; }
 .p-4 { padding:4px; }
 .p-6 { padding:6px; }
 .p-8 { padding:8px; }
 .mt-4 { margin-top:16px; }
 .mt-6 { margin-top:24px; }
 .mt-8 { margin-top:32px; }
+.mt-2 { margin-top:8px; }
+.mt-3 { margin-top:12px; }
+.mt-5 { margin-top:20px; }
 .scroll-box { overflow:auto; border:1px solid var(--pq-border); border-radius: var(--pq-radius-md); }
 .brd { border:1px solid var(--pq-border); }
 .rounded-sm { border-radius: var(--pq-radius-sm); }
@@ -94,6 +99,7 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 .bg-alt { background: var(--pq-surface-alt); }
 .f11 { font-size:11px; }
 .f10 { font-size:10px; }
+.f12 { font-size:12px; }
 .max-h-220 { max-height:220px; }
 .max-h-240 { max-height:240px; }
 .max-h-260 { max-height:260px; }
@@ -103,6 +109,27 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 .max-h-360 { max-height:360px; }
 .max-h-520 { max-height:520px; }
 .skel-cell { height:12px; }
+
+/* Common vertical label/input stack */
+.vcol { display:flex; flex-direction:column; gap:4px; }
+
+/* Scroll container with shared chrome */
+.scroll-wrap { overflow:auto; border:1px solid var(--pq-border); border-radius: var(--pq-radius-md); }
+
+/* Form helpers */
+.form-inline { display:flex; flex-wrap:wrap; gap:8px; }
+.form-inline-tight { display:flex; flex-wrap:wrap; gap:6px; }
+
+/* Pager container */
+.pager-bar { margin-top:8px; font-size:10px; display:flex; align-items:center; gap:8px; }
+
+/* Notes / dim text */
+.note { font-size:10px; opacity:.55; }
+.note-sm { font-size:11px; opacity:.65; }
+
+/* Utility widths */
+.w-full { width:100%; }
+
 
 /* Table utilities */
 .pq-table { width:100%; border-collapse:collapse; }
