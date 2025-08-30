@@ -1,158 +1,73 @@
 <!doctype html>
-<html lang="en" class="h-full">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>PokeQuant — Premium Cards & Factor Analytics</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.4/dist/tailwind.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <style>
-  :root { --grad: radial-gradient(circle at 20% 20%, #1e3a8a 0%, #0f172a 55%, #020617 100%); }
-  body { font-family: 'Inter', system-ui, sans-serif; background: var(--grad); background-attachment: fixed; }
-  .glass { background: rgba(255,255,255,0.05); backdrop-filter: blur(14px) saturate(140%); }
-    .dark .glass { background: rgba(255,255,255,0.08); }
-    .badge { border-radius: 0.375rem; padding: 0.15rem 0.5rem; font-size: .65rem; font-weight:600; letter-spacing:.5px; }
-    .badge-buy { background: #05966922; color:#10b981; border:1px solid #10b98155; }
-    .badge-hold{ background: #6b728022; color:#9ca3af; border:1px solid #6b728055; }
-    .badge-sell{ background: #dc262622; color:#ef4444; border:1px solid #ef444455; }
-  .grid-movers { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:14px; }
-  .card-tiny { position:relative; border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:12px; background:linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.01)); box-shadow:0 4px 18px -6px rgba(0,0,0,0.5); transition: border-color .25s, transform .25s; }
-  .card-tiny:hover { border-color: rgba(99,102,241,0.5); transform: translateY(-2px); }
-    .light .card-tiny { background:#fff; border-color:#e5e7eb; }
-    .hover-row:hover { background: rgba(255,255,255,0.05); }
-    .light .hover-row:hover { background:#f9fafb; }
-  .section-card { border:1px solid rgba(255,255,255,0.08); border-radius:20px; padding:22px 22px 24px; background:linear-gradient(155deg,rgba(255,255,255,0.055),rgba(255,255,255,0.015)); box-shadow:0 6px 28px -10px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05); }
-    .light .section-card { background:#fff; border-color:#e5e7eb; }
-    .nav-active { color:#60a5fa; }
-    .scrollbar-thin::-webkit-scrollbar { height:8px; width:8px; }
-    .scrollbar-thin::-webkit-scrollbar-thumb { background:#374151; border-radius:4px; }
-  .skeleton-shimmer { position:relative; overflow:hidden; background:linear-gradient(90deg,#1e293b 0,#27364b 40%,#1e293b 80%); background-size:200% 100%; animation:shimmer 2.2s infinite; }
-  @keyframes shimmer { 0%{background-position:200% 0;} 100%{background-position:-200% 0;} }
-  .brand-grad { background:linear-gradient(90deg,#6366f1,#8b5cf6,#ec4899); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:700; letter-spacing:-0.02em; }
-  .app-header { display:flex; flex-direction:column; gap:4px; margin-bottom:8px; }
-  .app-header h1 { font-size:clamp(1.35rem,2.2vw,2rem); font-weight:600; }
-  .divider-faint { height:1px; background:linear-gradient(90deg,transparent,#334155,transparent); margin:8px 0 14px; }
-  </style>
-</head>
-<body class="h-full bg-slate-950 text-slate-100 light:bg-slate-50 light:text-slate-900 transition-colors antialiased">
-  <!-- DEPLOY TEST BANNER (remove after verification) -->
-  <div class="fixed top-0 left-0 right-0 z-[100] text-center text-[12px] font-bold tracking-wide py-2 bg-gradient-to-r from-fuchsia-600 via-indigo-600 to-fuchsia-600 text-white shadow-2xl drop-shadow-lg border-b border-white/30">
-    DEPLOY VERIFY 0.6.5 • <span id="deployTime"></span> • If this gradient bar is visible your deploy is LIVE
-  </div>
-  <div class="h-full flex pt-14" role="application">
-    <!-- Sidebar -->
-    <aside class="hidden md:flex flex-col w-56 border-r border-slate-800 light:border-slate-200 bg-slate-900/60 light:bg-white/70 backdrop-blur px-4 py-6 gap-6" aria-label="Primary">
-      <div class="flex items-center gap-2">
-        <div class="h-8 w-8 rounded-lg bg-gradient-to-br from-indigo-500 to-fuchsia-600" aria-hidden="true"></div>
-        <span class="text-lg font-semibold tracking-tight">PokeQuant</span>
-      </div>
-      <nav class="flex flex-col gap-1 text-sm font-medium" aria-label="Main navigation">
-        <button data-view="overview" class="nav-link nav-active text-left px-3 py-2 rounded hover:bg-slate-800/70 light:hover:bg-slate-100" aria-current="page">Overview</button>
-        <button data-view="cards" class="nav-link text-left px-3 py-2 rounded hover:bg-slate-800/70 light:hover:bg-slate-100">Cards</button>
-        <button data-view="portfolio" class="nav-link text-left px-3 py-2 rounded hover:bg-slate-800/70 light:hover:bg-slate-100">Portfolio</button>
-        <button data-view="analytics" class="nav-link text-left px-3 py-2 rounded hover:bg-slate-800/70 light:hover:bg-slate-100">Analytics</button>
-        <button data-view="admin" class="nav-link text-left px-3 py-2 rounded hover:bg-slate-800/70 light:hover:bg-slate-100">Admin</button>
-      </nav>
-      <div class="mt-auto flex flex-col gap-3 text-xs">
-        <button class="theme-toggle px-3 py-2 rounded border border-slate-700 light:border-slate-300" aria-label="Toggle theme">🌙 Theme</button>
-        <a class="underline" href="https://pokequant.jonathanbarreneche.workers.dev/health" target="_blank" rel="noopener">Health</a>
-        <p class="text-[10px] text-slate-500 leading-4">Prototype UI inspired by modern trading apps. Not investment advice.</p>
-      </div>
-    </aside>
-    <!-- Main Column -->
-    <div class="flex-1 flex flex-col min-h-full">
-      <!-- Mobile top bar -->
-      <div class="md:hidden flex items-center justify-between px-4 py-3 border-b border-slate-800 light:border-slate-200 bg-slate-900/70 light:bg-white/70 backdrop-blur">
-        <span class="font-semibold">PokeQuant</span>
-        <div class="flex items-center gap-2">
-          <button class="theme-toggle text-xs px-3 py-1 rounded border border-slate-700 light:border-slate-300" aria-label="Toggle theme">🌙</button>
-          <button id="mobileMenu" class="text-xs px-3 py-1 rounded border border-slate-700 light:border-slate-300" aria-haspopup="true" aria-expanded="false">Menu</button>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>PokeQuant v0.7.2</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css?v=0.7.2" />
+  </head>
+  <body>
+    <div class="deploy-banner">DEPLOY OVERHAUL 0.7.2 — NEW SHELL ACTIVE</div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
+        <nav class="nav" aria-label="Primary">
+          <button data-view="overview" class="active" aria-current="page">Overview</button>
+          <button data-view="cards">Cards</button>
+        </nav>
+        <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
+      </aside>
+      <div class="main">
+        <div class="topbar">
+          <div style="font-weight:600;letter-spacing:.5px" id="currentViewLabel">Overview</div>
+          <div class="grow"></div>
+          <input id="globalSearch" placeholder="Search cards…" aria-label="Search cards" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:12px;padding:6px 10px;border-radius:8px;min-width:240px" />
+        </div>
+        <div style="padding:26px 26px 60px;display:flex;flex-direction:column;gap:40px">
+          <section data-panel="overview" class="fade-in" style="display:flex;flex-direction:column;gap:34px">
+            <div class="panel">
+              <h2>Top Movers</h2>
+              <div id="moversUp" class="grid-tiles"></div>
+            </div>
+            <div class="panel">
+              <h2>Biggest Losers</h2>
+              <div id="moversDown" class="grid-tiles"></div>
+            </div>
+          </section>
+          <section data-panel="cards" hidden>
+            <div class="panel" style="overflow:auto">
+              <h2>Cards (sample)</h2>
+              <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:880px">
+                  <thead style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
+                    <tr>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Card</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Set</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Rarity</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Price</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Signal</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">ID</th>
+                    </tr>
+                  </thead>
+                  <tbody id="cardsTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
-      <!-- Global search / status bar -->
-  <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-800 light:border-slate-200 bg-slate-900/70 light:bg-white/70 backdrop-blur sticky top-0 z-30">
-        <input id="globalSearch" placeholder="Quick search cards…" class="flex-1 max-w-md text-sm px-3 py-2 rounded bg-slate-900/70 light:bg-white border border-slate-700 light:border-slate-300" aria-label="Global card search" />
-        <div id="healthBanner" class="hidden text-[11px] px-2 py-1 rounded border border-slate-700 light:border-slate-300 text-slate-300 light:text-slate-700" role="status" aria-live="polite"></div>
-        <div id="status" class="hidden p-2 border rounded bg-amber-500/10 text-amber-300 text-xs light:text-amber-800 light:bg-amber-50 light:border-amber-200" role="status" aria-live="polite"></div>
+    </div>
+    <div id="cardModalNew" hidden class="pq-modal" role="dialog" aria-modal="true" aria-labelledby="cardModalTitle" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:300;padding:30px">
+      <div class="pq-modal-inner" style="background:#101726;border:1px solid #253349;border-radius:18px;max-width:880px;width:100%;padding:32px;position:relative">
+        <button id="cardModalCloseNew" aria-label="Close modal" style="position:absolute;top:10px;right:12px;background:#162132;border:1px solid #253349;color:#e5ecf5;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Close</button>
+        <div id="cardModalBodyNew"></div>
       </div>
-      <main class="flex-1 w-full max-w-7xl mx-auto px-4 py-8 space-y-12" id="mainContent">
-      <!DOCTYPE html>
-      <html lang="en">
-        <head>
-          <meta charset="utf-8"/>
-          <meta name="viewport" content="width=device-width,initial-scale=1"/>
-        <title>PokeQuant v0.7.2</title>
-          <link rel="preconnect" href="https://fonts.googleapis.com" />
-          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-        <link rel="stylesheet" href="/styles.css?v=0.7.2" />
-        </head>
-        <body>
-        <div class="deploy-banner">DEPLOY OVERHAUL 0.7.2 — NEW SHELL ACTIVE</div>
-          <div class="app-shell">
-            <aside class="sidebar">
-              <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
-              <nav class="nav">
-                <button data-view="overview" class="active">Overview</button>
-                <button data-view="cards">Cards</button>
-              </nav>
-              <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
-            </aside>
-            <div class="main">
-              <div class="topbar">
-                <div style="font-weight:600;letter-spacing:.5px">Overview</div>
-                <div class="grow"></div>
-                <input id="globalSearch" placeholder="Search cards…" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:12px;padding:6px 10px;border-radius:8px;min-width:240px" />
-              </div>
-              <div style="padding:26px 26px 60px;display:flex;flex-direction:column;gap:40px">
-                <section data-panel="overview" class="fade-in" style="display:flex;flex-direction:column;gap:34px">
-                  <div class="panel">
-                    <h2>Top Movers</h2>
-                    <div id="moversUp" class="grid-tiles"></div>
-                  </div>
-                  <div class="panel">
-                    <h2>Biggest Losers</h2>
-                    <div id="moversDown" class="grid-tiles"></div>
-                  </div>
-                </section>
-                <section data-panel="cards" hidden>
-                  <div class="panel" style="overflow:auto">
-                    <h2>Cards (sample)</h2>
-                    <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
-                      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:880px">
-                        <thead style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
-                          <tr>
-                            <th style="text-align:left;padding:8px 10px;font-weight:600">Card</th>
-                            <th style="text-align:left;padding:8px 10px;font-weight:600">Set</th>
-                            <th style="text-align:left;padding:8px 10px;font-weight:600">Rarity</th>
-                            <th style="text-align:left;padding:8px 10px;font-weight:600">Price</th>
-                            <th style="text-align:left;padding:8px 10px;font-weight:600">Signal</th>
-                            <th style="text-align:left;padding:8px 10px;font-weight:600">ID</th>
-                          </tr>
-                        </thead>
-                        <tbody id="cardsTableBody"></tbody>
-                      </table>
-                    </div>
-                  </div>
-                </section>
-              </div>
-            </div>
-          </div>
-
-          <!-- New minimal modal -->
-          <div id="cardModalNew" hidden style="position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:300;padding:30px">
-            <div style="background:#101726;border:1px solid #253349;border-radius:18px;max-width:880px;width:100%;padding:32px;position:relative">
-              <button id="cardModalCloseNew" style="position:absolute;top:10px;right:12px;background:#162132;border:1px solid #253349;color:#e5ecf5;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Close</button>
-              <div id="cardModalBodyNew"></div>
-            </div>
-          </div>
-
-        <script type="module" src="/core.js?v=0.7.2"></script>
-        <script type="module" src="/movers.js?v=0.7.2"></script>
-        <script type="module" src="/app-new.js?v=0.7.2"></script>
-        </body>
-      </html>
-                <option>25</option><option selected>50</option><option>100</option>
+    </div>
+    <script type="module" src="/core.js?v=0.7.2"></script>
+    <script type="module" src="/movers.js?v=0.7.2"></script>
+    <script type="module" src="/app-new.js?v=0.7.2"></script>
+  </body>
+</html>
