@@ -118,6 +118,14 @@ All notable changes to this project will be documented here.
 ### Changed
 - Version bump to 0.5.15 (spec, package, version.ts)
 
+## [0.5.16] - 2025-08-30
+### Added
+- Audit redaction (secrets/emails/tokens), pagination (before_ts), stats endpoint /admin/audit/stats
+- Factor correlation matrix endpoint /admin/factor-correlations (rolling Pearson) with avg_abs_corr metric
+- Migration 0022 adds composite index on factor_returns(as_of, factor) for correlation queries
+### Changed
+- Version bump to 0.5.16 (spec, package, version.ts)
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.

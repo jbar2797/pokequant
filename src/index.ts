@@ -167,14 +167,31 @@ async function recordLatency(env: Env, tag: string, ms: number) {
 // ---------- mutation audit helper ----------
 // Lightweight audit trail for state-changing endpoints. Best-effort (errors ignored).
 interface AuditFields { actor_type: string; actor_id?: string|null; action: string; resource: string; resource_id?: string|null; details?: any }
+function redactDetails(obj: any): any {
+  if (obj == null) return obj;
+  if (Array.isArray(obj)) return obj.slice(0,50).map(redactDetails); // cap array length
+  if (typeof obj === 'object') {
+    const out: Record<string, unknown> = {};
+    const REDACT_KEYS = new Set(['secret','manage_token','token','email']);
+    for (const [k,v] of Object.entries(obj)) {
+      if (REDACT_KEYS.has(k.toLowerCase())) { out[k] = '[REDACTED]'; continue; }
+      out[k] = redactDetails(v);
+    }
+    return out;
+  }
+  if (typeof obj === 'string') return obj.length > 256 ? obj.slice(0,256)+'…' : obj;
+  return obj; // primitive
+}
 async function audit(env: Env, f: AuditFields) {
   try {
     const id = crypto.randomUUID();
     const ts = new Date().toISOString();
-    const details = f.details === undefined ? null : JSON.stringify(f.details).slice(0,2000);
+    let detailsObj = f.details;
+    try { detailsObj = redactDetails(detailsObj); } catch { /* ignore */ }
+    const details = detailsObj === undefined ? null : JSON.stringify(detailsObj).slice(0,2000);
     await env.DB.prepare(`INSERT INTO mutation_audit (id, ts, actor_type, actor_id, action, resource, resource_id, details) VALUES (?,?,?,?,?,?,?,?)`)
       .bind(id, ts, f.actor_type, f.actor_id||null, f.action, f.resource, f.resource_id||null, details).run();
-  } catch { /* ignore */ }
+  } catch (e) { log('audit_insert_error', { error: String(e) }); }
 }
 
 // Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
@@ -2032,20 +2049,75 @@ export default {
       const action = (url.searchParams.get('action')||'').trim();
       const actorType = (url.searchParams.get('actor_type')||'').trim();
       const resourceId = (url.searchParams.get('resource_id')||'').trim();
+      const beforeTs = (url.searchParams.get('before_ts')||'').trim();
       let limit = parseInt(url.searchParams.get('limit')||'200',10); if (!Number.isFinite(limit)||limit<1) limit=100; if (limit>500) limit=500;
       const where: string[] = []; const binds: any[] = [];
       if (resource) { where.push('resource=?'); binds.push(resource); }
       if (action) { where.push('action=?'); binds.push(action); }
       if (actorType) { where.push('actor_type=?'); binds.push(actorType); }
       if (resourceId) { where.push('resource_id=?'); binds.push(resourceId); }
+      if (beforeTs) { where.push('ts < ?'); binds.push(beforeTs); }
       const sql = `SELECT id, ts, actor_type, actor_id, action, resource, resource_id, details FROM mutation_audit ${where.length? 'WHERE '+where.join(' AND '):''} ORDER BY ts DESC LIMIT ?`;
       binds.push(limit);
       try {
         const rs = await env.DB.prepare(sql).bind(...binds).all();
-        return json({ ok:true, rows: rs.results||[], filtered:{ resource:resource||undefined, action:action||undefined, actor_type: actorType||undefined, resource_id: resourceId||undefined, limit } });
+        const rows = (rs.results||[]) as any[];
+        const next = rows.length === limit ? rows[rows.length-1].ts : null;
+        return json({ ok:true, rows, page: { next_before_ts: next }, filtered:{ resource:resource||undefined, action:action||undefined, actor_type: actorType||undefined, resource_id: resourceId||undefined, limit, before_ts: beforeTs||undefined } });
       } catch (e:any) {
         return json({ ok:false, error:String(e) },500);
       }
+    }
+    if (url.pathname === '/admin/audit/stats' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const hours = Math.min(168, Math.max(1, parseInt(url.searchParams.get('hours')||'24',10)));
+      try {
+        const cutoff = new Date(Date.now() - hours*3600*1000).toISOString();
+        const rs = await env.DB.prepare(`SELECT action, resource, COUNT(*) AS n FROM mutation_audit WHERE ts >= ? GROUP BY action, resource ORDER BY n DESC LIMIT 100`).bind(cutoff).all();
+        const totals = await env.DB.prepare(`SELECT COUNT(*) AS n FROM mutation_audit WHERE ts >= ?`).bind(cutoff).all();
+        return json({ ok:true, hours, total: totals.results?.[0]?.n||0, rows: rs.results||[] });
+      } catch (e:any) { return json({ ok:false, error:String(e) },500); }
+    }
+    // Test-only helper to emit audit entries (not documented) - guarded by admin token
+    if (url.pathname === '/admin/test-audit' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body:any = await req.json().catch(()=>({}));
+      audit(env, { actor_type: body.actor_type||'test', action: body.action||'emit', resource: body.resource||'test_event', resource_id: body.resource_id||null, details: body.details });
+      return json({ ok:true });
+    }
+
+    // Factor correlations (admin) based on factor_returns rolling window
+    if (url.pathname === '/admin/factor-correlations' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const look = Math.min(180, Math.max(5, parseInt(url.searchParams.get('days')||'60',10)));
+      try {
+        const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${look-1} day`).all();
+        const rows = (rs.results||[]) as any[];
+        const byFactor: Record<string, {d:string; r:number}[]> = {};
+        for (const r of rows) { const f=String(r.factor); const d=String(r.as_of); const v=Number(r.ret); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push({ d, r:v }); }
+        const factors = Object.keys(byFactor).sort();
+        if (factors.length < 2) return json({ ok:true, factors, matrix: [], stats:{ avg_abs_corr:null, days:0 } });
+        // Align on intersection of dates where all factors have data
+        const dateSets = factors.map(f=> new Set(byFactor[f].map(o=> o.d)));
+        const allDates = Array.from(new Set(rows.map(r=> String(r.as_of)))).sort();
+        const usable = allDates.filter(d=> dateSets.every(s=> s.has(d)));
+        const series: number[][] = factors.map(()=> []);
+        for (const d of usable) {
+          factors.forEach((f,idx)=> { const v = byFactor[f].find(o=> o.d===d)?.r; series[idx].push(v ?? 0); });
+        }
+        const n = usable.length;
+        if (n < 5) return json({ ok:true, factors, matrix: [], stats:{ avg_abs_corr:null, days:n } });
+        function mean(a:number[]) { return a.reduce((s,x)=>s+x,0)/a.length; }
+        function corr(a:number[], b:number[]) {
+          const ma = mean(a), mb = mean(b); let num=0,da=0,db=0; for (let i=0;i<a.length;i++){ const x=a[i]-ma,y=b[i]-mb; num+=x*y; da+=x*x; db+=y*y; }
+          const den = Math.sqrt(da*db)||0; return den? num/den : 0;
+        }
+        const matrix: number[][] = [];
+        for (let i=0;i<factors.length;i++) { matrix[i]=[]; for (let j=0;j<factors.length;j++){ matrix[i][j] = +(corr(series[i], series[j])).toFixed(4); } }
+        let sumAbs=0; let pairs=0; for (let i=0;i<matrix.length;i++) for (let j=i+1;j<matrix.length;j++){ sumAbs+=Math.abs(matrix[i][j]); pairs++; }
+        const avgAbs = pairs? +(sumAbs/pairs).toFixed(4): null;
+        return json({ ok:true, factors, days:n, matrix, stats:{ avg_abs_corr: avgAbs } });
+      } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     }
 
     // Root

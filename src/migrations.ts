@@ -312,6 +312,12 @@ CREATE INDEX IF NOT EXISTS idx_audit_resource ON mutation_audit(resource);`
     sql: `CREATE INDEX IF NOT EXISTS idx_audit_actor_type ON mutation_audit(actor_type);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON mutation_audit(action);`
   }
+  ,
+  {
+    id: '0022_factor_returns_indexes',
+    description: 'Add composite index to speed factor correlation window queries',
+    sql: `CREATE INDEX IF NOT EXISTS idx_factor_returns_asof_factor ON factor_returns(as_of, factor);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

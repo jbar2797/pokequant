@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.15
+  version: 0.5.16
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -388,7 +388,17 @@ paths:
   /admin/audit:
     get:
       summary: List mutation audit trail entries (admin)
-  description: Optional query params: resource, action, actor_type, resource_id, limit (<=500)
+      description: Optional query params: resource, action, actor_type, resource_id, before_ts (pagination), limit (<=500)
+      responses: { '200': { description: OK } }
+  /admin/audit/stats:
+    get:
+      summary: Audit action/resource frequency stats
+      description: Aggregated counts over trailing hours window (default 24, max 168). Params: hours.
+      responses: { '200': { description: OK } }
+  /admin/factor-correlations:
+    get:
+      summary: Rolling factor return correlation matrix
+      description: Computes Pearson correlations of daily factor_returns over trailing days window (default 60, max 180). Returns matrix and avg_abs_corr.
       responses: { '200': { description: OK } }
 components:
   schemas:
