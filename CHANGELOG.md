@@ -6,28 +6,23 @@ All notable changes to this project will be documented here.
 - Reference sprints or PRs if helpful.
 
 ## [Unreleased]
-- …
 - Add examples to OpenAPI for key endpoints (in progress)
-### Changed
-- Accessibility: Added aria-current nav updates, main landmark, pagination ARIA roles, and sr-only utility class.
- - UI utilities: Introduced flex/gap/spacing utility classes and replaced upcoming inline styles (partial).
- - Performance: Added debounce (400ms) to admin filter inputs (alerts, anomalies, audit) to reduce redundant fetches.
- - UX: Added sortable cards table headers with aria-sort and aria-busy indicators on loading panels.
- - Refactor: Introduced additional utility classes (flex/spacing/border/radius/background/sizing) and initial skeleton row helper; removed deprecated `public/app.js` legacy script.
- - UI Polish: Added skeleton loading rows for alerts/anomalies/backtests/audit/cards and print-friendly stylesheet.
- - Cleanup: Replaced many inline styles (alerts quick/admin forms & tables) with utility classes (vcol, form-inline, scroll-wrap, pager-bar) and added shared spacing/typography helpers.
- - Cleanup: Extended utility refactor to portfolio auth & lots sections (form-inline, vcol, scroll-wrap, pq-table) reducing repetitive inline CSS.
- - Cleanup: Converted anomalies panel (filters/table/pager/actions) to utility classes (form-inline, scroll-wrap, pq-table, pager-bar) and added spacing/size helpers.
- - Cleanup: Refactored data integrity & ingestion panels to utilities (btn variants, form-inline, grid-auto-wide/140/160, scroll-wrap) removing extensive inline styling.
- - Cleanup: Converted factor analytics, IC, portfolio performance, factor weights, backtests, audit, cards sample & side panel scaffolding to utility classes (scroll-wrap, pager-bar, btn, form-inline) eliminating remaining large inline style blocks.
+- OpenAPI: documenting enriched `/alerts/create` response fields (suppressed_until, fired_count) & optional `run` flag note for `/admin/ingestion-schedule/run-due`.
+- Retry & backoff for alert email sending with failure metrics aggregation
+- Drop legacy plaintext portfolio_secret column after observation window
+
+## [0.7.4] - 2025-08-30
 ### Added
 - Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
 - Front-end refactor: extracted inline script into `public/app.js` module; added toast notifications, loading skeletons for movers, slow-request warning toasts (>1500ms), light polling (60s) for movers, safer null guards, and improved error surfacing.
 ### Changed
-- OpenAPI (Unreleased): documenting enriched `/alerts/create` response fields (suppressed_until, fired_count) & optional `run` flag note for `/admin/ingestion-schedule/run-due`.
-### Planned
-- Retry & backoff for alert email sending with failure metrics aggregation
-- Drop legacy plaintext portfolio_secret column after observation window
+- Accessibility: Added aria-current nav updates, main landmark, pagination ARIA roles, and sr-only utility class.
+- UI utilities: Introduced flex/gap/spacing utility classes and replaced inline styles across all panels with utility-first approach.
+- Performance: Added debounce (400ms) to admin filter inputs (alerts, anomalies, audit) to reduce redundant fetches.
+- UX: Added sortable cards table headers with aria-sort and aria-busy indicators on loading panels.
+- Refactor: Introduced additional utility classes (flex/spacing/border/radius/background/sizing) and initial skeleton row helper; removed deprecated `public/app.js` legacy script.
+- UI Polish: Added skeleton loading rows for alerts/anomalies/backtests/audit/cards and print-friendly stylesheet.
+- Cleanup: Replaced inline styles for alerts quick/admin, portfolio auth & lots, anomalies, data integrity, ingestion, factor analytics + IC + performance, factor weights, backtests, audit, cards sample, and side panel scaffolding with utility classes (vcol, form-inline, scroll-wrap, pager-bar, pq-table, btn variants, grid-auto-*).
 
 ## [0.6.2] - 2025-08-30
 ## [0.6.3] - 2025-08-30
