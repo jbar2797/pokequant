@@ -20,6 +20,9 @@ All notable changes to this project will be documented here.
 ## [0.6.2] - 2025-08-30
 ## [0.6.3] - 2025-08-30
 ## [0.6.4] - 2025-08-30
+## [0.7.0] - 2025-08-30
+### Added
+- Front-end overhaul kickoff: version bump placeholder. (Implementation in progress.)
 ## [0.6.5] - 2025-08-30
 ### Added
 - Stronger deploy verification banner (gradient with timestamp) to confirm Pages propagation.
