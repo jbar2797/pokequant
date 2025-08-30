@@ -8,6 +8,14 @@ import './health.js';
 const rootVersionEl = document.getElementById('appVersion');
 if(rootVersionEl) rootVersionEl.textContent = VERSION;
 
+// Screen reader live region helper (wrap status updates)
+const __sr = document.getElementById('srLive');
+const __origSetStatus = setStatus;
+function announce(msg, kind){
+  __origSetStatus(msg, kind);
+  if(__sr) __sr.textContent = msg || '';
+}
+
 // Simple state
 const state = { cards: [], view: 'overview', filtered: [], page:1, pageSize:50 };
 
@@ -34,8 +42,8 @@ async function loadCards(){
     state.cards = data.map(c=> ({ ...c, number: c.number || c.card_number || '' }));
     state.filtered = state.cards;
     renderCards();
-    setStatus('Cards loaded','success');
-  } catch(e){ if(host) host.innerHTML = '<tr><td colspan="6">Error loading cards</td></tr>'; setStatus('Cards load failed','error'); }
+  announce('Cards loaded','success');
+  } catch(e){ if(host) host.innerHTML = '<tr><td colspan="6">Error loading cards</td></tr>'; announce('Cards load failed','error'); }
 }
 
 function renderCards(){
@@ -85,27 +93,28 @@ function row(c){
 // --- Card Side Panel (lightweight detail) ---
 const sidePanel = document.getElementById('cardSidePanel');
 const sidePanelBody = document.getElementById('cardPanelBody');
-document.getElementById('cardPanelClose')?.addEventListener('click', ()=> closeSidePanel());
+let lastFocused = null;
 function openSidePanel(){ if(sidePanel){ sidePanel.style.width='420px'; } }
-function closeSidePanel(){ if(sidePanel){ sidePanel.style.width='0'; sidePanelBody.innerHTML=''; } }
+function closeSidePanel(){ if(sidePanel){ sidePanel.style.width='0'; sidePanelBody.innerHTML=''; if(lastFocused && typeof lastFocused.focus==='function') setTimeout(()=> lastFocused.focus(),30); } }
+document.getElementById('cardPanelClose')?.addEventListener('click', closeSidePanel);
 async function showCard(id){
   try {
+    lastFocused = document.activeElement;
     openSidePanel();
     sidePanelBody.innerHTML = '<div style="padding:40px;text-align:center">Loading…</div>';
     const j = await fetchJSON(`/api/card?id=${encodeURIComponent(id)}&days=90`);
     const c = j.card || { id };
     const img = c.image_url || PLACEHOLDER;
-    // simple mini time series (if available) using inline canvas
-    let prices = j.prices || [];
+    // price sparkline
+    const prices = j.prices || [];
     const priceSpark = prices.slice(-40).map(p=> p.usd ?? p.eur ?? null).filter(v=> v!=null);
     let sparkHtml = '';
     if(priceSpark.length){
       const min = Math.min(...priceSpark), max=Math.max(...priceSpark) || 1;
       const points = priceSpark.map((v,i)=> {
-        const x = (i/(priceSpark.length-1))*100; const y = 100 - ((v-min)/(max-min))*100;
-        return `${x.toFixed(2)},${y.toFixed(2)}`;
-      }).join(' ');
-      sparkHtml = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="width:100%;height:40px"><polyline fill="none" stroke="#6366f1" stroke-width="2" points="${points}" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+        const x = (i/(priceSpark.length-1))*100; const y = 100 - ((v-min)/(max-min||1))*100; return `${x.toFixed(2)},${y.toFixed(2)}`; }).join(' ');
+      const last = priceSpark[priceSpark.length-1];
+      sparkHtml = `<div style="margin-top:4px"><svg viewBox='0 0 100 100' preserveAspectRatio='none' style='width:100%;height:40px;background:#0f172a;border-radius:4px'><polyline fill='none' stroke='${last>=priceSpark[0]?'#10b981':'#ef4444'}' stroke-width='2' points='${points}'/></svg><div style='font-size:10px;opacity:.6;margin-top:2px'>${last.toFixed(2)} ${last>=priceSpark[0]? '▲':'▼'}</div></div>`;
     }
     sidePanelBody.innerHTML = `<div style="display:flex;gap:16px;align-items:flex-start">
       <div style="width:110px;height:160px;background:#1e293b;border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center"><img src="${img}" alt="${c.name||id}" style="max-height:150px" onerror="this.src='${PLACEHOLDER}'"/></div>
@@ -119,25 +128,12 @@ async function showCard(id){
   } catch(e){ sidePanelBody.innerHTML='<div style="padding:40px;text-align:center;color:#f87171">Failed to load card</div>'; }
 }
 
-document.addEventListener('click', e=> {
-  const tile = e.target.closest('.tile[data-card-id]');
-  if(tile) showCard(tile.dataset.cardId);
-  const row = e.target.closest('tr[data-card-id]');
-  if(row) showCard(row.dataset.cardId);
-});
-
-// keyboard accessibility to close side panel
-document.addEventListener('keydown', e=> { if(e.key==='Escape' && sidePanel && sidePanel.style.width!=='0px'){ closeSidePanel(); } });
-
-// Simple client-side filter bound to globalSearch
-loadMovers().catch(()=> setStatus('Movers load failed','error'));
-
-// --- Quick Alert Creation ---
-const alertForm = document.getElementById('alertQuickForm');
-if(alertForm){
-  alertForm.addEventListener('submit', async e=> {
-    e.preventDefault();
-    const form = new FormData(alertForm);
+// --- Quick Alert Form ---
+const alertQuickForm = document.getElementById('alertQuickForm');
+if(alertQuickForm){
+  alertQuickForm.addEventListener('submit', async (ev)=> {
+    ev.preventDefault();
+    const form = new FormData(alertQuickForm);
     const body = {
       email: form.get('email')?.toString().trim(),
       card_id: form.get('card_id')?.toString().trim(),
@@ -146,13 +142,13 @@ if(alertForm){
     };
     const snooze = form.get('snooze');
     if(snooze) body.snooze_minutes = Number(snooze);
-    if(!body.email||!body.card_id||!Number.isFinite(body.threshold)) return setStatus('Fill required alert fields','error');
+  if(!body.email||!body.card_id||!Number.isFinite(body.threshold)) return announce('Fill required alert fields','error');
     try {
       const r = await fetchJSON('/alerts/create',{ method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(body) });
-      setStatus('Alert created','success');
+  announce('Alert created','success');
       const res = document.getElementById('alertQuickResult');
       if(res) res.innerHTML = `id: <span style="font-family:monospace">${r.id}</span> • fired: ${r.fired_count||0}`;
-    } catch(e2){ setStatus('Alert create failed','error'); }
+  } catch(e2){ announce('Alert create failed','error'); }
   });
 }
 
@@ -162,7 +158,7 @@ if(portfolioLoadBtn){
   portfolioLoadBtn.addEventListener('click', async ()=> {
     const pid = document.querySelector('#portfolioAuth input[name=pid]')?.value.trim();
     const psec = document.querySelector('#portfolioAuth input[name=psec]')?.value.trim();
-    if(!pid||!psec) return setStatus('Portfolio creds required','error');
+  if(!pid||!psec) return announce('Portfolio creds required','error');
     const headers = { 'x-portfolio-id': pid, 'x-portfolio-secret': psec };
     try {
       const r = await fetchJSON('/portfolio',{ headers });
@@ -174,8 +170,8 @@ if(portfolioLoadBtn){
         if(!lots.length) lotsHost.innerHTML = '<div style="opacity:.6">No lots</div>';
         else lotsHost.innerHTML = lots.slice(0,12).map(l=> `<div style="border:1px solid #253349;padding:6px 8px;border-radius:8px;background:#162132"><div style="font-size:11px;font-weight:600">${l.card_id}</div><div style="font-size:10px;opacity:.65">Qty ${l.qty}</div></div>`).join('');
       }
-      setStatus('Portfolio loaded','success');
-    } catch(e){ setStatus('Portfolio load failed','error'); }
+      announce('Portfolio loaded','success');
+    } catch(e){ announce('Portfolio load failed','error'); }
   });
 }
 
@@ -190,10 +186,10 @@ if(adminSetBtn){
 }
 async function loadAdminMetrics(){
   try {
-    const rows = await fetchJSON('/admin/metrics',{ headers: ADMIN_TOKEN? { 'x-admin-token': ADMIN_TOKEN }: {} });
+  const rows = await fetchJSON('/admin/metrics',{ headers: ADMIN_TOKEN? { 'x-admin-token': ADMIN_TOKEN }: {} });
     const list = document.getElementById('adminMetricsList');
     if(list){ list.innerHTML = (rows.rows||[]).slice(0,12).map(r=> `<li style="border:1px solid #253349;padding:6px 8px;border-radius:8px;background:#162132"><span style="font-size:10px;opacity:.7">${r.metric}</span><br/><strong style="font-size:12px">${r.count}</strong></li>`).join(''); }
-  } catch(e){ const list = document.getElementById('adminMetricsList'); if(list) list.innerHTML = '<li style="opacity:.6">Metrics unavailable</li>'; }
+  } catch(e){ const list = document.getElementById('adminMetricsList'); if(list) list.innerHTML = '<li style="opacity:.6">Metrics unavailable</li>'; announce('Admin metrics unavailable','error'); }
 }
 
 if(globalSearch){
@@ -209,7 +205,7 @@ function openCard(id){ /* modal disabled */ }
 
 // Movers wiring
 wireMoversClicks(openCard);
-loadMovers().catch(()=> setStatus('Movers load failed','error'));
+loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
 window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard };
