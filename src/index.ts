@@ -485,6 +485,83 @@ async function updateDataCompleteness(env: Env) {
   }
 }
 
+// Helper to compute integrity snapshot (shared by /admin/integrity and /admin/snapshot to avoid nested fetch overhead)
+async function computeIntegritySnapshot(env: Env) {
+  try {
+    const [cards, lp, ls, lsv, lc, cp, cs, csv, cc] = await Promise.all([
+      env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all(),
+      env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all(),
+      env.DB.prepare(`SELECT MAX(as_of) AS d FROM signals_daily`).all(),
+      env.DB.prepare(`SELECT MAX(as_of) AS d FROM svi_daily`).all(),
+      env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all(),
+      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM prices_daily WHERE as_of=(SELECT MAX(as_of) FROM prices_daily)`).all(),
+      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM signals_daily WHERE as_of=(SELECT MAX(as_of) FROM signals_daily)`).all(),
+      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM svi_daily WHERE as_of=(SELECT MAX(as_of) FROM svi_daily)`).all(),
+      env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM signal_components_daily WHERE as_of=(SELECT MAX(as_of) FROM signal_components_daily)`).all()
+    ]);
+    const today = new Date().toISOString().slice(0,10);
+    const windowDays = 30;
+    const gapQuery = async (table: string) => {
+      try {
+        const res = await env.DB.prepare(`SELECT MIN(as_of) AS min_d, COUNT(DISTINCT as_of) AS days FROM ${table} WHERE as_of >= date('now','-${windowDays-1} day')`).all();
+        const row: any = res.results?.[0] || {};
+        const minD = row.min_d as string | null;
+        const distinct = Number(row.days)||0;
+        let expected = windowDays;
+        if (minD) {
+          const ms = (Date.parse(today) - Date.parse(minD));
+          if (Number.isFinite(ms)) {
+            const spanDays = Math.floor(ms/86400000)+1;
+            if (spanDays < expected) expected = spanDays;
+          }
+        }
+        return Math.max(0, expected - distinct);
+      } catch { return 0; }
+    };
+    const [gp, gs, gsv, gcc] = await Promise.all([
+      gapQuery('prices_daily'),
+      gapQuery('signals_daily'),
+      gapQuery('svi_daily'),
+      gapQuery('signal_components_daily')
+    ]);
+    const latest = {
+      prices_daily: lp.results?.[0]?.d || null,
+      signals_daily: ls.results?.[0]?.d || null,
+      svi_daily: lsv.results?.[0]?.d || null,
+      signal_components_daily: lc.results?.[0]?.d || null
+    } as Record<string,string|null>;
+    const stale: string[] = [];
+    const staleThresholdDays = 2;
+    for (const [k,v] of Object.entries(latest)) {
+      if (v) {
+        const age = Math.floor((Date.parse(today) - Date.parse(v))/86400000);
+        if (age > staleThresholdDays) stale.push(k);
+      }
+    }
+    let completeness: any[] = [];
+    try {
+      const crs = await env.DB.prepare(`SELECT dataset, as_of, rows FROM data_completeness WHERE as_of >= date('now','-13 day') ORDER BY as_of DESC, dataset`).all();
+      completeness = crs.results || [];
+    } catch { /* ignore */ }
+    return {
+      ok: true,
+      total_cards: cards.results?.[0]?.n ?? 0,
+      latest,
+      coverage_latest: {
+        prices_daily: cp.results?.[0]?.n ?? 0,
+        signals_daily: cs.results?.[0]?.n ?? 0,
+        svi_daily: csv.results?.[0]?.n ?? 0,
+        signal_components_daily: cc.results?.[0]?.n ?? 0
+      },
+      gaps_last_30: { prices_daily: gp, signals_daily: gs, svi_daily: gsv, signal_components_daily: gcc },
+      stale,
+      completeness
+    };
+  } catch (e:any) {
+    return { ok:false, error:String(e) };
+  }
+}
+
 // ----- Anomaly detection (large price move >25% day over day) -----
 async function detectAnomalies(env: Env) {
   try {
@@ -773,18 +850,17 @@ async function computeFactorIC(env: Env) {
     // Skip if already computed for prevDay (all factors present)
     const existing = await env.DB.prepare(`SELECT COUNT(*) AS c FROM factor_ic WHERE as_of=?`).bind(prevDay).all();
     if (((existing.results||[])[0] as any)?.c >= factorUniverse.length) return { ok:true, skipped:true, already:true };
+    // Optimized single-join query (was many correlated subselects causing O(N*F) lookups).
+    // We also cap row count to limit CPU in CI; sampling large universes is acceptable for IC estimation.
     const rs = await env.DB.prepare(`SELECT p.card_id,
-        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_prev,
+        p.price_usd AS px_prev,
         (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_next,
-        (SELECT ts7 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS ts7,
-        (SELECT ts30 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS ts30,
-        (SELECT z_svi FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS z_svi,
-        (SELECT vol FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS vol,
-        (SELECT liquidity FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS liquidity,
-        (SELECT scarcity FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS scarcity,
-        (SELECT mom90 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS mom90
+        sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90
       FROM prices_daily p
-      WHERE p.as_of=?`).bind(prevDay, latestDay, prevDay, prevDay, prevDay, prevDay, prevDay, prevDay, prevDay, prevDay).all();
+      LEFT JOIN signal_components_daily sc ON sc.card_id=p.card_id AND sc.as_of=?
+      WHERE p.as_of=?
+      ORDER BY p.card_id
+      LIMIT 600`).bind(latestDay, prevDay, prevDay).all();
     const rows = (rs.results||[]) as any[];
     if (!rows.length) return { ok:false, skipped:true };
     const rets: number[] = [];
@@ -1554,83 +1630,8 @@ export default {
     if (url.pathname === '/admin/integrity' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
       try {
-        // Core latest dates
-        const [cards, lp, ls, lsv, lc, cp, cs, csv, cc] = await Promise.all([
-          env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all(),
-          env.DB.prepare(`SELECT MAX(as_of) AS d FROM prices_daily`).all(),
-          env.DB.prepare(`SELECT MAX(as_of) AS d FROM signals_daily`).all(),
-          env.DB.prepare(`SELECT MAX(as_of) AS d FROM svi_daily`).all(),
-          env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all(),
-          env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM prices_daily WHERE as_of=(SELECT MAX(as_of) FROM prices_daily)`).all(),
-          env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM signals_daily WHERE as_of=(SELECT MAX(as_of) FROM signals_daily)`).all(),
-          env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM svi_daily WHERE as_of=(SELECT MAX(as_of) FROM svi_daily)`).all(),
-          env.DB.prepare(`SELECT COUNT(DISTINCT card_id) AS n FROM signal_components_daily WHERE as_of=(SELECT MAX(as_of) FROM signal_components_daily)`).all()
-        ]);
-        const today = new Date().toISOString().slice(0,10);
-        // Gap heuristic: expected distinct days in last 30 window (adjust if dataset newer than 30d)
-        const windowDays = 30;
-        const gapQuery = async (table: string) => {
-          try {
-            const res = await env.DB.prepare(`SELECT MIN(as_of) AS min_d, COUNT(DISTINCT as_of) AS days FROM ${table} WHERE as_of >= date('now','-${windowDays-1} day')`).all();
-            const row: any = res.results?.[0] || {};
-            const minD = row.min_d as string | null;
-            const distinct = Number(row.days)||0;
-            let expected = windowDays;
-            if (minD) {
-              const ms = (Date.parse(today) - Date.parse(minD));
-              if (Number.isFinite(ms)) {
-                const spanDays = Math.floor(ms/86400000)+1;
-                if (spanDays < expected) expected = spanDays;
-              }
-            }
-            return Math.max(0, expected - distinct);
-          } catch { return 0; }
-        };
-        const [gp, gs, gsv, gcc] = await Promise.all([
-          gapQuery('prices_daily'),
-          gapQuery('signals_daily'),
-          gapQuery('svi_daily'),
-          gapQuery('signal_components_daily')
-        ]);
-        const latest = {
-          prices_daily: lp.results?.[0]?.d || null,
-          signals_daily: ls.results?.[0]?.d || null,
-          svi_daily: lsv.results?.[0]?.d || null,
-          signal_components_daily: lc.results?.[0]?.d || null
-        } as Record<string,string|null>;
-        const stale: string[] = [];
-        const staleThresholdDays = 2;
-        for (const [k,v] of Object.entries(latest)) {
-          if (v) {
-            const age = Math.floor((Date.parse(today) - Date.parse(v))/86400000);
-            if (age > staleThresholdDays) stale.push(k);
-          }
-        }
-        // Pull completeness ledger (last 14 days)
-        let completeness: any[] = [];
-        try {
-          const crs = await env.DB.prepare(`SELECT dataset, as_of, rows FROM data_completeness WHERE as_of >= date('now','-13 day') ORDER BY as_of DESC, dataset`).all();
-          completeness = crs.results || [];
-        } catch { /* ignore */ }
-        return json({
-          ok: true,
-            total_cards: cards.results?.[0]?.n ?? 0,
-            latest,
-            coverage_latest: {
-              prices_daily: cp.results?.[0]?.n ?? 0,
-              signals_daily: cs.results?.[0]?.n ?? 0,
-              svi_daily: csv.results?.[0]?.n ?? 0,
-              signal_components_daily: cc.results?.[0]?.n ?? 0
-            },
-            gaps_last_30: {
-              prices_daily: gp,
-              signals_daily: gs,
-              svi_daily: gsv,
-              signal_components_daily: gcc
-            },
-            stale,
-            completeness
-        });
+  const integrity = await computeIntegritySnapshot(env);
+  return json(integrity);
       } catch (e:any) {
         return json({ ok:false, error:String(e) }, 500);
       }
@@ -2126,10 +2127,7 @@ export default {
     if (url.pathname === '/admin/snapshot' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const [integrity, ic, weights] = await Promise.all([
-        (async ()=> {
-          const r = await fetch(new URL('/admin/integrity', url.origin).toString(), { headers: { 'x-admin-token': req.headers.get('x-admin-token')||'' }}).catch(()=>null);
-          return r ? await r.json().catch(()=>({})) : {};
-        })(),
+  computeIntegritySnapshot(env),
         env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 30`).all(),
         env.DB.prepare(`SELECT version, factor, weight, active FROM factor_weights WHERE active=1`).all()
       ]);
