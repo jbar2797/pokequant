@@ -194,36 +194,36 @@
               <div class="note mt-2">Actions: ack (acknowledge), dismiss (resolved legit), ignore (noise).</div>
             </div>
             <div class="panel" id="integrityPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Data Integrity <button id="integrityRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
-              <div id="integrityStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh.</div>
-              <div id="integrityFlags" style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;margin-bottom:10px"></div>
-              <div id="integrityCoverage" style="font-size:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px;margin-bottom:10px"></div>
-              <div id="integrityLatest" style="font-size:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px"></div>
+              <h2 class="flex items-center gap-10">Data Integrity <button id="integrityRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
+              <div id="integrityStatus" class="note-sm mb-2">Set admin token & refresh.</div>
+              <div id="integrityFlags" class="flex flex-wrap gap-6 f10 mb-3"></div>
+              <div id="integrityCoverage" class="f10 grid gap-6 grid-auto-140 mb-3"></div>
+              <div id="integrityLatest" class="f10 grid gap-6 grid-auto-160"></div>
             </div>
             <div class="panel" id="ingestionPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Ingestion <div style="margin-left:auto;display:flex;gap:6px"><button id="ingestionRefresh" type="button" class="btn btn-sm">Refresh</button><button id="ingestionProvExportCsv" type="button" class="btn btn-sm btn-outline">Provenance CSV</button></div></h2>
-              <div id="ingestionStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh / run.</div>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;font-size:11px">
-                <button id="ingestionRunDue" type="button" style="background:#2563eb;border:1px solid #2563eb;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Run Due</button>
-                <button id="ingestionRunFast" type="button" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Fast Signals</button>
-                <button id="ingestionRunFull" type="button" style="background:#16a34a;border:1px solid #16a34a;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Full Pipeline</button>
-                <button id="ingestionMockPrices" type="button" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 12px;border-radius:8px;cursor:pointer">Mock Prices</button>
+              <h2 class="flex items-center gap-10">Ingestion <div class="flex gap-6 mla"><button id="ingestionRefresh" type="button" class="btn btn-sm">Refresh</button><button id="ingestionProvExportCsv" type="button" class="btn btn-sm btn-outline">Provenance CSV</button></div></h2>
+              <div id="ingestionStatus" class="note-sm mb-2">Set admin token & refresh / run.</div>
+              <div class="flex flex-wrap gap-8 mb-4 f11">
+                <button id="ingestionRunDue" type="button" class="btn btn-blue btn-sm">Run Due</button>
+                <button id="ingestionRunFast" type="button" class="btn btn-indigo btn-sm">Fast Signals</button>
+                <button id="ingestionRunFull" type="button" class="btn btn-green btn-sm">Full Pipeline</button>
+                <button id="ingestionMockPrices" type="button" class="btn btn-sm">Mock Prices</button>
               </div>
-              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-bottom:14px" id="ingestionSchedules"></div>
-              <div id="ingestionConfigHost" style="margin-bottom:16px"></div>
-              <div id="ingestionProvenanceHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px"></div>
-              <form id="ingestionConfigForm" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;font-size:11px;align-items:flex-end">
-                <label style="display:flex;flex-direction:column;gap:4px">Dataset <input name="dataset" required placeholder="prices_daily" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px"/></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Source <input name="source" required placeholder="external-mock" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px"/></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Cursor <input name="cursor" placeholder="2025-08-01" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px"/></label>
-                <label style="display:flex;flex-direction:column;gap:4px">Enabled
-                  <select name="enabled" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:90px">
+              <div id="ingestionSchedules" class="grid grid-auto-wide gap-10 mb-4"></div>
+              <div id="ingestionConfigHost" class="mb-4"></div>
+              <div id="ingestionProvenanceHost" class="scroll-wrap max-h-220 mb-3"></div>
+              <form id="ingestionConfigForm" class="form-inline f11 items-end mt-3">
+                <label class="vcol">Dataset <input name="dataset" required placeholder="prices_daily" class="field field-sm w-140"/></label>
+                <label class="vcol">Source <input name="source" required placeholder="external-mock" class="field field-sm w-140"/></label>
+                <label class="vcol">Cursor <input name="cursor" placeholder="2025-08-01" class="field field-sm w-120"/></label>
+                <label class="vcol">Enabled
+                  <select name="enabled" class="field field-sm w-90">
                     <option value="">(skip)</option>
                     <option value="1">Yes</option>
                     <option value="0">No</option>
                   </select>
                 </label>
-                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Upsert Config</button>
+                <button type="submit" class="btn btn-ghost btn-lg h-40">Upsert Config</button>
               </form>
             </div>
             <div class="panel" id="factorIcPanel">
