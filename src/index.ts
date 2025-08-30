@@ -1469,6 +1469,11 @@ export default {
       const out = await computeFactorReturns(env);
       return json(out);
     }
+    if (url.pathname === '/admin/portfolio-exposure/snapshot' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      await snapshotPortfolioFactorExposure(env);
+      return json({ ok:true });
+    }
 
     // Factor config CRUD
     if (url.pathname === '/admin/factors' && req.method === 'GET') {

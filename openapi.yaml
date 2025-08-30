@@ -92,6 +92,14 @@ paths:
                   responses:
                     '200':
                       description: ok
+              /admin/portfolio-exposure/snapshot:
+                post:
+                  summary: Force snapshot of portfolio factor exposure history for current latest components date
+                  security:
+                    - AdminToken: []
+                  responses:
+                    '200':
+                      description: ok
               /portfolio/exposure/history:
                 get:
                   summary: Portfolio factor exposure history (snapshots)
