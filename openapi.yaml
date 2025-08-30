@@ -340,6 +340,12 @@ paths:
   /admin/anomalies:
     get:
       summary: List recent anomalies (admin)
+      description: Optional query param status=open|resolved to filter.
+      responses: { '200': { description: OK } }
+  /admin/anomalies/resolve:
+    post:
+      summary: Resolve or classify an anomaly (admin)
+      description: Actions: ack, dismiss, ignore. Body: { id, action, note? }
       responses: { '200': { description: OK } }
   /admin/portfolio-nav:
     get:

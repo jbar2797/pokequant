@@ -248,6 +248,15 @@ ALTER TABLE signal_components_daily ADD COLUMN mom90 REAL;`
   PRIMARY KEY(portfolio_id, as_of, factor)
 );`
   }
+  ,
+  {
+    id: '0017_anomalies_resolution',
+    description: 'Add resolution columns to anomalies table (resolved flag, kind, note, timestamp)',
+    sql: `ALTER TABLE anomalies ADD COLUMN resolved INTEGER DEFAULT 0;
+ALTER TABLE anomalies ADD COLUMN resolution_kind TEXT;
+ALTER TABLE anomalies ADD COLUMN resolution_note TEXT;
+ALTER TABLE anomalies ADD COLUMN resolved_at TEXT;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

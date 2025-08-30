@@ -1325,11 +1325,25 @@ export default {
       }
     }
 
-    // Anomalies list
+    // Anomalies list (supports status filtering)
     if (url.pathname === '/admin/anomalies' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT as_of, card_id, kind, magnitude FROM anomalies ORDER BY as_of DESC LIMIT 200`).all();
+      const status = (url.searchParams.get('status')||'').toLowerCase();
+      const where = status === 'resolved' ? 'WHERE resolved=1' : status === 'open' ? 'WHERE COALESCE(resolved,0)=0' : '';
+      const rs = await env.DB.prepare(`SELECT id, as_of, card_id, kind, magnitude, created_at, resolved, resolution_kind, resolution_note, resolved_at FROM anomalies ${where} ORDER BY created_at DESC LIMIT 200`).all();
       return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/admin/anomalies/resolve' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const id = (body.id||'').toString();
+      const action = (body.action||'ack').toString(); // ack | dismiss | ignore
+      const note = body.note ? String(body.note).slice(0,200) : null;
+      if (!id) return json({ ok:false, error:'id_required' },400);
+      const valid = new Set(['ack','dismiss','ignore']);
+      if (!valid.has(action)) return json({ ok:false, error:'invalid_action' },400);
+      await env.DB.prepare(`UPDATE anomalies SET resolved=1, resolution_kind=?, resolution_note=?, resolved_at=datetime('now') WHERE id=?`).bind(action, note, id).run();
+      return json({ ok:true, id, action });
     }
 
     // Portfolio NAV history (admin)
@@ -1627,7 +1641,7 @@ export default {
       const body: any = await req.json().catch(()=>({}));
       const table = (body.table||'').toString();
       const rows = Array.isArray(body.rows) ? body.rows : [];
-      const allow = new Set(['signal_components_daily','factor_returns','portfolio_nav','portfolio_factor_exposure','factor_ic']);
+  const allow = new Set(['signal_components_daily','factor_returns','portfolio_nav','portfolio_factor_exposure','factor_ic','anomalies']);
       if (!allow.has(table)) return json({ ok:false, error:'table_not_allowed' },400);
       if (!rows.length) return json({ ok:false, error:'no_rows' },400);
       for (const r of rows) {
