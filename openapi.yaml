@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.4.2
+  version: 0.4.4
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -268,12 +268,15 @@ paths:
       summary: Portfolio NAV history (admin)
       responses: { '200': { description: OK } }
   /admin/backfill:
-    post:
-      summary: Request historical backfill (placeholder)
+    get:
+      summary: List recent backfill jobs (admin)
       responses: { '200': { description: OK } }
     post:
-      summary: Upsert active factor weight version (admin)
-      description: Deactivates prior weights and inserts new version.
+      summary: Create backfill job (admin)
+      responses: { '200': { description: OK } }
+  /admin/backfill/{id}:
+    get:
+      summary: Backfill job detail (admin)
       responses: { '200': { description: OK } }
 components:
   schemas:

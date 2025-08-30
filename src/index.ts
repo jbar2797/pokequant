@@ -1168,12 +1168,55 @@ export default {
       return json({ ok:true, rows: rs.results||[] });
     }
 
-    // Backfill skeleton (no-op placeholder for future historical ingestion)
+    // Backfill jobs
     if (url.pathname === '/admin/backfill' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      // Accept dataset & days parameters but currently just acknowledges
       const body: any = await req.json().catch(()=>({}));
-      return json({ ok:true, accepted:true, dataset: body.dataset||'all', days: body.days||null });
+      const dataset = (body.dataset||'prices_daily').toString();
+      const days = Math.min(365, Math.max(1, Number(body.days)||30));
+      const to = new Date();
+      const from = new Date(Date.now() - (days-1)*86400000);
+      const id = crypto.randomUUID();
+      await env.DB.prepare(`INSERT INTO backfill_jobs (id, created_at, dataset, from_date, to_date, days, status, processed, total) VALUES (?,?,?,?,?,?,?,?,?)`)
+        .bind(id, new Date().toISOString(), dataset, from.toISOString().slice(0,10), to.toISOString().slice(0,10), days, 'pending', 0, days).run();
+      // Kick off inline processing (synchronous simplified) - simulate fill of missing rows (no external fetch yet)
+      try {
+        for (let i=0;i<days;i++) {
+          const d = new Date(from.getTime() + i*86400000).toISOString().slice(0,10);
+          // If dataset is prices_daily ensure at least one synthetic price row for existing cards (idempotent)
+          if (dataset === 'prices_daily') {
+            const cards = await env.DB.prepare(`SELECT id FROM cards LIMIT 50`).all();
+            for (const c of (cards.results||[]) as any[]) {
+              // Skip if already present
+              const have = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind(c.id, d).all();
+              if (have.results?.length) continue;
+              // Simple synthetic backfill: copy latest known price
+              const latest = await env.DB.prepare(`SELECT price_usd, price_eur FROM prices_daily WHERE card_id=? ORDER BY as_of DESC LIMIT 1`).bind(c.id).all();
+              const pu = (latest.results?.[0] as any)?.price_usd || Math.random()*50+1;
+              const pe = (latest.results?.[0] as any)?.price_eur || pu*0.9;
+              await env.DB.prepare(`INSERT OR IGNORE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind(c.id, d, pu, pe).run();
+            }
+          }
+          // Update job progress
+          await env.DB.prepare(`UPDATE backfill_jobs SET processed=? WHERE id=?`).bind(i+1, id).run();
+        }
+        await env.DB.prepare(`UPDATE backfill_jobs SET status='completed' WHERE id=?`).bind(id).run();
+      } catch (e:any) {
+        await env.DB.prepare(`UPDATE backfill_jobs SET status='error', error=? WHERE id=?`).bind(String(e), id).run();
+      }
+      const job = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
+      return json({ ok:true, job: job.results?.[0] });
+    }
+    if (url.pathname === '/admin/backfill' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rows = await env.DB.prepare(`SELECT id,dataset,from_date,to_date,days,status,processed,total,created_at FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
+      return json({ ok:true, rows: rows.results||[] });
+    }
+    if (url.pathname.startsWith('/admin/backfill/') && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const id = url.pathname.split('/').pop();
+      const row = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
+      return json({ ok:true, job: row.results?.[0]||null });
     }
 
     // Migrations list

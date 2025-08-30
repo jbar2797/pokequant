@@ -189,14 +189,31 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   PRIMARY KEY(portfolio_id, as_of)
 );`
   }
+  ,
+  {
+    id: '0012_backfill_jobs',
+    description: 'Add backfill_jobs table for historical ingestion tracking',
+    sql: `CREATE TABLE IF NOT EXISTS backfill_jobs (
+  id TEXT PRIMARY KEY,
+  created_at TEXT,
+  dataset TEXT,
+  from_date DATE,
+  to_date DATE,
+  days INTEGER,
+  status TEXT,
+  processed INTEGER,
+  total INTEGER,
+  error TEXT
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;
 let MIGRATIONS_PROMISE: Promise<void> | null = null;
 
 export async function runMigrations(db: D1Database) {
-  if (MIGRATIONS_RAN) return;
-  if (MIGRATIONS_PROMISE) return MIGRATIONS_PROMISE;
+  // Allow re-entry to pick up newly added migrations in same process; serialize with promise guard.
+  if (MIGRATIONS_PROMISE) await MIGRATIONS_PROMISE;
   MIGRATIONS_PROMISE = (async () => {
     await db.prepare(`CREATE TABLE IF NOT EXISTS migrations_applied (id TEXT PRIMARY KEY, applied_at TEXT, description TEXT);`).run();
     const existing = await db.prepare(`SELECT id FROM migrations_applied`).all();
@@ -210,10 +227,8 @@ export async function runMigrations(db: D1Database) {
             if (!p) continue;
             await db.prepare(p).run();
           } catch (e:any) {
-            // Ignore missing table errors for indices (will be created lazily later)
             const msg = String(e);
             if (!/no such table/i.test(msg) && !/duplicate column name/i.test(msg)) {
-              // Re-throw for other errors
               throw e;
             }
           }

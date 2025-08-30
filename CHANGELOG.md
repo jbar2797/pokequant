@@ -34,6 +34,21 @@ All notable changes to this project will be documented here.
 - Added idempotence guard to skip recomputation if IC already present for a date.
 ### Notes
 - This lays groundwork for evaluating predictive power without lookahead bias.
+
+## [0.4.3] - 2025-08-29
+### Added
+- Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.
+- GET /admin/backfill lists recent jobs; GET /admin/backfill/{id} returns job detail.
+### Internal
+- Migration 0012_backfill_jobs for job tracking.
+### Notes
+- Current implementation generates synthetic backfill (copies last known price or random seed) as a scaffold for future real source integration.
+
+## [0.4.4] - 2025-08-29
+### Fixed
+- Migration runner updated to always attempt applying new migrations within same worker lifecycle (allowed new 0012_backfill_jobs table to be created in tests).
+### Changed
+- OpenAPI: /admin/backfill now documents GET list, POST create, and new /admin/backfill/{id} detail path; removed erroneous duplicate POST block.
 - Add factor_weights table (migration 0007) with dynamic composite weighting and admin endpoints (/admin/factor-weights)
 
 ## [0.3.0] - 2025-08-29
