@@ -41,7 +41,7 @@ Fail-fast on contract or version drift to keep spec, code, and version aligned.
 ## Roadmap (next increments)
 Refined goals:
 - Historical backfill tooling for missing days
-- Portfolio performance time-series endpoint
+- Portfolio performance time-series endpoint (extended attribution & /portfolio/pnl public docs)
 - Alert delivery integration (email/send provider)
 - Enhanced signal explainability (component breakdown in API)
 - Coverage threshold increases (ratchet up over time)

@@ -2085,6 +2085,16 @@ export default {
       const rows = await computePortfolioAttribution(env, pid, days);
       return json({ ok:true, rows });
     }
+    if (url.pathname === '/portfolio/pnl' && req.method === 'GET') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
+      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+      const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
+      const rs = await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
 
     // Run backtest
     if (url.pathname === '/admin/backtests' && req.method === 'POST') {

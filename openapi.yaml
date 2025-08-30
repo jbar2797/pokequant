@@ -144,6 +144,11 @@ paths:
     get:
       summary: Portfolio performance attribution (factor contributions vs residual)
       responses: { '200': { description: OK } }
+  /portfolio/pnl:
+    get:
+      summary: Portfolio daily PnL (authenticated)
+      description: Returns per-day portfolio returns (ret) and realized components for authenticated portfolio (headers x-portfolio-id/secret). Optional days query (<=180).
+      responses: { '200': { description: OK } }
   /api/subscribe:
     post:
       summary: Subscribe email
