@@ -7,13 +7,18 @@ All notable changes to this project will be documented here.
 
 ## [Unreleased]
 - …
-- Track cache hit metrics (cache.hit.*) for public read endpoints
- - Add /admin/version for version introspection
- - Expose cache_hit_ratios in /admin/metrics
- - CI workflow: contract + version check, lint, typecheck, tests
- - Stronger ETag invalidation signature (include latest svi & component dates)
- - Document /admin/retention endpoint in OpenAPI and add component schemas for factor analytics
- - Add retention.spec.ts test to validate retention purge endpoint
+- CI workflow: contract + version check, lint, typecheck, tests
+- Document factor analytics response schemas more fully (future)
+- Add examples to OpenAPI for key endpoints
+
+## [0.5.20] - 2025-08-30
+### Added
+- OpenAPI enrichment: response schemas for /admin/metrics, /admin/version, /admin/retention
+- Component schemas: VersionInfo, MetricRow, LatencyMetric, AdminMetricsResponse, RetentionResult
+### Changed
+- Spec version bump to 0.5.20
+### Housekeeping
+- Moved delivered backlog items (cache hit metrics, cache_hit_ratios exposure, stronger ETag signature, retention docs & test, /admin/version) into prior releases; cleaned Unreleased section.
 
 ## [0.5.19] - 2025-08-30
 ### Added

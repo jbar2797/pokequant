@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.19
+  version: 0.5.20
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -246,29 +246,7 @@ paths:
           description: OK
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  ok: { type: boolean }
-                  rows:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        d: { type: string }
-                        metric: { type: string }
-                        count: { type: integer }
-                  latency:
-                    type: array
-                    description: Decoded latency metrics (ms) for tags `lat.<tag>`
-                    items:
-                      type: object
-                      properties:
-                        d: { type: string }
-                        base_metric: { type: string }
-                        p50_ms: { type: number, nullable: true }
-                        p95_ms: { type: number, nullable: true }
-                required: [ok, rows]
+              schema: { $ref: '#/components/schemas/AdminMetricsResponse' }
   /admin/latency:
     get:
       summary: Latest latency snapshot (admin)
@@ -299,7 +277,11 @@ paths:
     get:
       summary: Version metadata (admin)
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VersionInfo' }
   /admin/integrity:
     get:
       summary: Data integrity snapshot (admin)
@@ -351,7 +333,12 @@ paths:
         Applies retention windows to historical tables and returns deleted row counts per table.
         Supports optional body windows override: { "windows": { "backtests": 15, "metrics_daily": 10 } } (0-365 days each).
         Also supports environment variable overrides RETENTION_<TABLE>_DAYS (e.g. RETENTION_BACKTESTS_DAYS=14).
-      responses: { '200': { description: OK } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RetentionResult' }
   /admin/backtests/{id}:
     get:
       summary: Get backtest details (admin)
@@ -551,3 +538,58 @@ components:
         realized_pnl: { type: number, nullable: true }
         turnover_cost: { type: number, nullable: true }
       required: [portfolio_id, as_of]
+    VersionInfo:
+      type: object
+      properties:
+        ok: { type: boolean }
+        version: { type: string }
+      required: [ok, version]
+    MetricRow:
+      type: object
+      properties:
+        d: { type: string }
+        metric: { type: string }
+        count: { type: integer }
+      required: [d, metric, count]
+    LatencyMetric:
+      type: object
+      properties:
+        d: { type: string }
+        base_metric: { type: string }
+        p50_ms: { type: number, nullable: true }
+        p95_ms: { type: number, nullable: true }
+      required: [d, base_metric]
+    AdminMetricsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/MetricRow' }
+        latency:
+          type: array
+          description: Decoded latency metrics (ms) derived from smoothing.
+          items: { $ref: '#/components/schemas/LatencyMetric' }
+        cache_hits:
+          type: array
+          description: Subset of metric rows with metric starting cache.hit.
+          items: { $ref: '#/components/schemas/MetricRow' }
+        cache_hit_ratios:
+          type: object
+          additionalProperties: { type: number }
+          description: Map short key -> hit ratio for public endpoints.
+      required: [ok, rows]
+    RetentionResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        deleted:
+          type: object
+          additionalProperties: { type: integer }
+          description: Map table -> deleted rows.
+        ms: { type: integer, description: 'Execution duration (ms)' }
+        overrides:
+          type: object
+          additionalProperties: { type: integer }
+          description: Applied override windows (present only if provided).
+      required: [ok, deleted, ms]
