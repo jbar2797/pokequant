@@ -2023,6 +2023,8 @@ export default {
     // Factor config CRUD
     if (url.pathname === '/admin/factors' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+  // Defensive: ensure table exists (tests may hit before migrations finalized per worker instance)
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_config (factor TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, display_name TEXT, created_at TEXT);`).run();
       const rs = await env.DB.prepare(`SELECT factor, enabled, display_name, created_at FROM factor_config ORDER BY factor ASC`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
@@ -2033,6 +2035,7 @@ export default {
       const enabled = body.enabled === undefined ? 1 : (body.enabled ? 1 : 0);
       const display = body.display_name ? String(body.display_name).trim() : null;
       if (!factor || !/^[-_a-zA-Z0-9]{2,32}$/.test(factor)) return json({ ok:false, error:'invalid_factor' },400);
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_config (factor TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, display_name TEXT, created_at TEXT);`).run();
       await env.DB.prepare(`INSERT OR REPLACE INTO factor_config (factor, enabled, display_name, created_at) VALUES (?,?,?, COALESCE((SELECT created_at FROM factor_config WHERE factor=?), datetime('now')))`) .bind(factor, enabled, display, factor).run();
   audit(env, { actor_type:'admin', action:'upsert', resource:'factor_config', resource_id:factor, details:{ enabled } });
   return json({ ok:true, factor, enabled, display_name: display });
@@ -2043,6 +2046,7 @@ export default {
       const factor = (body.factor||'').toString().trim();
       const enabled = body.enabled ? 1 : 0;
       if (!factor) return json({ ok:false, error:'factor_required' },400);
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_config (factor TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, display_name TEXT, created_at TEXT);`).run();
       await env.DB.prepare(`UPDATE factor_config SET enabled=? WHERE factor=?`).bind(enabled, factor).run();
   audit(env, { actor_type:'admin', action:'toggle', resource:'factor_config', resource_id:factor, details:{ enabled } });
   return json({ ok:true, factor, enabled });
@@ -2052,6 +2056,7 @@ export default {
       const body: any = await req.json().catch(()=>({}));
       const factor = (body.factor||'').toString().trim();
       if (!factor) return json({ ok:false, error:'factor_required' },400);
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_config (factor TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, display_name TEXT, created_at TEXT);`).run();
       await env.DB.prepare(`DELETE FROM factor_config WHERE factor=?`).bind(factor).run();
   audit(env, { actor_type:'admin', action:'delete', resource:'factor_config', resource_id:factor });
   return json({ ok:true, factor });
