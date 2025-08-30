@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.24
+  version: 0.5.25
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -393,6 +393,22 @@ paths:
     get:
       summary: Portfolio factor exposure (latest components)
       responses: { '200': { description: OK } }
+  /portfolio/rotate-secret:
+    post:
+      summary: Rotate portfolio secret
+      description: |
+        Generates a new random secret for the specified portfolio. Requires current valid secret via headers.
+        Response returns the new secret; client must persist it immediately. Old secret becomes invalid instantly.
+      security: [ { PortfolioAuth: [] } ]
+      responses:
+        '200':
+          description: OK (new secret issued)
+          content:
+            application/json:
+              examples:
+                sample:
+                  value: { ok: true, id: portfolio123, secret: 5af0b4c9d2e14c0b9f3e77aa22b1c4d1 }
+        '403': { description: Forbidden }
   /alerts/create:
     post:
       summary: Create price alert

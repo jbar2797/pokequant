@@ -8,6 +8,12 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+## [0.5.25] - 2025-08-29
+### Added
+- Portfolio secret rotation endpoint documented in OpenAPI with example.
+- Lazy secret hash backfill helper (portfolioAuth) + rotation test.
+### Changed
+- Version bump to 0.5.25; README and SECURITY updated for hashing & rotation procedure.
 ## [0.5.24] - 2025-08-29
 ### Added
 - Portfolio secret hashing (SHA-256) with backward compatibility and new /portfolio/rotate-secret endpoint.

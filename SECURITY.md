@@ -14,7 +14,9 @@ Secrets are transmitted only over HTTPS (Cloudflare edge). No persistence of adm
 
 ### Portfolio Capability Model
 
-`/portfolio/create` generates a random 128-bit hex secret (32 chars). The secret is stored server-side and must accompany the portfolio id. Leakage of the secret grants read/write to that portfolio only; rotate by creating a new portfolio and migrating lots (future enhancement: secret rotation endpoint).
+`/portfolio/create` generates a random 128-bit hex secret (32 chars). A SHA-256 hash is stored (`secret_hash`). Legacy plaintext `secret` column remains during transition; on first authenticated request without a hash it is backfilled.
+
+Rotation: `POST /portfolio/rotate-secret` with current `x-portfolio-id` and `x-portfolio-secret` headers returns a new secret immediately invalidating the old one.
 
 ### Rate Limiting
 

@@ -75,7 +75,14 @@ x-portfolio-id: <id>
 x-portfolio-secret: <secret>
 ```
 
-If a secret leaks, create a new portfolio (rotation endpoint TBD) and migrate positions.
+Secrets are hashed at rest (SHA-256). Legacy plaintext column remains temporarily for backward compatibility and is backfilled lazily with a hash on first authenticated use.
+
+Rotate via `POST /portfolio/rotate-secret` (send current headers). Response returns `{ ok, id, secret }` with the new secret; persist it immediately. Old secret stops working once rotation succeeds.
+
+Compromise procedure:
+1. Call rotate endpoint with current secret.
+2. Replace stored secret locally.
+3. (Optional) Review audit entries (`/admin/audit?resource=portfolio&action=rotate_secret`) if you have admin access.
 
 ## License
 Proprietary (set desired license).
