@@ -1,91 +1,23 @@
 // src/index.ts
-// PokeQuant Worker — bulk compute to avoid subrequest limits.
-// Public API preserved; adds POST /admin/run-fast to compute signals only, safely.
+// PokeQuant Worker — monolith (in-progress modularization). Factor & utility logic moved to ./lib/*.
 
 import { compositeScore } from './signal_math';
 import { sendEmail, EMAIL_RETRY_MAX } from './email_adapter';
 import { APP_VERSION } from './version';
 import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
-// Structured logging helper (can be disabled via LOG_ENABLED=0)
-function log(event: string, fields: Record<string, unknown> = {}) {
-  if ((globalThis as any).__LOG_DISABLED) return;
-  try { console.log(JSON.stringify({ t: new Date().toISOString(), event, ...fields })); } catch { /* noop */ }
-}
+// Modularized helpers
+import { Env } from './lib/types';
+import { log } from './lib/log';
+import { json, err, CORS } from './lib/http';
+import { isoDaysAgo } from './lib/date';
+import { sha256Hex } from './lib/crypto';
+import { rateLimit, getRateLimits } from './lib/rate_limit';
+import { incMetric, incMetricBy, recordLatency } from './lib/metrics';
+import { audit } from './lib/audit';
+import { portfolioAuth } from './lib/portfolio_auth';
+import { getFactorUniverse, computeFactorReturns, computeFactorRiskModel, smoothFactorReturns, computeSignalQuality, computeFactorIC } from './lib/factors';
 
-export interface Env {
-  DB: D1Database;
-  PTCG_API_KEY: string;
-  RESEND_API_KEY: string;
-  INGEST_TOKEN: string;
-  ADMIN_TOKEN: string;
-  PUBLIC_BASE_URL: string; // e.g., https://pokequant.pages.dev
-  LOG_ENABLED?: string; // '0' to disable structured logs
-  // Optional rate limit overrides (all integers as strings)
-  RL_SEARCH_LIMIT?: string;      // default 30
-  RL_SEARCH_WINDOW_SEC?: string; // default 300
-  RL_SUBSCRIBE_LIMIT?: string;   // default 5
-  RL_SUBSCRIBE_WINDOW_SEC?: string; // default 86400
-  RL_ALERT_CREATE_LIMIT?: string;   // default 10
-  RL_ALERT_CREATE_WINDOW_SEC?: string; // default 86400
-}
-
-// Lightweight SHA-256 hex helper (Workers runtime has subtle differences vs node, keep minimal)
-async function sha256Hex(input: string): Promise<string> {
-  const data = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest)).map(b=> b.toString(16).padStart(2,'0')).join('');
-}
-
-// Portfolio auth helper with automatic legacy hash backfill.
-// Returns true if auth ok; performs best-effort hash backfill when secret_hash missing but legacy secret matches.
-// Returns { ok, legacy } where legacy indicates plaintext column used & hash just backfilled
-async function portfolioAuth(env: Env, id: string, secret: string): Promise<{ ok: boolean; legacy: boolean; }> {
-  if (!id || !secret) return { ok:false, legacy:false };
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-    // Attempt to ensure secret_hash column exists (migration normally adds it; tolerate errors silently)
-    try { await env.DB.prepare(`ALTER TABLE portfolios ADD COLUMN secret_hash TEXT`).run(); } catch { /* ignore */ }
-    const rowRes = await env.DB.prepare(`SELECT secret, secret_hash FROM portfolios WHERE id=?`).bind(id).all();
-    const row: any = rowRes.results?.[0];
-    if (!row) return { ok:false, legacy:false };
-    const providedHash = await sha256Hex(secret);
-    const legacyOk = row.secret === secret;
-    const hashOk = !!row.secret_hash && row.secret_hash === providedHash;
-    if (hashOk || legacyOk) {
-      // Backfill missing hash (only if legacy secret matches and no hash stored yet)
-      if (!row.secret_hash && legacyOk) {
-        try { await env.DB.prepare(`UPDATE portfolios SET secret_hash=? WHERE id=?`).bind(providedHash, id).run(); } catch {/* ignore */}
-      }
-      if (legacyOk && !hashOk) {
-        // Increment legacy auth usage metric (daily counter)
-    await incMetric(env, 'portfolio.auth_legacy');
-      }
-      return { ok:true, legacy: legacyOk && !hashOk };
-    }
-    return { ok:false, legacy:false };
-  } catch { return { ok:false, legacy:false }; }
-}
-
-// ---------- utils ----------
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'content-type, x-ingest-token, x-admin-token, x-portfolio-id, x-portfolio-secret, x-manage-token',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
-};
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', ...CORS }
-  });
-}
-function err(code: string, status = 400, extra: Record<string, unknown> = {}) {
-  return json({ ok: false, error: code, ...extra }, status);
-}
-function isoDaysAgo(days: number) {
-  const d = new Date(Date.now() - Math.max(0, days)*86400000);
-  return d.toISOString().slice(0,10);
-}
 
 // Shared signature for ETag generation across public endpoints.
 // Includes counts and latest dates across multiple tables so cache busts when any base dataset changes.
@@ -129,123 +61,14 @@ async function ensureIndices(env: Env) {
 }
 
 // ---------- rate limiting (D1-backed fixed window) ----------
-interface RateLimitResult { allowed: boolean; remaining: number; limit: number; reset: number; }
-async function rateLimit(env: Env, key: string, limit: number, windowSec: number): Promise<RateLimitResult> {
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, window_start INTEGER, count INTEGER);`).run();
-    const now = Math.floor(Date.now()/1000);
-    const windowStart = now - (now % windowSec);
-    await env.DB.prepare(`
-      INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
-      ON CONFLICT(key) DO UPDATE SET
-        count = CASE WHEN rate_limits.window_start = excluded.window_start THEN rate_limits.count + 1 ELSE 1 END,
-        window_start = CASE WHEN rate_limits.window_start = excluded.window_start THEN rate_limits.window_start ELSE excluded.window_start END
-    `).bind(key, windowStart).run();
-    const row = await env.DB.prepare(`SELECT window_start, count FROM rate_limits WHERE key=?`).bind(key).all();
-    const ws = Number(row.results?.[0]?.window_start) || windowStart;
-    const count = Number(row.results?.[0]?.count) || 0;
-    const reset = ws + windowSec; // epoch seconds
-    const remaining = Math.max(0, limit - count);
-    if (count > limit) return { allowed: false, remaining: 0, limit, reset };
-    return { allowed: true, remaining, limit, reset };
-  } catch (e) {
-    log('rate_limit_error', { key, error: String(e) });
-    return { allowed: true, remaining: limit, limit, reset: Math.floor(Date.now()/1000)+windowSec };
-  }
-}
-function getRateLimits(env: Env) {
-  // Parse helper
-  const p = (v: string|undefined, d: number) => { const n = parseInt(v||'',10); return Number.isFinite(n) && n>0 ? n : d; };
-  return {
-    search: { limit: p(env.RL_SEARCH_LIMIT, 30), window: p(env.RL_SEARCH_WINDOW_SEC, 300) },
-    subscribe: { limit: p(env.RL_SUBSCRIBE_LIMIT, 5), window: p(env.RL_SUBSCRIBE_WINDOW_SEC, 86400) },
-    alertCreate: { limit: p(env.RL_ALERT_CREATE_LIMIT, 10), window: p(env.RL_ALERT_CREATE_WINDOW_SEC, 86400) }
-  } as const;
-}
+// rate limiting now in lib/rate_limit
 
 // ---------- metrics (simple daily counter in D1) ----------
-async function incMetric(env: Env, metric: string) {
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
-    const today = new Date().toISOString().slice(0,10);
-    await env.DB.prepare(
-      `INSERT INTO metrics_daily (d, metric, count) VALUES (?, ?, 1)
-       ON CONFLICT(d,metric) DO UPDATE SET count = count + 1`
-    ).bind(today, metric).run();
-  } catch (e) {
-    log('metric_error', { metric, error: String(e) });
-  }
-}
-// Increment metric by arbitrary delta (positive integer). Falls back to +1 if delta invalid.
-async function incMetricBy(env: Env, metric: string, delta: number) {
-  try {
-    const d = (!Number.isFinite(delta) || delta <= 0) ? 1 : Math.floor(delta);
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
-    const today = new Date().toISOString().slice(0,10);
-    await env.DB.prepare(
-      `INSERT INTO metrics_daily (d, metric, count) VALUES (?, ?, ?)
-       ON CONFLICT(d,metric) DO UPDATE SET count = count + ${d}`
-    ).bind(today, metric, d).run();
-  } catch (e) {
-    log('metric_error', { metric, error: String(e) });
-  }
-}
-// Record latency using exponential smoothing for approximate p50/p95 stored as separate metrics.
-async function recordLatency(env: Env, tag: string, ms: number) {
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
-    const today = new Date().toISOString().slice(0,10);
-    const p50Key = `${tag}.p50`; // reuse count column to store value * 1000 (int)
-    const p95Key = `${tag}.p95`;
-    const alpha50 = 0.2, alpha95 = 0.1;
-    const fetchVal = async (k:string) => {
-      const r = await env.DB.prepare(`SELECT count FROM metrics_daily WHERE d=? AND metric=?`).bind(today, k).all();
-      return Number(r.results?.[0]?.count) || 0;
-    };
-    const cur50 = await fetchVal(p50Key);
-    const cur95 = await fetchVal(p95Key);
-    const new50 = cur50 === 0 ? ms*1000 : Math.round((1-alpha50)*cur50 + alpha50*ms*1000);
-    const estP95 = Math.max(ms*1000, cur95 === 0 ? ms*1000 : Math.round((1-alpha95)*cur95 + alpha95*ms*1000* (ms*1000>cur95?1:0.5)));
-    const upsert = async (k:string, v:number) => {
-      await env.DB.prepare(`INSERT INTO metrics_daily (d,metric,count) VALUES (?,?,?) ON CONFLICT(d,metric) DO UPDATE SET count=?`).bind(today,k,v,v).run();
-    };
-    await upsert(p50Key, new50);
-    await upsert(p95Key, estP95);
-  } catch (e) {
-    log('metric_latency_error', { tag, error: String(e) });
-  }
-}
+// metrics helpers now in lib/metrics
 
 // ---------- mutation audit helper ----------
 // Lightweight audit trail for state-changing endpoints. Best-effort (errors ignored).
-interface AuditFields { actor_type: string; actor_id?: string|null; action: string; resource: string; resource_id?: string|null; details?: any }
-function redactDetails(obj: any): any {
-  if (obj == null) return obj;
-  if (Array.isArray(obj)) return obj.slice(0,50).map(redactDetails); // cap array length
-  if (typeof obj === 'object') {
-    const out: Record<string, unknown> = {};
-    const REDACT_KEYS = new Set(['secret','manage_token','token','email']);
-    for (const [k,v] of Object.entries(obj)) {
-      if (REDACT_KEYS.has(k.toLowerCase())) { out[k] = '[REDACTED]'; continue; }
-      out[k] = redactDetails(v);
-    }
-    return out;
-  }
-  if (typeof obj === 'string') return obj.length > 256 ? obj.slice(0,256)+'…' : obj;
-  return obj; // primitive
-}
-// Immediate audit insert (synchronous) to avoid deferred storage ops interfering with test isolation.
-async function audit(env: Env, f: AuditFields) {
-  try {
-    const id = crypto.randomUUID();
-    const ts = new Date().toISOString();
-    let detailsObj = f.details;
-    try { detailsObj = redactDetails(detailsObj); } catch { /* ignore */ }
-    const details = detailsObj === undefined ? null : JSON.stringify(detailsObj).slice(0,2000);
-    await env.DB.prepare(`INSERT INTO mutation_audit (id, ts, actor_type, actor_id, action, resource, resource_id, details) VALUES (?,?,?,?,?,?,?,?)`)
-      .bind(id, ts, f.actor_type, f.actor_id||null, f.action, f.resource, f.resource_id||null, details).run();
-  } catch (e) { log('audit_insert_error', { error: String(e) }); }
-}
+// audit helper now in lib/audit
 
 // Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
 async function ensureTestSeed(env: Env) {
@@ -737,140 +560,16 @@ async function snapshotPortfolioNAV(env: Env) {
 }
 
 // Factor returns: compute top-bottom quintile forward return per enabled factor (using previous day factor values and forward price move)
-async function computeFactorReturns(env: Env) {
-  try {
-    const factorUniverse = await getFactorUniverse(env);
-    if (!factorUniverse.length) return { ok:false, skipped:true };
-    const meta = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest)) SELECT (SELECT d FROM prev) AS prev_d, (SELECT d FROM latest) AS latest_d`).all();
-    const mrow = (meta.results||[])[0] as any; if (!mrow?.prev_d || !mrow?.latest_d) return { ok:false, skipped:true };
-    const prevDay = mrow.prev_d as string; const nextDay = mrow.latest_d as string;
-    // Skip if already computed for all factors
-    const existing = await env.DB.prepare(`SELECT COUNT(*) AS c FROM factor_returns WHERE as_of=?`).bind(prevDay).all();
-    if (((existing.results||[])[0] as any)?.c >= factorUniverse.length) return { ok:true, skipped:true };
-    // Pull component + price data for prev day
-    const rs = await env.DB.prepare(`SELECT sc.card_id, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90,
-      (SELECT price_usd FROM prices_daily WHERE card_id=sc.card_id AND as_of=?) AS px_prev,
-      (SELECT price_usd FROM prices_daily WHERE card_id=sc.card_id AND as_of=?) AS px_next
-      FROM signal_components_daily sc WHERE sc.as_of=?`).bind(prevDay, nextDay, prevDay).all();
-    const rows = (rs.results||[]) as any[]; if (!rows.length) return { ok:false, skipped:true };
-    const forwardRet = (r:any)=> { const a=Number(r.px_prev)||0; const b=Number(r.px_next)||0; return (a>0 && b>0)? (b-a)/a : null; };
-    const factorValue = (r:any, f:string) => {
-      if (f==='risk') return r.vol;
-      return r[f];
-    };
-    for (const factor of factorUniverse) {
-      const usable = rows.filter(r=> Number.isFinite(factorValue(r,factor)) && Number.isFinite(forwardRet(r)));
-      if (usable.length < 10) continue;
-      const sorted = usable.slice().sort((a,b)=> Number(factorValue(a,factor)) - Number(factorValue(b,factor)));
-      const q = Math.max(1, Math.floor(sorted.length/5));
-      const bottom = sorted.slice(0,q);
-      const top = sorted.slice(-q);
-      const avg = (arr:any[])=> arr.reduce((s,x)=> s + (forwardRet(x)||0),0)/(arr.length||1);
-      const ret = avg(top) - avg(bottom);
-      await env.DB.prepare(`INSERT OR REPLACE INTO factor_returns (as_of, factor, ret) VALUES (?,?,?)`).bind(prevDay, factor, ret).run();
-    }
-    return { ok:true, as_of: prevDay };
-  } catch (e) {
-    log('factor_returns_error', { error:String(e) });
-    return { ok:false, error:String(e) };
-  }
-}
+// factor returns now in lib/factors
 
 // ----- Factor risk model (covariance & correlation) + rolling vol/beta -----
-async function computeFactorRiskModel(env: Env) {
-  try {
-    const lookDays = 60; // rolling window
-    const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${lookDays-1} day`).all();
-    const rows = (rs.results||[]) as any[];
-    if (!rows.length) return { ok:false, skipped:true };
-    const byFactor: Record<string,{d:string;r:number}[]> = {};
-    for (const r of rows) { const f=String(r.factor); const d=String(r.as_of); const v=Number(r.ret); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push({ d, r:v }); }
-    const factors = Object.keys(byFactor).sort(); if (factors.length<1) return { ok:false, skipped:true };
-    // Align dates intersection
-    const dateSets = factors.map(f=> new Set(byFactor[f].map(o=> o.d)));
-    const allDates = Array.from(new Set(rows.map(r=> String(r.as_of)))).sort();
-    const usable = allDates.filter(d=> dateSets.every(s=> s.has(d)));
-    if (usable.length < 10) return { ok:false, skipped:true };
-    const series: Record<string, number[]> = {};
-    for (const f of factors) series[f] = usable.map(d=> byFactor[f].find(o=> o.d===d)!.r);
-    const mean = (a:number[])=> a.reduce((s,x)=>s+x,0)/a.length;
-    const cov = (a:number[], b:number[]) => { const ma=mean(a), mb=mean(b); let sum=0; for (let i=0;i<a.length;i++){ sum += (a[i]-ma)*(b[i]-mb); } return sum/(a.length-1); };
-    // Store vol/beta (beta vs equal-weight factor composite as pseudo market)
-    const market: number[] = []; for (let i=0;i<usable.length;i++){ let s=0; for (const f of factors) s+= series[f][i]; market.push(s/factors.length); }
-    const mMean = mean(market); let mVar=0; for (const v of market) mVar+=(v-mMean)*(v-mMean); mVar /= (market.length-1); const mVarSafe = mVar || 1e-9;
-    for (const f of factors) {
-      const vol = Math.sqrt(Math.max(0, cov(series[f], series[f])));
-      const beta = cov(series[f], market)/mVarSafe;
-      await env.DB.prepare(`INSERT OR REPLACE INTO factor_metrics (as_of, factor, vol, beta) VALUES (date('now'), ?, ?, ?)`).bind(f, vol, beta).run();
-    }
-    // Pairwise cov/corr snapshot (store symmetric; enforce i<=j)
-    for (let i=0;i<factors.length;i++) {
-      for (let j=i;j<factors.length;j++) {
-        const fi = factors[i], fj = factors[j];
-        const c = cov(series[fi], series[fj]);
-        const vi = cov(series[fi], series[fi]);
-        const vj = cov(series[fj], series[fj]);
-        const corr = (vi>0 && vj>0)? c/Math.sqrt(vi* vj) : 0;
-        await env.DB.prepare(`INSERT OR REPLACE INTO factor_risk_model (as_of, factor_i, factor_j, cov, corr) VALUES (date('now'), ?, ?, ?, ?)`).bind(fi, fj, c, corr).run();
-      }
-    }
-    return { ok:true, factors: factors.length };
-  } catch (e) { log('risk_model_error', { error:String(e) }); return { ok:false, error:String(e) }; }
-}
+// risk model now in lib/factors
 
 // ----- Bayesian smoothing of factor returns (simple shrink to grand mean) -----
-async function smoothFactorReturns(env: Env) {
-  try {
-    const look = 90;
-    const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${look-1} day`).all();
-    const rows = (rs.results||[]) as any[]; if (!rows.length) return { ok:false, skipped:true };
-    const byFactor: Record<string, number[]> = {};
-    for (const r of rows) { const f=String(r.factor); const v=Number(r.ret); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push(v); }
-    const allVals: number[] = []; for (const v of Object.values(byFactor)) allVals.push(...v);
-    if (!allVals.length) return { ok:false, skipped:true };
-    const globalMean = allVals.reduce((s,x)=>s+x,0)/allVals.length;
-    const globalVar = allVals.reduce((s,x)=> s+(x-globalMean)*(x-globalMean),0)/(allVals.length-1 || 1);
-    const priorMean = globalMean; const priorVar = globalVar;
-    const today = new Date().toISOString().slice(0,10);
-    for (const [f, vals] of Object.entries(byFactor)) {
-      const n = vals.length; const sampleMean = vals.reduce((s,x)=>s+x,0)/n;
-      const sampleVar = vals.reduce((s,x)=> s+(x-sampleMean)*(x-sampleMean),0)/(n-1 || 1);
-      // Conjugate normal-normal with unknown variance approximated: weight by n/(n+k)
-      const k = Math.max(1, Math.round( (sampleVar>0? sampleVar: priorVar) / (priorVar || 1e-6) ));
-      const weight = n / (n + k);
-      const shrunk = weight*sampleMean + (1-weight)*priorMean;
-      await env.DB.prepare(`INSERT OR REPLACE INTO factor_returns_smoothed (as_of, factor, ret_smoothed) VALUES (?,?,?)`).bind(today, f, shrunk).run();
-    }
-    return { ok:true };
-  } catch (e) { log('smooth_factor_returns_error', { error:String(e) }); return { ok:false, error:String(e) }; }
-}
+// smoothing now in lib/factors
 
 // ----- Signal quality metrics (IC stability & half-life) -----
-async function computeSignalQuality(env: Env) {
-  try {
-    const rs = await env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic WHERE as_of >= date('now','-89 day') ORDER BY as_of ASC`).all();
-    const rows = (rs.results||[]) as any[]; if (!rows.length) return { ok:false, skipped:true };
-    const byFactor: Record<string,{d:string;ic:number}[]> = {};
-    for (const r of rows) { const f=String(r.factor); const v=Number(r.ic); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push({ d:String(r.as_of), ic:v }); }
-    const today = new Date().toISOString().slice(0,10);
-    for (const [f, arr] of Object.entries(byFactor)) {
-      if (arr.length < 5) continue;
-      const ics = arr.map(o=> o.ic);
-      const mean = ics.reduce((s,x)=>s+x,0)/ics.length;
-      const vol = Math.sqrt(Math.max(0, ics.reduce((s,x)=> s+(x-mean)*(x-mean),0)/(ics.length-1)));
-      // Autocorr lag1
-      let num=0,den=0; for (let i=1;i<ics.length;i++){ num += (ics[i]-mean)*(ics[i-1]-mean); }
-      for (const v of ics) den += (v-mean)*(v-mean);
-      const ac1 = den? num/den : 0;
-      // Half-life from AR(1): hl = -ln(2)/ln(|phi|)
-      const phi = Math.min(0.999, Math.max(-0.999, ac1));
-      const halfLife = phi<=0 ? null : Math.log(0.5)/Math.log(phi);
-      await env.DB.prepare(`INSERT OR REPLACE INTO signal_quality_metrics (as_of, factor, ic_mean, ic_vol, ic_autocorr_lag1, ic_half_life) VALUES (?,?,?,?,?,?)`)
-        .bind(today, f, mean, vol, ac1, halfLife).run();
-    }
-    return { ok:true };
-  } catch (e) { log('signal_quality_error', { error:String(e) }); return { ok:false, error:String(e) }; }
-}
+// signal quality now in lib/factors
 
 // ----- Portfolio daily PnL & turnover cost estimation -----
 async function computePortfolioPnL(env: Env) {
@@ -966,88 +665,10 @@ async function sendEmailAlert(_env: Env, _to: string, _subject: string, _body: s
   log('email_stub', { to: _to, subject: _subject });
 }
 
-// Dynamic factor universe helper (persisted in factor_config)
-async function getFactorUniverse(env: Env): Promise<string[]> {
-  try {
-    const rs = await env.DB.prepare(`SELECT factor FROM factor_config WHERE enabled=1`).all();
-    const rows = (rs.results||[]) as any[];
-    if (rows.length) return rows.map(r=> String(r.factor));
-  } catch {/* ignore */}
-  return ['ts7','ts30','z_svi','risk','liquidity','scarcity','mom90'];
-}
+// factor universe helper removed (now imported from lib/factors)
 
 // ----- Factor IC computation (rank IC prev-day factors vs forward return) -----
-async function computeFactorIC(env: Env) {
-  try {
-    // Forward return IC: use factor values on day D (prev) vs return from D to D+1 (latest)
-    const meta = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest)) SELECT (SELECT d FROM prev) AS prev_d, (SELECT d FROM latest) AS latest_d`).all();
-    const metaRow = (meta.results||[])[0] as any;
-    if (!metaRow || !metaRow.prev_d || !metaRow.latest_d) return { ok:false, skipped:true };
-    const prevDay = metaRow.prev_d as string;
-    const latestDay = metaRow.latest_d as string;
-  const factorUniverse = await getFactorUniverse(env);
-    // Skip if already computed for prevDay (all factors present)
-    const existing = await env.DB.prepare(`SELECT COUNT(*) AS c FROM factor_ic WHERE as_of=?`).bind(prevDay).all();
-    if (((existing.results||[])[0] as any)?.c >= factorUniverse.length) return { ok:true, skipped:true, already:true };
-    // Optimized single-join query (was many correlated subselects causing O(N*F) lookups).
-    // We also cap row count to limit CPU in CI; sampling large universes is acceptable for IC estimation.
-    const rs = await env.DB.prepare(`SELECT p.card_id,
-        p.price_usd AS px_prev,
-        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_next,
-        sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90
-      FROM prices_daily p
-      LEFT JOIN signal_components_daily sc ON sc.card_id=p.card_id AND sc.as_of=?
-      WHERE p.as_of=?
-      ORDER BY p.card_id
-      LIMIT 600`).bind(latestDay, prevDay, prevDay).all();
-    const rows = (rs.results||[]) as any[];
-    if (!rows.length) return { ok:false, skipped:true };
-    const rets: number[] = [];
-    for (const r of rows) {
-      const a = Number(r.px_prev)||0, b=Number(r.px_next)||0;
-      rets.push(a>0 && b>0 ? (b-a)/a : 0);
-    }
-    if (rets.filter(x=>x!==0).length < 3) return { ok:false, skipped:true };
-    function rankIC(fvals: number[]): number|null {
-      const data: { v:number; r:number }[] = [];
-      for (let i=0;i<fvals.length;i++) {
-        const fv = fvals[i]; const rv = rets[i];
-        if (Number.isFinite(fv) && Number.isFinite(rv)) data.push({ v: fv, r: rv });
-      }
-      const n = data.length;
-      if (n < 5) return null;
-      const idxF = data.map((_,i)=> i).sort((a,b)=> data[a].v - data[b].v);
-      const idxR = data.map((_,i)=> i).sort((a,b)=> data[a].r - data[b].r);
-      const rankF = new Array(n); const rankR = new Array(n);
-      for (let i=0;i<n;i++){ rankF[idxF[i]] = i+1; rankR[idxR[i]] = i+1; }
-      let sumF=0,sumR=0; for (let i=0;i<n;i++){ sumF+=rankF[i]; sumR+=rankR[i]; }
-      const mF = sumF/n, mR = sumR/n; let num=0,dF=0,dR=0;
-      for (let i=0;i<n;i++){ const a1=rankF[i]-mF,b1=rankR[i]-mR; num+=a1*b1; dF+=a1*a1; dR+=b1*b1; }
-      const den = Math.sqrt(dF*dR)||0; if (!den) return null; return num/den;
-    }
-    const baseMaps: Record<string, number[]> = {
-      ts7: rows.map(r=> Number(r.ts7)),
-      ts30: rows.map(r=> Number(r.ts30)),
-      z_svi: rows.map(r=> Number(r.z_svi)),
-      risk: rows.map(r=> Number(r.vol)),
-      liquidity: rows.map(r=> Number(r.liquidity)),
-      scarcity: rows.map(r=> Number(r.scarcity)),
-      mom90: rows.map(r=> Number(r.mom90))
-    };
-    const factors: Record<string, number|null> = {};
-    for (const f of factorUniverse) {
-      if (baseMaps[f]) factors[f] = rankIC(baseMaps[f]);
-    }
-    for (const [f, ic] of Object.entries(factors)) {
-      if (ic === null) continue;
-      await env.DB.prepare(`INSERT OR REPLACE INTO factor_ic (as_of,factor,ic) VALUES (?,?,?)`).bind(prevDay, f, ic).run();
-    }
-    return { ok:true, factors, as_of: prevDay, forward_to: latestDay };
-  } catch (e) {
-    log('factor_ic_error', { error:String(e) });
-    return { ok:false, error:String(e) };
-  }
-}
+// factor IC now in lib/factors
 
 // ----- Simple backtest: rank cards by latest composite score and form top-quintile vs bottom-quintile spread cumulative -----
 async function runBacktest(env: Env, params: { lookbackDays?: number, txCostBps?: number, slippageBps?: number } ) {
@@ -1126,6 +747,28 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
     const t0 = Date.now();
+    // --- Router early dispatch (incremental migration) ---
+    try {
+      // Dynamic imports register routes as side effects. Keep list small; add more modules as extracted.
+      await Promise.all([
+        import('./routes/admin'),
+        import('./routes/public'),
+  import('./routes/alerts'),
+  import('./routes/metadata'),
+  import('./routes/search'),
+  import('./routes/subscribe'),
+  import('./routes/portfolio'),
+      ]);
+      const { router } = await import('./router');
+      const routed = await router.handle(req, env);
+      if (routed) {
+        await recordLatency(env, 'http.latency', Date.now() - t0);
+        return routed;
+      }
+    } catch (e) {
+      // Non-fatal; fall back to legacy chain.
+      try { console.warn('router dispatch failed', e); } catch {}
+    }
   // Per-request evaluation (env differs by environment / binding)
   (globalThis as any).__LOG_DISABLED = (env.LOG_ENABLED === '0');
   // Ensure migrations early so early-return endpoints have tables.
@@ -1389,231 +1032,8 @@ export default {
     }
 
     // CSV export
-    if (url.pathname === '/research/card-csv' && req.method === 'GET') {
-      const id = (url.searchParams.get('id') || '').trim();
-      let days = parseInt(url.searchParams.get('days') || '120', 10);
-      if (!Number.isFinite(days) || days < 7) days = 120;
-      if (days > 365) days = 365;
-      const since = isoDaysAgo(days);
-      if (!id) return json({ error: 'id required' }, 400);
 
-      const [pRs, sRs, gRs, cRs] = await Promise.all([
-        env.DB.prepare(`SELECT as_of AS d, price_usd AS usd, price_eur AS eur FROM prices_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, svi FROM svi_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, signal, score, edge_z, exp_ret, exp_sd FROM signals_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-        env.DB.prepare(`SELECT as_of AS d, ts7, ts30, dd, vol, z_svi FROM signal_components_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
-      ]);
-      const map = new Map<string, any>();
-      for (const r of (pRs.results ?? [])) map.set((r as any).d, { d: (r as any).d, usd: (r as any).usd ?? '', eur: (r as any).eur ?? '' });
-      for (const r of (sRs.results ?? [])) { const row = map.get((r as any).d) || (map.set((r as any).d, { d: (r as any).d }).get((r as any).d)); row.svi = (r as any).svi ?? ''; }
-      for (const r of (gRs.results ?? [])) { const row = map.get((r as any).d) || (map.set((r as any).d, { d: (r as any).d }).get((r as any).d)); row.signal = (r as any).signal ?? ''; row.score = (r as any).score ?? ''; row.edge_z = (r as any).edge_z ?? ''; row.exp_ret = (r as any).exp_ret ?? ''; row.exp_sd = (r as any).exp_sd ?? ''; }
-      for (const r of (cRs.results ?? [])) { const row = map.get((r as any).d) || (map.set((r as any).d, { d: (r as any).d }).get((r as any).d)); row.ts7 = (r as any).ts7 ?? ''; row.ts30 = (r as any).ts30 ?? ''; row.dd = (r as any).dd ?? ''; row.vol = (r as any).vol ?? ''; row.z_svi = (r as any).z_svi ?? ''; }
-
-      const dates = Array.from(map.keys()).sort();
-      const header = ['date','price_usd','price_eur','svi','signal','score','edge_z','exp_ret','exp_sd','ts7','ts30','dd','vol','z_svi'];
-      const lines = [header.join(',')];
-      for (const d of dates) {
-        const r = map.get(d);
-        lines.push([d, r.usd ?? '', r.eur ?? '', r.svi ?? '', r.signal ?? '', r.score ?? '', r.edge_z ?? '', r.exp_ret ?? '', r.exp_sd ?? '', r.ts7 ?? '', r.ts30 ?? '', r.dd ?? '', r.vol ?? '', r.z_svi ?? ''].join(','));
-      }
-      return new Response(lines.join('\n'), { headers: { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${id}_last${days}d.csv"`, ...CORS }});
-    }
-
-    // Subscribe
-    if (url.pathname === '/api/subscribe' && req.method === 'POST') {
-  const ip = req.headers.get('cf-connecting-ip') || 'anon';
-  const rlKey = `sub:${ip}`;
-  const cfg = getRateLimits(env).subscribe;
-  const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) { await incMetric(env, 'rate_limited.subscribe'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
-      const body: any = await req.json().catch(()=>({}));
-      const email = (body && body.email ? String(body.email) : '').trim();
-  if (!email) return err('email_required', 400);
-  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS subscriptions (id TEXT PRIMARY KEY, kind TEXT, target TEXT, created_at TEXT);`).run();
-      const id = crypto.randomUUID();
-  await env.DB.prepare(`INSERT OR REPLACE INTO subscriptions (id, kind, target, created_at) VALUES (?, 'email', ?, datetime('now'))`).bind(id, email).run();
-  log('subscribe', { email });
-  await incMetric(env, 'subscribe');
-  return done(json({ ok: true }), 'subscribe');
-    }
-
-    // Alerts create/deactivate
-    if (url.pathname === '/alerts/create' && req.method === 'POST') {
-      await ensureAlertsTable(env);
-  const ip = req.headers.get('cf-connecting-ip') || 'anon';
-      const body: any = await req.json().catch(()=>({}));
-      const email = body && body.email ? String(body.email).trim() : '';
-      const card_id = body && body.card_id ? String(body.card_id).trim() : '';
-      const kind = body && body.kind ? String(body.kind).trim() : 'price_below';
-      const threshold = body && body.threshold !== undefined ? Number(body.threshold) : NaN;
-  const snoozeMinutes = Number(body.snooze_minutes);
-  if (!email || !card_id) return err('email_and_card_id_required');
-  if (!Number.isFinite(threshold)) return err('threshold_invalid');
-  const rlKey = `alert:${ip}:${email}`;
-  const cfg = getRateLimits(env).alertCreate;
-  const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
-      const id = crypto.randomUUID();
-      const tokenBytes = new Uint8Array(16); crypto.getRandomValues(tokenBytes);
-      const manage_token = Array.from(tokenBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
-      // Dynamic column insert
-      const col = await getAlertThresholdCol(env);
-      await env.DB.prepare(
-        `INSERT INTO alerts_watch (id,email,card_id,kind,${col},active,manage_token,created_at,suppressed_until) VALUES (?,?,?,?,?,1,?,datetime('now'), CASE WHEN ? IS NULL THEN NULL ELSE datetime('now', ? || ' minutes') END)`
-      ).bind(id, email, card_id, kind, threshold, manage_token, Number.isFinite(snoozeMinutes)?1:null, Number.isFinite(snoozeMinutes)?snoozeMinutes.toString():null).run();
-      const manage_url = `${env.PUBLIC_BASE_URL || ''}/alerts/deactivate?id=${encodeURIComponent(id)}&token=${encodeURIComponent(manage_token)}`;
-  log('alert_created', { id, card_id, kind, threshold });
-  await incMetric(env, 'alert.created');
-  await audit(env, { actor_type:'public', action:'create', resource:'alert', resource_id:id, details:{ card_id, kind, threshold } });
-  // Fetch suppressed_until & fired_count for enriched response
-  const meta = await env.DB.prepare(`SELECT suppressed_until, fired_count FROM alerts_watch WHERE id=?`).bind(id).all();
-  const row: any = meta.results?.[0] || {};
-  return done(json({ ok: true, id, manage_token, manage_url, suppressed_until: row.suppressed_until || null, fired_count: row.fired_count || 0 }), 'alerts.create');
-    }
-    if (url.pathname === '/alerts/snooze' && req.method === 'POST') {
-      await ensureAlertsTable(env);
-      const id = url.searchParams.get('id') || '';
-      const body: any = await req.json().catch(()=>({}));
-      const minutes = Number(body.minutes);
-      const token = (body.token||'').toString();
-      if (!id || !Number.isFinite(minutes)) return err('id_and_minutes_required');
-      const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
-      const found = (row.results||[])[0] as any;
-      if (!found) return err('not_found',404);
-      if (found.manage_token !== token) return err('forbidden',403);
-      await env.DB.prepare(`UPDATE alerts_watch SET suppressed_until=datetime('now', ? || ' minutes') WHERE id=?`).bind(minutes.toString(), id).run();
-      await audit(env, { actor_type:'public', action:'snooze', resource:'alert', resource_id:id, details:{ minutes } });
-      return json({ ok:true, id, suppressed_for_minutes: minutes });
-    }
-
-    // --- Search & metadata endpoints (MVP completion) ---
-    if (url.pathname === '/api/sets' && req.method === 'GET') {
-      await ensureTestSeed(env);
-      const sig = await baseDataSignature(env);
-      const etag = `"${sig}:sets"`;
-      if (req.headers.get('if-none-match') === etag) {
-  await incMetric(env, 'cache.hit.sets');
-  return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
-      }
-      const rs = await env.DB.prepare(`SELECT set_name AS v, COUNT(*) AS n FROM cards GROUP BY set_name ORDER BY n DESC`).all();
-  const resp = json(rs.results || []);
-  resp.headers.set('Cache-Control', 'public, max-age=300');
-  resp.headers.set('ETag', etag);
-  return done(resp, 'sets');
-    }
-    if (url.pathname === '/api/rarities' && req.method === 'GET') {
-      await ensureTestSeed(env);
-      const sig = await baseDataSignature(env);
-      const etag = `"${sig}:rarities"`;
-      if (req.headers.get('if-none-match') === etag) {
-  await incMetric(env, 'cache.hit.rarities');
-  return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
-      }
-      const rs = await env.DB.prepare(`SELECT rarity AS v, COUNT(*) AS n FROM cards GROUP BY rarity ORDER BY n DESC`).all();
-  const resp = json(rs.results || []);
-  resp.headers.set('Cache-Control', 'public, max-age=300');
-  resp.headers.set('ETag', etag);
-  return done(resp, 'rarities');
-    }
-    if (url.pathname === '/api/types' && req.method === 'GET') {
-      await ensureTestSeed(env);
-      const sig = await baseDataSignature(env);
-      const etag = `"${sig}:types"`;
-      if (req.headers.get('if-none-match') === etag) {
-  await incMetric(env, 'cache.hit.types');
-  return new Response(null, { status:304, headers: { 'ETag': etag, 'Cache-Control': 'public, max-age=300', ...CORS } });
-      }
-      const rs = await env.DB.prepare(`SELECT DISTINCT types FROM cards WHERE types IS NOT NULL`).all();
-      const out: { v: string }[] = [];
-      for (const r of (rs.results||[]) as any[]) {
-        const parts = String(r.types||'').split('|').filter(Boolean);
-        for (const p of parts) out.push({ v: p });
-      }
-  const resp = json(out);
-  resp.headers.set('Cache-Control', 'public, max-age=300');
-  resp.headers.set('ETag', etag);
-  return done(resp, 'types');
-    }
-    if (url.pathname === '/api/search' && req.method === 'GET') {
-      await ensureTestSeed(env);
-  const ip = req.headers.get('cf-connecting-ip') || 'anon';
-  const rlKey = `search:${ip}`;
-  const cfg = getRateLimits(env).search;
-  const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) { await incMetric(env, 'rate_limited.search'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
-      const q = (url.searchParams.get('q')||'').trim();
-      const rarity = (url.searchParams.get('rarity')||'').trim();
-      const setName = (url.searchParams.get('set')||'').trim();
-      const type = (url.searchParams.get('type')||'').trim();
-      let limit = parseInt(url.searchParams.get('limit')||'50',10); if (!Number.isFinite(limit)||limit<1) limit=50; if (limit>250) limit=250;
-      const where: string[] = [];
-      const binds: any[] = [];
-  // Some test seeds may not include 'number' column; prefer dynamic safe pattern
-  if (q) { where.push('(c.name LIKE ? OR c.id LIKE ?)'); const like = `%${q}%`; binds.push(like, like); }
-      if (rarity) { where.push('c.rarity = ?'); binds.push(rarity); }
-      if (setName) { where.push('c.set_name = ?'); binds.push(setName); }
-      if (type) { where.push('c.types LIKE ?'); binds.push(`%${type}%`); }
-      const whereSql = where.length ? 'WHERE '+ where.join(' AND ') : '';
-      const sql = `WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily)
-        SELECT c.id,c.name,c.set_name,c.rarity,c.image_url,c.types,c.number,
-          (SELECT s.signal FROM signals_daily s WHERE s.card_id=c.id AND s.as_of=latest.d) AS signal,
-          (SELECT ROUND(s.score,1) FROM signals_daily s WHERE s.card_id=c.id AND s.as_of=latest.d) AS score,
-          (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd,
-          (SELECT price_eur FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_eur
-        FROM cards c, latest
-        ${whereSql}
-        ORDER BY COALESCE(score,0) DESC
-        LIMIT ?`;
-      binds.push(limit);
-      const rs = await env.DB.prepare(sql).bind(...binds).all();
-  await incMetric(env, 'search.query');
-  return done(json(rs.results || []), 'search');
-    }
-
-    // --- Portfolio endpoints (capability token model) ---
-    if (url.pathname === '/portfolio/create' && req.method === 'POST') {
-      const id = crypto.randomUUID();
-      const secretBytes = new Uint8Array(16); crypto.getRandomValues(secretBytes);
-      const secret = Array.from(secretBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
-  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-  const hash = await sha256Hex(secret);
-  // secret retained for now (legacy); secret_hash added by migration 0028
-  try { await env.DB.prepare(`ALTER TABLE portfolios ADD COLUMN secret_hash TEXT`).run(); } catch {/* ignore */}
-  await env.DB.prepare(`INSERT INTO portfolios (id, secret, secret_hash, created_at) VALUES (?,?,?,datetime('now'))`).bind(id, secret, hash).run();
-  await audit(env, { actor_type:'public', action:'create', resource:'portfolio', resource_id:id });
-  return json({ id, secret });
-    }
-    if (url.pathname === '/portfolio/add-lot' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const body = await req.json().catch(()=>({}));
-      const LotSchema = z.object({ card_id: z.string().min(1), qty: z.number().positive(), cost_usd: z.number().min(0), acquired_at: z.string().optional() });
-      const parsed = LotSchema.safeParse(body);
-      if (!parsed.success) return json({ ok:false, error:'invalid_body', issues: parsed.error.issues },400);
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
-      const lotId = crypto.randomUUID();
-  await env.DB.prepare(`INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at) VALUES (?,?,?,?,?,?)`).bind(lotId, pid, parsed.data.card_id, parsed.data.qty, parsed.data.cost_usd, parsed.data.acquired_at || null).run();
-  log('portfolio_lot_added', { portfolio: pid, lot: lotId, card: parsed.data.card_id });
-  await audit(env, { actor_type:'portfolio', actor_id:pid, action:'add_lot', resource:'lot', resource_id:lotId, details:{ card_id: parsed.data.card_id, qty: parsed.data.qty } });
-  return json({ ok:true, lot_id: lotId });
-    }
-
-    // Portfolio secret rotation (returns new secret). Client must replace stored secret immediately.
-    if (url.pathname === '/portfolio/rotate-secret' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const newBytes = new Uint8Array(16); crypto.getRandomValues(newBytes);
-      const newSecret = Array.from(newBytes).map(b=> b.toString(16).padStart(2,'0')).join('');
-      const newHash = await sha256Hex(newSecret);
-      // Keep legacy secret column updated for now but store hash authoritative
-      await env.DB.prepare(`UPDATE portfolios SET secret=?, secret_hash=? WHERE id=?`).bind(newSecret, newHash, pid).run();
-      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'rotate_secret', resource:'portfolio', resource_id:pid });
-      return json({ ok:true, id: pid, secret: newSecret });
-    }
+  // --- Portfolio endpoints moved to routes/portfolio.ts ---
     if (url.pathname === '/admin/alert-queue/send' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT, attempt_count INTEGER DEFAULT 0, last_error TEXT);`).run(); } catch {}
@@ -1647,60 +1067,6 @@ export default {
       if (giveupCount) incMetricBy(env, 'email.giveup', giveupCount);
       await audit(env, { actor_type:'admin', action:'process', resource:'alert_email_queue', details:{ processed: ids.length, sent: sentCount, retry: retryCount, giveup: giveupCount } });
       return json({ ok:true, processed: ids.length, sent: sentCount, retry: retryCount, giveup: giveupCount });
-    }
-    if (url.pathname === '/portfolio' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const lots = await env.DB.prepare(`SELECT l.id AS lot_id,l.card_id,l.qty,l.cost_usd,l.acquired_at,
-        (SELECT price_usd FROM prices_daily p WHERE p.card_id=l.card_id ORDER BY as_of DESC LIMIT 1) AS price_usd
-        FROM lots l WHERE l.portfolio_id=?`).bind(pid).all();
-      let mv=0, cost=0; for (const r of (lots.results||[]) as any[]) { const px = Number(r.price_usd)||0; mv += px * Number(r.qty); cost += Number(r.cost_usd)||0; }
-      return json({ ok:true, totals:{ market_value: mv, cost_basis: cost, unrealized: mv-cost }, rows: lots.results||[] });
-    }
-    if (url.pathname === '/portfolio/export' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const lots = await env.DB.prepare(`SELECT * FROM lots WHERE portfolio_id=?`).bind(pid).all();
-      return json({ ok:true, portfolio_id: pid, lots: lots.results||[] });
-    }
-    if (url.pathname === '/portfolio/delete-lot' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-  const body: any = await req.json().catch(()=>({}));
-  const lotId = body && typeof body.lot_id === 'string' ? body.lot_id : '';
-      if (!lotId) return json({ ok:false, error:'lot_id_required' },400);
-      const del = await env.DB.prepare(`DELETE FROM lots WHERE id=? AND portfolio_id=?`).bind(lotId, pid).run();
-      const changes = (del as any).meta?.changes ?? 0;
-      if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'delete_lot', resource:'lot', resource_id:lotId });
-      return json({ ok:true, deleted: changes });
-    }
-    if (url.pathname === '/portfolio/update-lot' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const body: any = await req.json().catch(()=>({}));
-      const lotId = typeof body.lot_id === 'string' ? body.lot_id : '';
-      const qty = body.qty == null ? undefined : Number(body.qty);
-      const cost = body.cost_usd == null ? undefined : Number(body.cost_usd);
-      if (!lotId) return json({ ok:false, error:'lot_id_required' },400);
-      if (qty !== undefined && (!Number.isFinite(qty) || qty <= 0)) return json({ ok:false, error:'invalid_qty' },400);
-      if (cost !== undefined && (!Number.isFinite(cost) || cost < 0)) return json({ ok:false, error:'invalid_cost' },400);
-      const sets: string[] = []; const binds: any[] = [];
-      if (qty !== undefined) { sets.push('qty=?'); binds.push(qty); }
-      if (cost !== undefined) { sets.push('cost_usd=?'); binds.push(cost); }
-      if (!sets.length) return json({ ok:false, error:'no_changes' },400);
-      binds.push(lotId, pid);
-      const res = await env.DB.prepare(`UPDATE lots SET ${sets.join(', ')} WHERE id=? AND portfolio_id=?`).bind(...binds).run();
-      const changes = (res as any).meta?.changes ?? 0;
-      if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'update_lot', resource:'lot', resource_id:lotId, details:{ qty, cost_usd: cost } });
-      return json({ ok:true, updated: changes });
     }
     if (url.pathname === '/alerts/deactivate' && (req.method === 'GET' || req.method === 'POST')) {
       const body: any = req.method === 'POST' ? await req.json().catch(()=>({})) : {};
@@ -2288,119 +1654,6 @@ export default {
   return json({ ok:true, factor });
     }
 
-    // Portfolio factor exposure (simple latest component averages weighted by holdings)
-    if (url.pathname === '/portfolio/exposure' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
-      const d = (latest.results?.[0] as any)?.d;
-      if (!d) return json({ ok:true, as_of:null, exposures:{} });
-      // Join lots with latest components and approximate factor exposures by quantity weighting
-      const rs = await env.DB.prepare(`SELECT l.card_id,l.qty, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90 FROM lots l LEFT JOIN signal_components_daily sc ON sc.card_id=l.card_id AND sc.as_of=? WHERE l.portfolio_id=?`).bind(d, pid).all();
-      const rows = (rs.results||[]) as any[];
-      let totalQty = 0; const agg: Record<string,{w:number; sum:number}> = {};
-      const factors = ['ts7','ts30','z_svi','vol','liquidity','scarcity','mom90'];
-      for (const r of rows) { const q = Number(r.qty)||0; if (q<=0) continue; totalQty += q; for (const f of factors) { const v = Number((r as any)[f]); if (!Number.isFinite(v)) continue; const slot = agg[f] || (agg[f] = { w:0, sum:0 }); slot.w += q; slot.sum += v*q; } }
-      const out: Record<string, number|null> = {};
-      for (const f of factors) { const a = agg[f]; out[f] = a && a.w>0 ? +(a.sum/a.w).toFixed(6) : null; }
-      return json({ ok:true, as_of:d, exposures: out });
-    }
-    if (url.pathname === '/portfolio/exposure/history' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? ORDER BY as_of DESC, factor ASC LIMIT 700`).bind(pid).all();
-      return json({ ok:true, rows: rs.results||[] });
-    }
-    // Portfolio factor/asset targets
-    if (url.pathname === '/portfolio/targets' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
-      const rs = await env.DB.prepare(`SELECT kind, target_key, target_value FROM portfolio_targets WHERE portfolio_id=? ORDER BY kind, target_key`).bind(pid).all();
-      return json({ ok:true, rows: rs.results||[] });
-    }
-    if (url.pathname === '/portfolio/targets' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const body: any = await req.json().catch(()=>({}));
-      const factorTargets = body.factors && typeof body.factors==='object' ? body.factors : {};
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
-      // Upsert factor targets
-      for (const [k,v] of Object.entries(factorTargets)) {
-        const val = Number(v);
-        if (!Number.isFinite(val)) continue;
-        await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_targets (portfolio_id, kind, target_key, target_value, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(pid,'factor',k,val).run();
-      }
-      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'set_targets', resource:'portfolio_targets', resource_id:pid, details:{ factors: Object.keys(factorTargets).length } });
-      return json({ ok:true, updated: Object.keys(factorTargets).length });
-    }
-    // Portfolio optimization orders (MVP suggestions toward targets)
-    if (url.pathname === '/portfolio/orders' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_orders (id TEXT PRIMARY KEY, portfolio_id TEXT, created_at TEXT, status TEXT, objective TEXT, params TEXT, suggestions JSON, executed_at TEXT);`).run();
-      // Gather current exposures
-      const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
-      const d = (latest.results?.[0] as any)?.d;
-      let exposures: Record<string, number|null> = {};
-      if (d) {
-        const rs = await env.DB.prepare(`SELECT l.qty, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90 FROM lots l LEFT JOIN signal_components_daily sc ON sc.card_id=l.card_id AND sc.as_of=? WHERE l.portfolio_id=?`).bind(d, pid).all();
-        const rows = (rs.results||[]) as any[];
-        let totalQty = 0; const agg: Record<string,{w:number; sum:number}> = {};
-        const factors = ['ts7','ts30','z_svi','vol','liquidity','scarcity','mom90'];
-        for (const r of rows) { const q = Number(r.qty)||0; if (q<=0) continue; totalQty += q; for (const f of factors) { const v = Number((r as any)[f]); if (!Number.isFinite(v)) continue; const slot = agg[f] || (agg[f] = { w:0, sum:0 }); slot.w += q; slot.sum += v*q; } }
-        for (const f of factors) { const a = agg[f]; exposures[f] = a && a.w>0 ? +(a.sum/a.w).toFixed(6) : 0; }
-      }
-      const targetsRs = await env.DB.prepare(`SELECT target_key, target_value FROM portfolio_targets WHERE portfolio_id=? AND kind='factor'`).bind(pid).all();
-      const targets: Record<string, number> = {};
-      for (const r of (targetsRs.results||[]) as any[]) targets[r.target_key] = Number(r.target_value);
-      const factor_deltas: Record<string, number> = {};
-      for (const [k,tv] of Object.entries(targets)) {
-        const cur = Number(exposures[k] ?? 0);
-        factor_deltas[k] = +(tv - cur).toFixed(6);
-      }
-      // Simple suggestion object
-      const suggestions = { factor_deltas, generated_at: new Date().toISOString(), trades: [] as any[] };
-      const id = crypto.randomUUID();
-      const objective = 'align_targets';
-      await env.DB.prepare(`INSERT INTO portfolio_orders (id, portfolio_id, created_at, status, objective, params, suggestions) VALUES (?,?,?,?,?,?,?)`).bind(id, pid, new Date().toISOString(), 'open', objective, JSON.stringify({}), JSON.stringify(suggestions)).run();
-      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'create_order', resource:'portfolio_order', resource_id:id, details:{ objective, deltas:factor_deltas } });
-      return json({ ok:true, id, objective, suggestions });
-    }
-    if (url.pathname === '/portfolio/orders' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at FROM portfolio_orders WHERE portfolio_id=? ORDER BY created_at DESC LIMIT 20`).bind(pid).all();
-      return json({ ok:true, rows: rs.results||[] });
-    }
-    if (url.pathname === '/portfolio/orders/execute' && req.method === 'POST') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const body: any = await req.json().catch(()=>({}));
-      const id = (body.id||'').toString();
-      if (!id) return json({ ok:false, error:'id_required' },400);
-      const orows = await env.DB.prepare(`SELECT id, status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id, pid).all();
-      const order = (orows.results||[])[0] as any;
-      if (!order) return json({ ok:false, error:'not_found' },404);
-      if (order.status !== 'open') return json({ ok:false, error:'invalid_status' },400);
-      await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=datetime('now'), executed_trades=json('[]') WHERE id=?`).bind(id).run();
-      await audit(env, { actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id });
-      return json({ ok:true, id, status:'executed' });
-    }
     // Ingestion schedule config
     if (url.pathname === '/admin/ingestion-schedule' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -2474,40 +1727,6 @@ export default {
         if (fc>=5) ge5++; if (fc>=10) ge10++; if (fc>=25) ge25++;
       }
       return json({ ok:true, total, active: activeCount, suppressed, active_unsuppressed: activeCount - suppressed, escalation:{ ge5, ge10, ge25 } });
-    }
-    // Portfolio order detail (returns stored suggestions & executed_trades)
-    if (url.pathname === '/portfolio/orders/detail' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-      const auth = await portfolioAuth(env, pid, psec);
-      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const id = (url.searchParams.get('id')||'').trim();
-      if (!id) return json({ ok:false, error:'id_required' },400);
-      const rs = await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at, suggestions, executed_trades FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id, pid).all();
-      const row:any = rs.results?.[0];
-      if (!row) return json({ ok:false, error:'not_found' },404);
-      let suggestions:any = null, executed_trades:any = null;
-      try { if (row.suggestions) suggestions = JSON.parse(row.suggestions); } catch {/* ignore */}
-      try { if (row.executed_trades) executed_trades = JSON.parse(row.executed_trades); } catch {/* ignore */}
-      return json({ ok:true, id: row.id, status: row.status, objective: row.objective, created_at: row.created_at, executed_at: row.executed_at, suggestions, executed_trades });
-    }
-    if (url.pathname === '/portfolio/attribution' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
-      const rows = await computePortfolioAttribution(env, pid, days);
-      return json({ ok:true, rows });
-    }
-    if (url.pathname === '/portfolio/pnl' && req.method === 'GET') {
-      const pid = req.headers.get('x-portfolio-id')||'';
-      const psec = req.headers.get('x-portfolio-secret')||'';
-  const auth = await portfolioAuth(env, pid, psec);
-  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
-      const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
-      const rs = await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all();
-      return json({ ok:true, rows: rs.results||[] });
     }
 
     // Run backtest
