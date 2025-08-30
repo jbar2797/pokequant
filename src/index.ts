@@ -560,6 +560,127 @@ async function computeFactorReturns(env: Env) {
   }
 }
 
+// ----- Factor risk model (covariance & correlation) + rolling vol/beta -----
+async function computeFactorRiskModel(env: Env) {
+  try {
+    const lookDays = 60; // rolling window
+    const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${lookDays-1} day`).all();
+    const rows = (rs.results||[]) as any[];
+    if (!rows.length) return { ok:false, skipped:true };
+    const byFactor: Record<string,{d:string;r:number}[]> = {};
+    for (const r of rows) { const f=String(r.factor); const d=String(r.as_of); const v=Number(r.ret); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push({ d, r:v }); }
+    const factors = Object.keys(byFactor).sort(); if (factors.length<1) return { ok:false, skipped:true };
+    // Align dates intersection
+    const dateSets = factors.map(f=> new Set(byFactor[f].map(o=> o.d)));
+    const allDates = Array.from(new Set(rows.map(r=> String(r.as_of)))).sort();
+    const usable = allDates.filter(d=> dateSets.every(s=> s.has(d)));
+    if (usable.length < 10) return { ok:false, skipped:true };
+    const series: Record<string, number[]> = {};
+    for (const f of factors) series[f] = usable.map(d=> byFactor[f].find(o=> o.d===d)!.r);
+    const mean = (a:number[])=> a.reduce((s,x)=>s+x,0)/a.length;
+    const cov = (a:number[], b:number[]) => { const ma=mean(a), mb=mean(b); let sum=0; for (let i=0;i<a.length;i++){ sum += (a[i]-ma)*(b[i]-mb); } return sum/(a.length-1); };
+    // Store vol/beta (beta vs equal-weight factor composite as pseudo market)
+    const market: number[] = []; for (let i=0;i<usable.length;i++){ let s=0; for (const f of factors) s+= series[f][i]; market.push(s/factors.length); }
+    const mMean = mean(market); let mVar=0; for (const v of market) mVar+=(v-mMean)*(v-mMean); mVar /= (market.length-1); const mVarSafe = mVar || 1e-9;
+    for (const f of factors) {
+      const vol = Math.sqrt(Math.max(0, cov(series[f], series[f])));
+      const beta = cov(series[f], market)/mVarSafe;
+      await env.DB.prepare(`INSERT OR REPLACE INTO factor_metrics (as_of, factor, vol, beta) VALUES (date('now'), ?, ?, ?)`).bind(f, vol, beta).run();
+    }
+    // Pairwise cov/corr snapshot (store symmetric; enforce i<=j)
+    for (let i=0;i<factors.length;i++) {
+      for (let j=i;j<factors.length;j++) {
+        const fi = factors[i], fj = factors[j];
+        const c = cov(series[fi], series[fj]);
+        const vi = cov(series[fi], series[fi]);
+        const vj = cov(series[fj], series[fj]);
+        const corr = (vi>0 && vj>0)? c/Math.sqrt(vi* vj) : 0;
+        await env.DB.prepare(`INSERT OR REPLACE INTO factor_risk_model (as_of, factor_i, factor_j, cov, corr) VALUES (date('now'), ?, ?, ?, ?)`).bind(fi, fj, c, corr).run();
+      }
+    }
+    return { ok:true, factors: factors.length };
+  } catch (e) { log('risk_model_error', { error:String(e) }); return { ok:false, error:String(e) }; }
+}
+
+// ----- Bayesian smoothing of factor returns (simple shrink to grand mean) -----
+async function smoothFactorReturns(env: Env) {
+  try {
+    const look = 90;
+    const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${look-1} day`).all();
+    const rows = (rs.results||[]) as any[]; if (!rows.length) return { ok:false, skipped:true };
+    const byFactor: Record<string, number[]> = {};
+    for (const r of rows) { const f=String(r.factor); const v=Number(r.ret); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push(v); }
+    const allVals: number[] = []; for (const v of Object.values(byFactor)) allVals.push(...v);
+    if (!allVals.length) return { ok:false, skipped:true };
+    const globalMean = allVals.reduce((s,x)=>s+x,0)/allVals.length;
+    const globalVar = allVals.reduce((s,x)=> s+(x-globalMean)*(x-globalMean),0)/(allVals.length-1 || 1);
+    const priorMean = globalMean; const priorVar = globalVar;
+    const today = new Date().toISOString().slice(0,10);
+    for (const [f, vals] of Object.entries(byFactor)) {
+      const n = vals.length; const sampleMean = vals.reduce((s,x)=>s+x,0)/n;
+      const sampleVar = vals.reduce((s,x)=> s+(x-sampleMean)*(x-sampleMean),0)/(n-1 || 1);
+      // Conjugate normal-normal with unknown variance approximated: weight by n/(n+k)
+      const k = Math.max(1, Math.round( (sampleVar>0? sampleVar: priorVar) / (priorVar || 1e-6) ));
+      const weight = n / (n + k);
+      const shrunk = weight*sampleMean + (1-weight)*priorMean;
+      await env.DB.prepare(`INSERT OR REPLACE INTO factor_returns_smoothed (as_of, factor, ret_smoothed) VALUES (?,?,?)`).bind(today, f, shrunk).run();
+    }
+    return { ok:true };
+  } catch (e) { log('smooth_factor_returns_error', { error:String(e) }); return { ok:false, error:String(e) }; }
+}
+
+// ----- Signal quality metrics (IC stability & half-life) -----
+async function computeSignalQuality(env: Env) {
+  try {
+    const rs = await env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic WHERE as_of >= date('now','-89 day') ORDER BY as_of ASC`).all();
+    const rows = (rs.results||[]) as any[]; if (!rows.length) return { ok:false, skipped:true };
+    const byFactor: Record<string,{d:string;ic:number}[]> = {};
+    for (const r of rows) { const f=String(r.factor); const v=Number(r.ic); if (!Number.isFinite(v)) continue; (byFactor[f] ||= []).push({ d:String(r.as_of), ic:v }); }
+    const today = new Date().toISOString().slice(0,10);
+    for (const [f, arr] of Object.entries(byFactor)) {
+      if (arr.length < 5) continue;
+      const ics = arr.map(o=> o.ic);
+      const mean = ics.reduce((s,x)=>s+x,0)/ics.length;
+      const vol = Math.sqrt(Math.max(0, ics.reduce((s,x)=> s+(x-mean)*(x-mean),0)/(ics.length-1)));
+      // Autocorr lag1
+      let num=0,den=0; for (let i=1;i<ics.length;i++){ num += (ics[i]-mean)*(ics[i-1]-mean); }
+      for (const v of ics) den += (v-mean)*(v-mean);
+      const ac1 = den? num/den : 0;
+      // Half-life from AR(1): hl = -ln(2)/ln(|phi|)
+      const phi = Math.min(0.999, Math.max(-0.999, ac1));
+      const halfLife = phi<=0 ? null : Math.log(0.5)/Math.log(phi);
+      await env.DB.prepare(`INSERT OR REPLACE INTO signal_quality_metrics (as_of, factor, ic_mean, ic_vol, ic_autocorr_lag1, ic_half_life) VALUES (?,?,?,?,?,?)`)
+        .bind(today, f, mean, vol, ac1, halfLife).run();
+    }
+    return { ok:true };
+  } catch (e) { log('signal_quality_error', { error:String(e) }); return { ok:false, error:String(e) }; }
+}
+
+// ----- Portfolio daily PnL & turnover cost estimation -----
+async function computePortfolioPnL(env: Env) {
+  try {
+    // Need previous day NAV and today NAV; simple return plus turnover proxy from lot changes.
+    const navs = await env.DB.prepare(`SELECT portfolio_id, as_of, market_value FROM portfolio_nav ORDER BY as_of ASC`).all();
+    const rows = (navs.results||[]) as any[];
+    const byPortfolio: Record<string,{d:string; mv:number}[]> = {};
+    for (const r of rows) { const pid=String(r.portfolio_id); const mv=Number(r.market_value)||0; const d=String(r.as_of||''); if (!d) continue; (byPortfolio[pid] ||= []).push({ d, mv }); }
+    for (const [pid, arr] of Object.entries(byPortfolio)) {
+      if (arr.length < 2) continue;
+      arr.sort((a,b)=> a.d.localeCompare(b.d));
+      for (let i=1;i<arr.length;i++) {
+        const prev = arr[i-1], cur = arr[i];
+        if (prev.mv>0 && cur.mv>0) {
+          const ret = (cur.mv - prev.mv)/prev.mv;
+          // Turnover cost placeholder: 0 (would require trade ledger); realized pnl approx diff
+          await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_pnl (portfolio_id, as_of, ret, turnover_cost, realized_pnl) VALUES (?,?,?,?,?)`)
+            .bind(pid, cur.d, ret, 0, (cur.mv-prev.mv)).run();
+        }
+      }
+    }
+    return { ok:true };
+  } catch (e) { log('portfolio_pnl_error', { error:String(e) }); return { ok:false, error:String(e) }; }
+}
+
 // Snapshot portfolio factor exposures into history table
 async function snapshotPortfolioFactorExposure(env: Env) {
   try {
@@ -1621,37 +1742,29 @@ export default {
       return json({ ok:true, version: APP_VERSION });
     }
 
-    // List factor weights
-    if (url.pathname === '/admin/factor-weights' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      try {
-        const rs = await env.DB.prepare(`SELECT version, factor, weight, active, created_at FROM factor_weights ORDER BY version DESC, factor ASC`).all();
-        return json({ ok:true, rows: rs.results||[] });
-      } catch (e:any) {
-        return json({ ok:false, error:String(e) },500);
-      }
-    }
-    // Upsert factor weights (overwrite version)
+    // Factor weights CRUD
     if (url.pathname === '/admin/factor-weights' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const body: any = await req.json().catch(()=>({}));
-      const version = (body.version || new Date().toISOString().slice(0,19).replace(/[:T]/g,'').replace(/-/g,''));
+      const version = (body.version||'').toString().trim() || ('manual'+Date.now());
       const weights = Array.isArray(body.weights) ? body.weights : [];
       if (!weights.length) return json({ ok:false, error:'weights_required' },400);
-      // deactivate previous active
-      try {
-        await env.DB.prepare(`UPDATE factor_weights SET active=0 WHERE active=1`).run();
-        for (const w of weights) {
-          if (!w.factor || typeof w.weight !== 'number') continue;
-          await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(version, String(w.factor), Number(w.weight), 1).run();
-        }
-  audit(env, { actor_type:'admin', action:'upsert', resource:'factor_weights', resource_id:version, details:{ count: weights.length } });
-  return json({ ok:true, version, count: weights.length });
-      } catch (e:any) {
-        return json({ ok:false, error:String(e) },500);
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_weights (version TEXT, factor TEXT, weight REAL, active INTEGER, created_at TEXT, PRIMARY KEY(version,factor));`).run();
+      await env.DB.prepare(`UPDATE factor_weights SET active=0 WHERE active=1`).run();
+      for (const w of weights) {
+        const f = (w.factor||'').toString();
+        const wt = Number(w.weight);
+        if (!f || !Number.isFinite(wt)) continue;
+        await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(version,f,wt,1).run();
       }
+      audit(env, { actor_type:'admin', action:'upsert', resource:'factor_weights', resource_id:version, details:{ factors: weights.length } });
+      return json({ ok:true, version, factors: weights.length });
     }
-    // Auto compute factor weights based on trailing IC magnitudes
+    if (url.pathname === '/admin/factor-weights' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT version, factor, weight, active, created_at FROM factor_weights ORDER BY created_at DESC, factor ASC LIMIT 200`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
     if (url.pathname === '/admin/factor-weights/auto' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       let q = await env.DB.prepare(`SELECT factor, AVG(ABS(ic)) AS strength FROM factor_ic WHERE as_of >= date('now','-29 day') GROUP BY factor`).all();
@@ -1661,7 +1774,6 @@ export default {
         rows = rows.filter(r=> enabled.includes(String(r.factor)));
       } catch {/* ignore */}
       if (!rows.length) {
-        // Try to compute IC now, then re-query (broader window)
         await computeFactorIC(env);
         q = await env.DB.prepare(`SELECT factor, AVG(ABS(ic)) AS strength FROM factor_ic WHERE as_of >= date('now','-90 day') GROUP BY factor`).all();
         rows = (q.results||[]) as any[];
@@ -1671,15 +1783,12 @@ export default {
         } catch {/* ignore */}
       }
       if (!rows.length) {
-        // Fallback: derive equal weights for default factors present in latest components row
         let comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
         if (!comp.results?.length) {
-          // generate a snapshot so fallback succeeds
-            try { await computeSignalsBulk(env, 30); } catch {/* ignore */}
-            comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
+          try { await computeSignalsBulk(env, 30); } catch {/* ignore */}
+          comp = await env.DB.prepare(`SELECT ts7, ts30, z_svi FROM signal_components_daily ORDER BY as_of DESC LIMIT 1`).all();
         }
-  // Even if still empty, proceed with synthetic baseline factors
-  const factorsFallback = ['ts7','ts30','z_svi'];
+        const factorsFallback = ['ts7','ts30','z_svi'];
         rows = factorsFallback.map(f=> ({ factor: f, strength: 1 }));
       }
       const sum = rows.reduce((a,r)=> a + (Number(r.strength)||0),0) || 1;
@@ -1689,8 +1798,8 @@ export default {
         const w = (Number(r.strength)||0)/sum;
         await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(genVersion, r.factor, w, 1).run();
       }
-  audit(env, { actor_type:'admin', action:'auto_weights', resource:'factor_weights', resource_id:genVersion, details:{ factors: rows.length } });
-  return json({ ok:true, version: genVersion, factors: rows.length });
+      audit(env, { actor_type:'admin', action:'auto_weights', resource:'factor_weights', resource_id:genVersion, details:{ factors: rows.length } });
+      return json({ ok:true, version: genVersion, factors: rows.length });
     }
 
     // Run alerts only (for tests / manual)
@@ -1791,6 +1900,43 @@ export default {
       // Return recent rows (descending like before) separate from aggregates
       const recent = rows.slice().sort((a,b)=> (a.as_of===b.as_of ? (a.factor<b.factor?-1:1) : (a.as_of>b.as_of?-1:1))).slice(0,400);
       return json({ ok:true, rows: recent, aggregates });
+    }
+    if (url.pathname === '/admin/factor-risk' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const day = url.searchParams.get('as_of') || new Date().toISOString().slice(0,10);
+      const rs = await env.DB.prepare(`SELECT factor_i, factor_j, cov, corr FROM factor_risk_model WHERE as_of = ?`).bind(day).all();
+      return json({ ok:true, as_of: day, pairs: rs.results||[] });
+    }
+    if (url.pathname === '/admin/factor-metrics' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const day = url.searchParams.get('as_of') || new Date().toISOString().slice(0,10);
+      const rs = await env.DB.prepare(`SELECT factor, vol, beta FROM factor_metrics WHERE as_of = ?`).bind(day).all();
+      return json({ ok:true, as_of: day, metrics: rs.results||[] });
+    }
+    if (url.pathname === '/admin/factor-returns-smoothed' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const day = url.searchParams.get('as_of') || new Date().toISOString().slice(0,10);
+      const rs = await env.DB.prepare(`SELECT factor, ret_smoothed FROM factor_returns_smoothed WHERE as_of = ?`).bind(day).all();
+      return json({ ok:true, as_of: day, returns: rs.results||[] });
+    }
+    if (url.pathname === '/admin/portfolio-pnl' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const pid = url.searchParams.get('portfolio_id');
+      const day = url.searchParams.get('as_of');
+      let sql = `SELECT portfolio_id, as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl`;
+      const cond: string[] = []; const binds: any[] = [];
+      if (pid) { cond.push('portfolio_id = ?'); binds.push(pid); }
+      if (day) { cond.push('as_of = ?'); binds.push(day); }
+      if (cond.length) sql += ' WHERE ' + cond.join(' AND ');
+      sql += ' ORDER BY as_of DESC LIMIT 500';
+      const rs = await env.DB.prepare(sql).bind(...binds as any).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/admin/signal-quality' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const day = url.searchParams.get('as_of') || new Date().toISOString().slice(0,10);
+      const rs = await env.DB.prepare(`SELECT factor, ic_mean, ic_vol, ic_autocorr_lag1, ic_half_life FROM signal_quality_metrics WHERE as_of = ?`).bind(day).all();
+      return json({ ok:true, as_of: day, metrics: rs.results||[] });
     }
     if (url.pathname === '/admin/factor-performance' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -2135,8 +2281,12 @@ export default {
   await updateDataCompleteness(env);
   await computeFactorIC(env); // daily IC update
   await computeFactorReturns(env); // daily factor returns
+  await computeFactorRiskModel(env); // rolling cov/corr + vol/beta
+  await smoothFactorReturns(env); // smoothed factor returns snapshot
+  await computeSignalQuality(env); // IC stability metrics
   await detectAnomalies(env);
   await snapshotPortfolioNAV(env);
+  await computePortfolioPnL(env);
   await snapshotPortfolioFactorExposure(env);
   log('cron_run', bulk);
     } catch (e) {

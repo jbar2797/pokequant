@@ -126,6 +126,14 @@ All notable changes to this project will be documented here.
 ### Changed
 - Version bump to 0.5.16 (spec, package, version.ts)
 
+## [0.5.17] - 2025-08-30
+### Added
+- Advanced factor risk & quality analytics: rolling covariance/correlation risk model (factor_risk_model), per-factor volatility & beta (factor_metrics), Bayesian-smoothed returns (factor_returns_smoothed), signal quality stability metrics (signal_quality_metrics), portfolio daily PnL (portfolio_pnl)
+- New admin endpoints: /admin/factor-risk, /admin/factor-metrics, /admin/factor-returns-smoothed, /admin/signal-quality, /admin/portfolio-pnl
+- Cron pipeline extended to populate new analytics daily (risk model, smoothed returns, signal quality, portfolio PnL)
+### Changed
+- Version bump to 0.5.17 (spec, package, version.ts)
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.

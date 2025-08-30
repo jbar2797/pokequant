@@ -318,6 +318,69 @@ CREATE INDEX IF NOT EXISTS idx_audit_action ON mutation_audit(action);`
     description: 'Add composite index to speed factor correlation window queries',
     sql: `CREATE INDEX IF NOT EXISTS idx_factor_returns_asof_factor ON factor_returns(as_of, factor);`
   }
+  ,
+  {
+    id: '0023_factor_risk_model',
+    description: 'Add factor_risk_model table for pairwise cov/corr matrices',
+    sql: `CREATE TABLE IF NOT EXISTS factor_risk_model (
+  as_of DATE,
+  factor_i TEXT,
+  factor_j TEXT,
+  cov REAL,
+  corr REAL,
+  PRIMARY KEY(as_of, factor_i, factor_j)
+);`
+  }
+  ,
+  {
+    id: '0024_factor_metrics',
+    description: 'Add factor_metrics table for rolling volatility and beta',
+    sql: `CREATE TABLE IF NOT EXISTS factor_metrics (
+  as_of DATE,
+  factor TEXT,
+  vol REAL,
+  beta REAL,
+  PRIMARY KEY(as_of,factor)
+);`
+  }
+  ,
+  {
+    id: '0025_factor_returns_smoothed',
+    description: 'Add factor_returns_smoothed table (Bayesian shrinkage of daily returns)',
+    sql: `CREATE TABLE IF NOT EXISTS factor_returns_smoothed (
+  as_of DATE,
+  factor TEXT,
+  ret_smoothed REAL,
+  PRIMARY KEY(as_of,factor)
+);`
+  }
+  ,
+  {
+    id: '0026_portfolio_pnl',
+    description: 'Add portfolio_pnl table for daily return & turnover cost',
+    sql: `CREATE TABLE IF NOT EXISTS portfolio_pnl (
+  portfolio_id TEXT,
+  as_of DATE,
+  ret REAL,
+  turnover_cost REAL,
+  realized_pnl REAL,
+  PRIMARY KEY(portfolio_id, as_of)
+);`
+  }
+  ,
+  {
+    id: '0027_signal_quality_metrics',
+    description: 'Add signal_quality_metrics table (IC stability & half-life)',
+    sql: `CREATE TABLE IF NOT EXISTS signal_quality_metrics (
+  as_of DATE,
+  factor TEXT,
+  ic_mean REAL,
+  ic_vol REAL,
+  ic_autocorr_lag1 REAL,
+  ic_half_life REAL,
+  PRIMARY KEY(as_of, factor)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

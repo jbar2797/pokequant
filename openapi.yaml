@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.16
+  version: 0.5.17
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -88,6 +88,31 @@ paths:
   /admin/factor-returns/run:
     post:
       summary: Force recomputation of factor returns for latest date
+      responses: { '200': { description: OK } }
+  /admin/factor-risk:
+    get:
+      summary: Latest factor covariance/correlation pairs
+      description: Returns factor pairwise covariance & correlation (rolling 60d window) for as_of date (query param optional, defaults today). pairs array includes factor_i, factor_j, cov, corr.
+      responses: { '200': { description: OK } }
+  /admin/factor-metrics:
+    get:
+      summary: Per-factor volatility & beta metrics
+      description: Returns factor_metrics rows (vol, beta) for as_of date (query param optional, defaults today).
+      responses: { '200': { description: OK } }
+  /admin/factor-returns-smoothed:
+    get:
+      summary: Bayesian-smoothed factor returns
+      description: Returns per-factor shrunken returns (ret_smoothed) for as_of date (query param optional, defaults today).
+      responses: { '200': { description: OK } }
+  /admin/signal-quality:
+    get:
+      summary: Signal quality stability metrics
+      description: Returns IC stability metrics (ic_mean, ic_vol, lag-1 autocorr, half-life) for factors at as_of date (query param optional, defaults today).
+      responses: { '200': { description: OK } }
+  /admin/portfolio-pnl:
+    get:
+      summary: Portfolio daily PnL snapshots
+      description: Returns portfolio_pnl rows (ret, turnover_cost, realized_pnl) filtered by optional portfolio_id and/or as_of.
       responses: { '200': { description: OK } }
   /admin/factor-ic/summary:
     get:
