@@ -490,6 +490,67 @@ async function snapshotPortfolioNAV(env: Env) {
   } catch (e) { log('portfolio_nav_error', { error:String(e) }); }
 }
 
+// Factor returns: compute top-bottom quintile forward return per enabled factor (using previous day factor values and forward price move)
+async function computeFactorReturns(env: Env) {
+  try {
+    const factorUniverse = await getFactorUniverse(env);
+    if (!factorUniverse.length) return { ok:false, skipped:true };
+    const meta = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest)) SELECT (SELECT d FROM prev) AS prev_d, (SELECT d FROM latest) AS latest_d`).all();
+    const mrow = (meta.results||[])[0] as any; if (!mrow?.prev_d || !mrow?.latest_d) return { ok:false, skipped:true };
+    const prevDay = mrow.prev_d as string; const nextDay = mrow.latest_d as string;
+    // Skip if already computed for all factors
+    const existing = await env.DB.prepare(`SELECT COUNT(*) AS c FROM factor_returns WHERE as_of=?`).bind(prevDay).all();
+    if (((existing.results||[])[0] as any)?.c >= factorUniverse.length) return { ok:true, skipped:true };
+    // Pull component + price data for prev day
+    const rs = await env.DB.prepare(`SELECT sc.card_id, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90,
+      (SELECT price_usd FROM prices_daily WHERE card_id=sc.card_id AND as_of=?) AS px_prev,
+      (SELECT price_usd FROM prices_daily WHERE card_id=sc.card_id AND as_of=?) AS px_next
+      FROM signal_components_daily sc WHERE sc.as_of=?`).bind(prevDay, nextDay, prevDay).all();
+    const rows = (rs.results||[]) as any[]; if (!rows.length) return { ok:false, skipped:true };
+    const forwardRet = (r:any)=> { const a=Number(r.px_prev)||0; const b=Number(r.px_next)||0; return (a>0 && b>0)? (b-a)/a : null; };
+    const factorValue = (r:any, f:string) => {
+      if (f==='risk') return r.vol;
+      return r[f];
+    };
+    for (const factor of factorUniverse) {
+      const usable = rows.filter(r=> Number.isFinite(factorValue(r,factor)) && Number.isFinite(forwardRet(r)));
+      if (usable.length < 10) continue;
+      const sorted = usable.slice().sort((a,b)=> Number(factorValue(a,factor)) - Number(factorValue(b,factor)));
+      const q = Math.max(1, Math.floor(sorted.length/5));
+      const bottom = sorted.slice(0,q);
+      const top = sorted.slice(-q);
+      const avg = (arr:any[])=> arr.reduce((s,x)=> s + (forwardRet(x)||0),0)/(arr.length||1);
+      const ret = avg(top) - avg(bottom);
+      await env.DB.prepare(`INSERT OR REPLACE INTO factor_returns (as_of, factor, ret) VALUES (?,?,?)`).bind(prevDay, factor, ret).run();
+    }
+    return { ok:true, as_of: prevDay };
+  } catch (e) {
+    log('factor_returns_error', { error:String(e) });
+    return { ok:false, error:String(e) };
+  }
+}
+
+// Snapshot portfolio factor exposures into history table
+async function snapshotPortfolioFactorExposure(env: Env) {
+  try {
+    const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
+    const d = (latest.results?.[0] as any)?.d; if (!d) return;
+    const ports = await env.DB.prepare(`SELECT id FROM portfolios`).all();
+    for (const p of (ports.results||[]) as any[]) {
+      const rs = await env.DB.prepare(`SELECT l.card_id,l.qty, sc.ts7, sc.ts30, sc.z_svi, sc.vol, sc.liquidity, sc.scarcity, sc.mom90 FROM lots l LEFT JOIN signal_components_daily sc ON sc.card_id=l.card_id AND sc.as_of=? WHERE l.portfolio_id=?`).bind(d, p.id).all();
+      const rows = (rs.results||[]) as any[]; if (!rows.length) continue;
+      const factors = ['ts7','ts30','z_svi','vol','liquidity','scarcity','mom90'];
+      const agg: Record<string,{w:number; sum:number}> = {};
+      for (const r of rows) { const q=Number(r.qty)||0; if (q<=0) continue; for (const f of factors) { const val = Number(r[f]); if (!Number.isFinite(val)) continue; const slot = agg[f]||(agg[f]={w:0,sum:0}); slot.w+=q; slot.sum+=val*q; } }
+      for (const f of factors) {
+        const a=agg[f]; if (!a||a.w<=0) continue;
+        const exposure = a.sum/a.w;
+        await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_factor_exposure (portfolio_id, as_of, factor, exposure) VALUES (?,?,?,?)`).bind(p.id, d, f, exposure).run();
+      }
+    }
+  } catch (e) { log('portfolio_factor_exposure_error', { error:String(e) }); }
+}
+
 // ----- Stub email send for alerts (no external provider integrated) -----
 async function sendEmailAlert(_env: Env, _to: string, _subject: string, _body: string) {
   // Placeholder – integrate provider (Resend) later. Logged only.
@@ -1398,6 +1459,16 @@ export default {
       const rs = await env.DB.prepare(`SELECT factor, COUNT(*) AS n, AVG(ic) AS avg_ic, AVG(ABS(ic)) AS avg_abs_ic FROM factor_ic WHERE as_of >= date('now','-90 day') GROUP BY factor`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
+    if (url.pathname === '/admin/factor-returns' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns ORDER BY as_of DESC, factor ASC LIMIT 400`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/admin/factor-returns/run' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const out = await computeFactorReturns(env);
+      return json(out);
+    }
 
     // Factor config CRUD
     if (url.pathname === '/admin/factors' && req.method === 'GET') {
@@ -1453,6 +1524,15 @@ export default {
       for (const f of factors) { const a = agg[f]; out[f] = a && a.w>0 ? +(a.sum/a.w).toFixed(6) : null; }
       return json({ ok:true, as_of:d, exposures: out });
     }
+    if (url.pathname === '/portfolio/exposure/history' && req.method === 'GET') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
+      const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND secret=?`).bind(pid,psec).all();
+      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+      const rs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? ORDER BY as_of DESC, factor ASC LIMIT 700`).bind(pid).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
 
     // Run backtest
     if (url.pathname === '/admin/backtests' && req.method === 'POST') {
@@ -1487,7 +1567,8 @@ export default {
         env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 30`).all(),
         env.DB.prepare(`SELECT version, factor, weight, active FROM factor_weights WHERE active=1`).all()
       ]);
-      return json({ ok:true, integrity, factor_ic: (ic as any).results||[], active_weights: (weights as any).results||[] });
+      const factorReturns = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns ORDER BY as_of DESC, factor ASC LIMIT 60`).all();
+      return json({ ok:true, integrity, factor_ic: (ic as any).results||[], active_weights: (weights as any).results||[], factor_returns: (factorReturns.results||[]) });
     }
 
     // Test seed utility (not documented) to insert cards & prices
@@ -1551,8 +1632,10 @@ export default {
   await runAlerts(env);
   await updateDataCompleteness(env);
   await computeFactorIC(env); // daily IC update
+  await computeFactorReturns(env); // daily factor returns
   await detectAnomalies(env);
   await snapshotPortfolioNAV(env);
+  await snapshotPortfolioFactorExposure(env);
   log('cron_run', bulk);
     } catch (e) {
   log('cron_error', { error: String(e) });

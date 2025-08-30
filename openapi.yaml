@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.6
+  version: 0.5.7
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -76,6 +76,30 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CardTimeseries' }
   /research/card-csv:
+              /admin/factor-returns:
+                get:
+                  summary: Latest stored factor daily top-bottom quintile returns
+                  security:
+                    - AdminToken: []
+                  responses:
+                    '200':
+                      description: ok
+              /admin/factor-returns/run:
+                post:
+                  summary: Force recomputation of factor returns for latest date
+                  security:
+                    - AdminToken: []
+                  responses:
+                    '200':
+                      description: ok
+              /portfolio/exposure/history:
+                get:
+                  summary: Portfolio factor exposure history (snapshots)
+                  security:
+                    - PortfolioAuth: []
+                  responses:
+                    '200':
+                      description: ok
     get:
       summary: Card CSV export
       responses: { '200': { description: CSV } }

@@ -225,6 +225,29 @@ ALTER TABLE signal_components_daily ADD COLUMN mom90 REAL;`
   created_at TEXT
 );`
   }
+  ,
+  {
+    id: '0015_factor_returns',
+    description: 'Add factor_returns table storing simple top-bottom quintile forward returns per factor',
+    sql: `CREATE TABLE IF NOT EXISTS factor_returns (
+  as_of DATE NOT NULL,
+  factor TEXT NOT NULL,
+  ret REAL,
+  PRIMARY KEY(as_of, factor)
+);`
+  }
+  ,
+  {
+    id: '0016_portfolio_factor_exposure',
+    description: 'Add portfolio_factor_exposure table for daily stored portfolio factor exposures',
+    sql: `CREATE TABLE IF NOT EXISTS portfolio_factor_exposure (
+  portfolio_id TEXT NOT NULL,
+  as_of DATE NOT NULL,
+  factor TEXT NOT NULL,
+  exposure REAL,
+  PRIMARY KEY(portfolio_id, as_of, factor)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

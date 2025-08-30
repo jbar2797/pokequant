@@ -54,11 +54,15 @@ All notable changes to this project will be documented here.
 
 ## [0.5.6] - 2025-08-30
 ### Added
-- Factor configuration CRUD endpoints: /admin/factors (GET, POST), /admin/factors/toggle, /admin/factors/delete
-- Portfolio factor exposure endpoint /portfolio/exposure reporting quantity-weighted latest component averages
-- Enhanced backtest metrics (avg_daily_spread, spread_vol, sharpe, max_drawdown, turnover) and new slippageBps param
 ### Changed
-- Backtest endpoint accepts slippageBps and returns richer metrics object
+
+## [0.5.7] - 2025-08-30
+### Added
+- factor_returns table & computation (daily top-bottom quintile returns per factor)
+- portfolio_factor_exposure snapshot table & cron snapshotter
+- /admin/factor-returns (list) & /admin/factor-returns/run (manual recompute)
+- /portfolio/exposure/history endpoint
+- factor_returns data added to /admin/snapshot
 
 ## [0.4.3] - 2025-08-29
 ### Added
