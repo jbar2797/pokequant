@@ -1,250 +1,361 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>PokeQuant — Signals & Portfolio</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
+  <title>PokeQuant — Premium Cards & Factor Analytics</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.4/dist/tailwind.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
-    .hover-row:hover { background: #f9fafb; }
-    .badge { border-radius: 0.25rem; padding: 0.15rem 0.4rem; }
-    .badge-buy { background: #d1fae5; color: #065f46; }
-    .badge-hold{ background: #e5e7eb; color: #374151; }
-    .badge-sell{ background: #fee2e2; color: #991b1b; }
-    .card-tiny { border: 1px solid #eee; border-radius: 8px; padding: 8px; background:#fff; }
-    .grid-auto { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-    @media (min-width:640px){ .grid-auto{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
-    @media (min-width:1024px){ .grid-auto{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+    :root { --grad: linear-gradient(135deg,#111827,#1f2937,#0f172a); }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .glass { background: rgba(255,255,255,0.06); backdrop-filter: blur(10px); }
+    .dark .glass { background: rgba(255,255,255,0.08); }
+    .badge { border-radius: 0.375rem; padding: 0.15rem 0.5rem; font-size: .65rem; font-weight:600; letter-spacing:.5px; }
+    .badge-buy { background: #05966922; color:#10b981; border:1px solid #10b98155; }
+    .badge-hold{ background: #6b728022; color:#9ca3af; border:1px solid #6b728055; }
+    .badge-sell{ background: #dc262622; color:#ef4444; border:1px solid #ef444455; }
+    .grid-movers { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
+    .card-tiny { border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px; background:linear-gradient(145deg,#1f2937,#111827); box-shadow:0 4px 14px -4px rgba(0,0,0,0.4); }
+    .light .card-tiny { background:#fff; border-color:#e5e7eb; }
+    .hover-row:hover { background: rgba(255,255,255,0.05); }
+    .light .hover-row:hover { background:#f9fafb; }
+    .section-card { border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:20px; background:linear-gradient(160deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015)); }
+    .light .section-card { background:#fff; border-color:#e5e7eb; }
+    .nav-active { color:#60a5fa; }
+    .scrollbar-thin::-webkit-scrollbar { height:8px; width:8px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background:#374151; border-radius:4px; }
   </style>
 </head>
-<body class="bg-gray-50 text-gray-900">
-  <div class="max-w-6xl mx-auto p-4">
-    <header class="mb-4 flex items-center justify-between">
-      <h1 class="text-2xl font-bold">PokeQuant — Signals & Portfolio</h1>
-      <a class="text-sm underline" href="https://pokequant.jonathanbarreneche.workers.dev/health" target="_blank" rel="noreferrer">API Health</a>
-    </header>
-
-    <div id="status" class="hidden mb-3 p-2 border rounded bg-yellow-50 text-yellow-900"></div>
-
-    <!-- Email subscribe -->
-    <section class="mb-6">
-      <h2 class="text-xl font-semibold mb-2">Email Alerts</h2>
-      <form id="sub" class="flex flex-col sm:flex-row gap-2">
-        <input id="email" type="email" placeholder="you@domain.com" class="border p-2 flex-1 rounded" required>
-        <button class="bg-black text-white px-4 py-2 rounded">Subscribe</button>
-      </form>
-      <p class="text-sm text-gray-600 mt-1">We’ll email when a tracked card’s signal changes or your watch alerts fire.</p>
-    </section>
-
-    <!-- Movers -->
-    <section class="mb-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-semibold">Top Movers</h2>
-        <button id="reloadMovers" class="text-sm underline">Reload</button>
+<body class="h-full bg-slate-950 text-slate-100 light:bg-slate-50 light:text-slate-900 transition-colors">
+  <div class="min-h-full flex flex-col">
+    <!-- Top Nav -->
+    <nav class="w-full sticky top-0 z-40 border-b border-slate-800 light:border-slate-200 bg-slate-950/80 light:bg-white/70 backdrop-blur flex items-center justify-between px-4 py-3">
+      <div class="flex items-center gap-6">
+        <span class="text-lg font-bold tracking-tight bg-gradient-to-r from-amber-400 to-pink-500 bg-clip-text text-transparent">PokeQuant</span>
+        <div class="hidden md:flex gap-4 text-sm font-medium">
+          <button data-view="overview" class="nav-link nav-active">Overview</button>
+          <button data-view="cards" class="nav-link">Cards</button>
+          <button data-view="portfolio" class="nav-link">Portfolio</button>
+          <button data-view="analytics" class="nav-link">Analytics</button>
+          <button data-view="admin" class="nav-link">Admin</button>
+        </div>
       </div>
-      <div id="movers" class="grid-auto"></div>
-    </section>
+      <div class="flex items-center gap-3">
+        <button id="themeToggle" class="text-xs px-3 py-1 rounded border border-slate-700 light:border-slate-300">🌙</button>
+        <a class="text-xs underline" href="https://pokequant.jonathanbarreneche.workers.dev/health" target="_blank">Health</a>
+      </div>
+    </nav>
 
-    <!-- Losers -->
-    <section class="mb-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-semibold">Biggest Losers</h2>
-      </div>
-      <div id="losers" class="grid-auto"></div>
-    </section>
+    <div id="status" class="hidden mx-4 mt-4 p-2 border rounded bg-yellow-200/20 text-amber-300 text-sm light:text-amber-800 light:bg-amber-50 light:border-amber-200"></div>
 
-    <!-- Discover / Search -->
-    <section class="mb-8">
-      <h2 class="text-xl font-semibold mb-2">Cards</h2>
-      <div class="flex flex-col md:flex-row gap-2 mb-2 items-center">
-        <input id="q" class="border p-2 rounded flex-1" placeholder="Search by name, set or id…">
-        <select id="set" class="border p-2 rounded">
-          <option value="">All sets</option>
-        </select>
-        <select id="rarity" class="border p-2 rounded">
-          <option value="">All rarities</option>
-          <option>Special illustration rare</option>
-          <option>Illustration Rare</option>
-          <option>Full Art</option>
-          <option>Ultra Rare</option>
-          <option>Promo</option>
-          <option>Rare Secret</option>
-          <option>Rare Rainbow</option>
-        </select>
-        <button id="btnReload" class="text-sm underline">Reload</button>
-      </div>
-      <div class="overflow-auto border rounded bg-white">
-        <table class="min-w-full">
-          <thead>
-            <tr class="bg-gray-100 text-left text-sm">
-              <th class="p-2">Card</th>
-              <th class="p-2">Set</th>
-              <th class="p-2">Rarity</th>
-              <th class="p-2">Price</th>
-              <th class="p-2">Signal</th>
-              <th class="p-2">Score</th>
-              <th class="p-2">Alert</th>
-              <th class="p-2">Card ID</th>
-            </tr>
-          </thead>
-          <tbody id="rows"></tbody>
-        </table>
-      </div>
-    </section>
+    <main class="flex-1 w-full max-w-7xl mx-auto px-4 py-6 space-y-10">
+      <!-- Overview View -->
+      <section data-panel="overview" class="space-y-8">
+        <div class="grid md:grid-cols-12 gap-6">
+          <div class="md:col-span-8 space-y-6">
+            <div class="section-card">
+              <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold flex items-center gap-2">Top Movers <span class="text-xs font-normal text-slate-400" id="moversTs"></span></h2>
+                <div class="flex gap-2 text-xs">
+                  <button id="reloadMovers" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Reload</button>
+                </div>
+              </div>
+              <div id="movers" class="grid-movers"></div>
+            </div>
+            <div class="section-card">
+              <h2 class="text-lg font-semibold mb-3">Biggest Losers</h2>
+              <div id="losers" class="grid-movers"></div>
+            </div>
+          </div>
+          <div class="md:col-span-4 space-y-6">
+            <div class="section-card">
+              <h3 class="font-semibold mb-3">Email Alerts</h3>
+              <form id="sub" class="space-y-2">
+                <input id="email" type="email" placeholder="you@domain.com" class="w-full bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 rounded px-3 py-2 text-sm" required>
+                <button class="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-600 hover:from-indigo-400 hover:to-fuchsia-500 text-white rounded px-3 py-2 text-sm font-medium">Subscribe</button>
+              </form>
+              <p class="text-xs text-slate-400 mt-2">Get notified when signals change or alerts fire.</p>
+            </div>
+            <div class="section-card">
+              <h3 class="font-semibold mb-3">Create Price Alert</h3>
+              <div class="space-y-2 text-sm">
+                <input id="alertCardQuick" class="w-full px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300" placeholder="Card ID (e.g., cardA)">
+                <input id="alertEmailQuick" class="w-full px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300" placeholder="Email">
+                <div class="flex gap-2">
+                  <select id="alertKindQuick" class="px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 flex-1">
+                    <option value="price_below">Price ≤</option>
+                    <option value="price_above">Price ≥</option>
+                  </select>
+                  <input id="alertThrQuick" type="number" step="0.01" class="px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 flex-1" placeholder="Threshold">
+                </div>
+                <div class="flex gap-2 items-center">
+                  <input id="alertSnoozeQuick" type="number" min="1" max="10080" class="px-2 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 w-24" placeholder="Snooze (m)">
+                  <button id="alertCreateQuick" class="flex-1 bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 rounded px-3 py-2">Create</button>
+                </div>
+                <div id="alertCreateMeta" class="text-[11px] text-slate-400 hidden"></div>
+              </div>
+            </div>
+            <div class="section-card">
+              <h3 class="font-semibold mb-3">Latest Metrics (sample)</h3>
+              <ul id="metricsMini" class="space-y-1 text-xs font-mono"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Cards Explorer View -->
+      <section data-panel="cards" class="hidden space-y-4">
+        <div class="section-card space-y-4">
+          <div class="flex flex-wrap gap-2 items-center text-sm">
+            <input id="q" class="px-3 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 flex-1 min-w-[200px]" placeholder="Search name / set / id">
+            <select id="set" class="px-3 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 min-w-[160px]">
+              <option value="">All sets</option>
+            </select>
+            <select id="rarity" class="px-3 py-2 rounded border bg-slate-900/60 light:bg-white border-slate-700 light:border-slate-300 min-w-[160px]">
+              <option value="">All rarities</option>
+              <option>Special illustration rare</option><option>Illustration Rare</option><option>Full Art</option><option>Ultra Rare</option><option>Promo</option><option>Rare Secret</option><option>Rare Rainbow</option>
+            </select>
+            <button id="btnReload" class="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 text-xs">Reload</button>
+          </div>
+          <div class="overflow-auto rounded border border-slate-800 light:border-slate-200 bg-slate-900/40 light:bg-white max-h-[600px] scrollbar-thin">
+            <table class="min-w-full text-sm">
+              <thead class="text-xs uppercase tracking-wide text-slate-400 light:text-slate-600 bg-slate-800/40 light:bg-slate-100">
+                <tr>
+                  <th class="p-2 text-left">Card</th>
+                  <th class="p-2 text-left">Set</th>
+                  <th class="p-2">Rarity</th>
+                  <th class="p-2">Price</th>
+                  <th class="p-2">Signal</th>
+                  <th class="p-2">Score</th>
+                  <th class="p-2">Alert</th>
+                  <th class="p-2">ID</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Portfolio View -->
+      <section data-panel="portfolio" class="hidden space-y-6">
+        <div class="grid md:grid-cols-3 gap-6">
+          <div class="section-card space-y-3 md:col-span-1">
+            <h3 class="font-semibold">Auth / Create</h3>
+            <div class="text-xs space-y-2">
+              <div class="space-y-1">
+                <label class="block text-slate-400 text-[11px]">Portfolio ID</label>
+                <input id="pfId" class="w-full px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 text-sm font-mono" placeholder="(create or paste)">
+              </div>
+              <div class="space-y-1">
+                <label class="block text-slate-400 text-[11px]">Secret</label>
+                <input id="pfSecret" class="w-full px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 text-sm font-mono" placeholder="•••••">
+              </div>
+              <div class="flex gap-2">
+                <button id="pfCreate" class="flex-1 bg-indigo-600 hover:bg-indigo-500 rounded px-2 py-2 text-xs">Create</button>
+                <button id="pfLoad" class="flex-1 bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300 rounded px-2 py-2 text-xs">Load</button>
+              </div>
+              <div class="flex gap-2">
+                <button id="pfRotate" class="flex-1 bg-fuchsia-600/80 hover:bg-fuchsia-500 rounded px-2 py-2 text-xs">Rotate Secret</button>
+              </div>
+            </div>
+          </div>
+          <div class="section-card space-y-4 md:col-span-2">
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Lots</h3>
+              <button id="pfAddLotBtn" class="text-xs underline">Add Lot</button>
+            </div>
+            <div id="pfLotsEmpty" class="text-xs text-slate-400 hidden">No lots yet.</div>
+            <div class="overflow-auto max-h-64 border border-slate-800 light:border-slate-200 rounded">
+              <table class="min-w-full text-xs">
+                <thead class="bg-slate-800/40 light:bg-slate-100">
+                  <tr><th class="p-2 text-left">Card</th><th class="p-2">Qty</th><th class="p-2">Cost</th><th class="p-2">Price</th><th class="p-2">Actions</th></tr>
+                </thead>
+                <tbody id="pfLots"></tbody>
+              </table>
+            </div>
+            <div id="pfTotals" class="text-xs text-slate-300"></div>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-6">
+          <div class="section-card space-y-3">
+            <h3 class="font-semibold">Targets & Orders</h3>
+            <div class="flex gap-2 text-xs">
+              <button id="pfLoadTargets" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Load Targets</button>
+              <button id="pfCreateOrder" class="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500">Create Order</button>
+              <button id="pfListOrders" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 light:bg-slate-200 light:hover:bg-slate-300">Orders</button>
+            </div>
+            <div id="pfTargets" class="text-xs font-mono text-slate-400"></div>
+            <div id="pfOrders" class="text-xs font-mono text-slate-400 space-y-1"></div>
+            <div id="pfOrderDetail" class="text-xs font-mono text-slate-300"></div>
+          </div>
+          <div class="section-card space-y-3">
+            <h3 class="font-semibold">PnL (Latest)</h3>
+            <div id="pfPnl" class="text-xs font-mono text-slate-400"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Analytics View -->
+      <section data-panel="analytics" class="hidden space-y-6">
+        <div class="section-card">
+          <h3 class="font-semibold mb-4">Factor Performance (Sample)</h3>
+          <canvas id="factorChart" height="140"></canvas>
+          <div id="factorChartLegend" class="text-[11px] text-slate-400 mt-2"></div>
+        </div>
+        <div class="section-card">
+          <h3 class="font-semibold mb-3">IC Summary (30d)</h3>
+          <div id="icSummary" class="grid md:grid-cols-3 gap-3 text-xs"></div>
+        </div>
+      </section>
+
+      <!-- Admin View -->
+      <section data-panel="admin" class="hidden space-y-6">
+        <div class="grid md:grid-cols-3 gap-6">
+          <div class="section-card space-y-3 md:col-span-1">
+            <h3 class="font-semibold">Admin Auth</h3>
+            <input id="admToken" type="password" placeholder="x-admin-token" class="w-full px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300 text-sm"/>
+            <button id="admSet" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded px-2 py-2 text-xs">Set Token</button>
+          </div>
+          <div class="section-card space-y-3 md:col-span-2">
+            <div class="flex items-center justify-between">
+              <h3 class="font-semibold">Alerts Stats</h3>
+              <div class="flex gap-2 text-xs">
+                <button id="admRefreshAlerts" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Refresh</button>
+              </div>
+            </div>
+            <div id="admAlertStats" class="text-xs font-mono text-slate-300"></div>
+            <div id="admAlertsList" class="max-h-64 overflow-auto border border-slate-800 light:border-slate-200 rounded text-xs"></div>
+          </div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-6">
+          <div class="section-card space-y-3">
+            <h3 class="font-semibold">Ingestion Schedule</h3>
+            <div class="flex gap-2 text-xs">
+              <button id="admRunDue" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700">Run Due (ingest)</button>
+            </div>
+            <div id="admRunDueResult" class="text-xs font-mono text-slate-300"></div>
+          </div>
+          <div class="section-card space-y-3">
+            <h3 class="font-semibold">Metrics Snapshot</h3>
+            <div id="admMetrics" class="text-xs font-mono text-slate-300"></div>
+          </div>
+        </div>
+      </section>
+    </main>
   </div>
 
-  <!-- Alert modal -->
-  <div id="alertModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center p-4 z-50">
-    <div class="bg-white max-w-md w-full rounded shadow-lg p-4 relative">
-      <button id="alertClose" class="absolute right-2 top-2 text-gray-500 hover:text-black">✕</button>
-      <h3 class="text-lg font-semibold mb-2">Create Price Alert</h3>
-      <div class="space-y-2">
-        <div class="text-sm text-gray-600">For card: <span id="alertCard" class="font-mono text-gray-900"></span></div>
-        <input id="aEmail" class="border p-2 w-full rounded" placeholder="you@domain.com">
+  <!-- Add Lot Modal -->
+  <div id="lotModal" class="fixed inset-0 hidden items-center justify-center bg-black/60 z-50 p-4">
+    <div class="w-full max-w-sm rounded-xl glass border border-slate-700 light:border-slate-200 p-5 relative">
+      <button id="lotModalClose" class="absolute top-2 right-2 text-slate-400 hover:text-white">✕</button>
+      <h3 class="font-semibold mb-3">Add Lot</h3>
+      <div class="space-y-2 text-sm">
+        <input id="lotCard" class="w-full px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Card ID"/>
         <div class="flex gap-2">
-          <select id="aKind" class="border p-2 rounded">
-            <option value="price_below">Price ≤ threshold</option>
-            <option value="price_above">Price ≥ threshold</option>
-          </select>
-          <input id="aThr" type="number" step="0.01" class="border p-2 rounded flex-1" placeholder="Threshold (USD)">
+          <input id="lotQty" type="number" step="1" class="flex-1 px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Qty"/>
+          <input id="lotCost" type="number" step="0.01" class="flex-1 px-2 py-2 rounded bg-slate-900/60 light:bg-white border border-slate-700 light:border-slate-300" placeholder="Cost USD"/>
         </div>
-        <button id="aSubmit" class="bg-black text-white px-4 py-2 rounded">Create alert</button>
+        <button id="lotAdd" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded px-3 py-2">Add</button>
       </div>
     </div>
   </div>
 
 <script>
-const WORKER_BASE = "https://pokequant.jonathanbarreneche.workers.dev";
+const WORKER_BASE = 'https://pokequant.jonathanbarreneche.workers.dev';
 const $ = s => document.querySelector(s);
-function setStatus(msg, kind='info'){ const el=$('#status'); if(!msg){el.classList.add('hidden');el.textContent='';return;} el.textContent=msg; el.classList.remove('hidden'); el.className='mb-3 p-2 border rounded '+(kind==='error'?'bg-red-50 text-red-900 border-red-200':kind==='success'?'bg-green-50 text-green-900 border-green-200':'bg-yellow-50 text-yellow-900 border-yellow-200'); setTimeout(()=>setStatus(''),4000);}
+const $$ = s => Array.from(document.querySelectorAll(s));
+function setStatus(msg, kind='info'){ const el=$('#status'); if(!msg){el.classList.add('hidden');el.textContent='';return;} el.textContent=msg; el.classList.remove('hidden'); const base='mx-4 mt-4 p-2 border rounded text-sm '; el.className= base + (kind==='error'?'bg-red-500/10 text-red-300 border-red-500/40 light:text-red-700 light:bg-red-50 light:border-red-200':kind==='success'?'bg-emerald-500/10 text-emerald-300 border-emerald-500/40 light:text-emerald-700 light:bg-emerald-50 light:border-emerald-200':'bg-amber-500/10 text-amber-300 border-amber-500/40 light:text-amber-800 light:bg-amber-50 light:border-amber-300'); setTimeout(()=>setStatus(''),4000); }
 function fmtUSD(x){ return (x==null||isNaN(Number(x)))?'—':'$'+Number(x).toFixed(2); }
-function imgTag(url){ return url?`<img src="${url}" class="w-16 h-auto rounded"/>`:''; }
+function miniBadge(signal){ const s=(signal||'—').toUpperCase(); let b='badge-hold'; if(s==='BUY') b='badge-buy'; if(s==='SELL') b='badge-sell'; return `<span class="badge ${b}">${s}</span>`; }
 
-async function fetchJSON(u, opts){ const r=await fetch(u,opts); if(!r.ok) throw new Error(r.status); return r.json(); }
+// THEME
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+let dark = localStorage.getItem('pq_dark') ? localStorage.getItem('pq_dark') === '1' : prefersDark;
+function applyTheme(){ if(dark){ document.documentElement.classList.add('dark'); document.body.classList.remove('light'); $('#themeToggle').textContent='🌙'; } else { document.documentElement.classList.remove('dark'); document.body.classList.add('light'); $('#themeToggle').textContent='☀️'; } }
+$('#themeToggle').addEventListener('click', ()=>{ dark=!dark; localStorage.setItem('pq_dark', dark?'1':'0'); applyTheme(); });
+applyTheme();
 
-async function loadMovers(){
-  try{
-    const [up,down] = await Promise.all([
-      fetchJSON(WORKER_BASE+'/api/movers?n=12'),
-      fetchJSON(WORKER_BASE+'/api/movers?dir=down&n=12')
-    ]);
-    const m = $('#movers'); m.innerHTML = up.map(c=>tile(c)).join('');
-    const l = $('#losers'); l.innerHTML = down.map(c=>tile(c)).join('');
-  }catch(e){ console.error(e); setStatus('Failed to load movers/losers','error'); }
-}
-function tile(c){
-  const price = (c.price_usd != null) ? fmtUSD(c.price_usd) : (c.price_eur != null ? '€'+Number(c.price_eur).toFixed(2) : '—');
-  const signal = (c.signal||'—').toString().toUpperCase();
-  let badge='badge-hold'; if(signal==='BUY') badge='badge-buy'; if(signal==='SELL') badge='badge-sell';
-  return `<div class="card-tiny">
-    <div class="flex gap-2">
-      <img src="${c.image_url||''}" class="w-12 h-auto rounded"/>
-      <div class="text-sm">
-        <div class="font-medium leading-4">${c.name}</div>
-        <div class="text-gray-500 text-xs">${c.set_name||''}</div>
-      </div>
-    </div>
-    <div class="mt-2 flex items-center justify-between text-sm">
-      <div>${price}</div>
-      <div><span class="badge ${badge}">${signal}</span></div>
-    </div>
-  </div>`;
-}
+// NAV
+$$('.nav-link').forEach(btn=> btn.addEventListener('click',()=> switchView(btn.getAttribute('data-view'))));
+function switchView(view){ $$('.nav-link').forEach(b=> b.classList.toggle('nav-active', b.getAttribute('data-view')===view));
+  $$('section[data-panel]').forEach(p=> { if(p.getAttribute('data-panel')===view) p.classList.remove('hidden'); else p.classList.add('hidden'); }); }
 
+// FETCH helper
+async function fetchJSON(u, opts){ const r=await fetch(u, opts); let j=null; try{ j=await r.json(); }catch{} if(!r.ok) throw new Error((j&&j.error)||('HTTP '+r.status)); return j; }
+
+// MOVERS
+async function loadMovers(){ try { const [up,down] = await Promise.all([
+  fetchJSON(WORKER_BASE+'/api/movers?n=12'), fetchJSON(WORKER_BASE+'/api/movers?dir=down&n=12')]);
+  $('#movers').innerHTML = up.map(tile).join(''); $('#losers').innerHTML = down.map(tile).join(''); $('#moversTs').textContent = new Date().toLocaleTimeString(); } catch(e){ setStatus('Failed movers','error'); } }
+function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); return `<div class="card-tiny text-xs space-y-1"> <div class="flex gap-2 items-start"><img src="${c.image_url||''}" class="w-10 h-auto rounded"/><div><div class="font-medium leading-4 line-clamp-2">${c.name}</div><div class="text-[10px] text-slate-400">${c.set_name||''}</div></div></div><div class="flex items-center justify-between"><span>${price}</span>${miniBadge(c.signal)}</div></div>`; }
+
+// CARDS EXPLORER
 let UNIVERSE = [];
 function unique(arr){ return Array.from(new Set(arr)); }
-function buildSetOptions(){
-  const sets = unique(UNIVERSE.map(c=>c.set_name).filter(Boolean)).sort();
-  const sel = $('#set'); sel.innerHTML = '<option value="">All sets</option>' + sets.map(s=>`<option>${s}</option>`).join('');
-}
+function buildSetOptions(){ const sets = unique(UNIVERSE.map(c=>c.set_name).filter(Boolean)).sort(); const sel=$('#set'); sel.innerHTML = '<option value="">All sets</option>' + sets.map(s=>`<option>${s}</option>`).join(''); }
+function renderCards(data){ const tb=$('#rows'); if(!data.length){ tb.innerHTML='<tr><td class="p-3 text-center text-xs text-slate-400" colspan="8">No cards</td></tr>'; return; } tb.innerHTML=data.map(c=>{ const price=(c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); const sig=(c.signal||'—').toUpperCase(); return `<tr class="hover-row">
+  <td class="p-2"><div class="flex gap-2 items-center"><img src="${c.image_url||''}" class="w-10 h-auto rounded"/><div class="leading-4"><div class="font-medium">${c.name}</div><div class="text-[10px] text-slate-400">${c.set_name||''}</div></div></div></td>
+  <td class="p-2 text-xs">${c.set_name||''}</td>
+  <td class="p-2 text-xs">${c.rarity||''}</td>
+  <td class="p-2 text-xs">${price}</td>
+  <td class="p-2">${miniBadge(sig)}</td>
+  <td class="p-2 text-xs">${c.score!=null?Number(c.score).toFixed(1):'—'}</td>
+  <td class="p-2 text-xs"><button class="underline" data-alert="${c.id}">Alert</button></td>
+  <td class="p-2 text-[10px] text-slate-500 font-mono">${c.id}</td>
+</tr>`; }).join(''); tb.querySelectorAll('button[data-alert]').forEach(b=> b.addEventListener('click',()=> { $('#alertCardQuick').value = b.getAttribute('data-alert'); switchView('overview'); setStatus('Card ID prefilled in alert widget','success'); })); }
+function filterCards(){ const q=$('#q').value.toLowerCase(); const set=$('#set').value; const rarity=$('#rarity').value.toLowerCase(); let list=UNIVERSE; if(q) list=list.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q))); if(set) list=list.filter(c=> c.set_name===set); if(rarity) list=list.filter(c=> (c.rarity||'').toLowerCase()===rarity); renderCards(list); }
+async function loadUniverse(){ setStatus('Loading cards…'); try { let data = await fetchJSON(WORKER_BASE+'/api/cards'); if(!data.length) data = await fetchJSON(WORKER_BASE+'/api/universe'); UNIVERSE=data; buildSetOptions(); filterCards(); setStatus('Cards loaded','success'); } catch(e){ setStatus('Cards load failed','error'); } }
+['q','set','rarity'].forEach(id=> $('#'+id).addEventListener('input', filterCards)); $('#btnReload').addEventListener('click', loadUniverse);
 
-function renderCards(data){
-  const tbody = $('#rows');
-  if(!Array.isArray(data)||!data.length){ tbody.innerHTML = '<tr><td class="p-3 text-sm text-gray-600" colspan="8">No cards.</td></tr>'; return; }
-  tbody.innerHTML = data.map(c => {
-    const price = (c.price_usd != null) ? fmtUSD(c.price_usd) : (c.price_eur != null ? '€'+Number(c.price_eur).toFixed(2) : '—');
-    const signal = (c.signal||'—').toString().toUpperCase();
-    let badge='badge-hold'; if(signal==='BUY') badge='badge-buy'; if(signal==='SELL') badge='badge-sell';
-    return `<tr class="hover-row">
-      <td class="p-2"><div class="flex gap-2 items-center"><img src="${c.image_url||''}" class="w-12 h-auto rounded"/><div><div class="font-medium">${c.name}</div></div></div></td>
-      <td class="p-2">${c.set_name||''}</td>
-      <td class="p-2">${c.rarity||''}</td>
-      <td class="p-2">${price}</td>
-      <td class="p-2"><span class="badge ${badge}">${signal}</span></td>
-      <td class="p-2">${c.score!=null?Number(c.score).toFixed(1):'—'}</td>
-      <td class="p-2"><button class="text-sm underline" data-alert="${c.id}">Set alert</button></td>
-      <td class="p-2 text-xs text-gray-600">${c.id}</td>
-    </tr>`;
-  }).join('');
+// SUBSCRIBE
+$('#sub').addEventListener('submit', async e=> { e.preventDefault(); const email=$('#email').value.trim(); if(!email) return; try { await fetchJSON(WORKER_BASE+'/api/subscribe',{ method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({email}) }); setStatus('Subscribed','success'); $('#email').value=''; } catch(e2){ setStatus('Subscription failed','error'); } });
 
-  tbody.querySelectorAll('button[data-alert]').forEach(btn=>{
-    btn.addEventListener('click',()=>openAlert(btn.getAttribute('data-alert')));
-  });
-}
+// QUICK ALERT
+$('#alertCreateQuick').addEventListener('click', async()=> { const email=$('#alertEmailQuick').value.trim(); const card=$('#alertCardQuick').value.trim(); const kind=$('#alertKindQuick').value; const threshold=Number($('#alertThrQuick').value); const snooze=Number($('#alertSnoozeQuick').value); if(!email||!card||!Number.isFinite(threshold)) return setStatus('Fill alert fields','error'); try { const body={ email, card_id:card, kind, threshold }; if(Number.isFinite(snooze)) body.snooze_minutes=snooze; const r= await fetchJSON(WORKER_BASE+'/alerts/create',{ method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body) }); setStatus('Alert created','success'); const meta = $('#alertCreateMeta'); meta.classList.remove('hidden'); meta.innerHTML = `id: <span class="font-mono">${r.id}</span><br/>suppress until: ${r.suppressed_until||'—'} | fired_count: ${r.fired_count}`; } catch(e){ setStatus('Alert create failed','error'); } });
 
-function filterCards(){
-  const q = $('#q').value.toLowerCase();
-  const set = $('#set').value;
-  const rarity = $('#rarity').value;
-  let list = UNIVERSE;
-  if (q) list = list.filter(c => (c.name||'').toLowerCase().includes(q) || (c.set_name||'').toLowerCase().includes(q) || (c.id||'').toLowerCase().includes(q));
-  if (set) list = list.filter(c => c.set_name === set);
-  if (rarity) list = list.filter(c => (c.rarity||'').toLowerCase() === rarity.toLowerCase());
-  renderCards(list);
-}
+// METRICS MINI
+async function loadMiniMetrics(){ try { const j = await fetchJSON(WORKER_BASE+'/admin/metrics',{ headers: admHeaders() }); const pick = j.rows.slice(0,6); $('#metricsMini').innerHTML = pick.map(r=> `<li>${r.metric}: <span class="text-emerald-300 light:text-emerald-700">${r.count}</span></li>`).join(''); } catch{} }
 
-async function loadUniverse(){
-  setStatus('Loading cards…');
-  try{
-    // prefer cards with signals; fallback to universe
-    let data = await fetchJSON(WORKER_BASE + '/api/cards');
-    if(!Array.isArray(data) || !data.length) data = await fetchJSON(WORKER_BASE + '/api/universe');
-    UNIVERSE = data;
-    buildSetOptions();
-    filterCards();
-    setStatus('Cards loaded.','success');
-  }catch(e){ console.error(e); setStatus('Failed to load cards','error'); }
-}
+// PORTFOLIO
+function pfHeaders(){ const id=$('#pfId').value.trim(); const sec=$('#pfSecret').value.trim(); return id&&sec? { 'x-portfolio-id':id, 'x-portfolio-secret':sec } : {}; }
+$('#pfCreate').addEventListener('click', async()=>{ try { const r = await fetchJSON(WORKER_BASE+'/portfolio/create',{ method:'POST' }); $('#pfId').value=r.id; $('#pfSecret').value=r.secret; setStatus('Portfolio created','success'); loadPortfolio(); } catch(e){ setStatus('Create portfolio failed','error'); } });
+$('#pfLoad').addEventListener('click', loadPortfolio);
+$('#pfRotate').addEventListener('click', async()=>{ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/rotate-secret',{ method:'POST', headers: pfHeaders() }); $('#pfSecret').value=r.secret; setStatus('Secret rotated','success'); } catch(e){ setStatus('Rotate failed','error'); } });
+async function loadPortfolio(){ if(!$('#pfId').value||!$('#pfSecret').value) return; try { const r= await fetchJSON(WORKER_BASE+'/portfolio',{ headers: pfHeaders() }); const rows = r.rows||[]; const tb=$('#pfLots'); if(!rows.length) $('#pfLotsEmpty').classList.remove('hidden'); else $('#pfLotsEmpty').classList.add('hidden'); tb.innerHTML = rows.map(l=> `<tr class="border-b border-slate-800/40 light:border-slate-200"><td class="p-1">${l.card_id}</td><td class="p-1 text-right">${l.qty}</td><td class="p-1 text-right">${fmtUSD(l.cost_usd)}</td><td class="p-1 text-right">${l.price_usd?fmtUSD(l.price_usd):'—'}</td><td class="p-1 text-center"><button class="underline text-[10px]" data-del="${l.lot_id}">Del</button></td></tr>`).join(''); tb.querySelectorAll('button[data-del]').forEach(b=> b.addEventListener('click',()=> deleteLot(b.getAttribute('data-del')))); $('#pfTotals').textContent = `MV: ${fmtUSD(r.totals.market_value)} | Cost: ${fmtUSD(r.totals.cost_basis)} | Unrealized: ${fmtUSD(r.totals.unrealized)}`; loadPnl(); } catch(e){ setStatus('Load portfolio failed','error'); } }
+async function deleteLot(id){ if(!id) return; try { await fetchJSON(WORKER_BASE+'/portfolio/delete-lot',{ method:'POST', headers:{ 'content-type':'application/json', ...pfHeaders() }, body: JSON.stringify({ lot_id:id }) }); setStatus('Lot deleted','success'); loadPortfolio(); } catch(e){ setStatus('Delete failed','error'); } }
+$('#pfAddLotBtn').addEventListener('click',()=> $('#lotModal').classList.remove('hidden'));
+$('#lotModalClose').addEventListener('click',()=> $('#lotModal').classList.add('hidden'));
+$('#lotAdd').addEventListener('click', async()=> { const card=$('#lotCard').value.trim(); const qty=Number($('#lotQty').value); const cost=Number($('#lotCost').value); if(!card||!Number.isFinite(qty)||!Number.isFinite(cost)) return setStatus('Fill lot fields','error'); try { await fetchJSON(WORKER_BASE+'/portfolio/add-lot',{ method:'POST', headers:{'content-type':'application/json', ...pfHeaders()}, body: JSON.stringify({ card_id:card, qty, cost_usd:cost }) }); setStatus('Lot added','success'); $('#lotModal').classList.add('hidden'); loadPortfolio(); } catch(e){ setStatus('Add lot failed','error'); } });
+async function loadTargets(){ try { const r = await fetchJSON(WORKER_BASE+'/portfolio/targets',{ headers: pfHeaders() }); $('#pfTargets').textContent = JSON.stringify(r.rows||[], null, 0); } catch(e){ setStatus('Load targets failed','error'); } }
+async function createOrder(){ try { const r = await fetchJSON(WORKER_BASE+'/portfolio/orders',{ method:'POST', headers: pfHeaders(), body: JSON.stringify({}) }); setStatus('Order created','success'); listOrders(); } catch(e){ setStatus('Create order failed','error'); } }
+async function listOrders(){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/orders',{ headers: pfHeaders() }); const rows=r.rows||[]; $('#pfOrders').innerHTML = rows.map(o=> `<div><button class="underline" data-order="${o.id}">${o.id.slice(0,8)}</button> • ${o.status} • ${o.objective}</div>`).join(''); $('#pfOrders').querySelectorAll('button[data-order]').forEach(b=> b.addEventListener('click',()=> orderDetail(b.getAttribute('data-order')))); } catch(e){ setStatus('List orders failed','error'); } }
+async function orderDetail(id){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/orders/detail?id='+encodeURIComponent(id),{ headers: pfHeaders() }); $('#pfOrderDetail').textContent = JSON.stringify(r,null,2); } catch(e){ setStatus('Order detail failed','error'); } }
+async function loadPnl(){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/pnl',{ headers: pfHeaders() }); $('#pfPnl').textContent = JSON.stringify(r.rows||[],null,0); } catch{} }
+$('#pfLoadTargets').addEventListener('click', loadTargets); $('#pfCreateOrder').addEventListener('click', createOrder); $('#pfListOrders').addEventListener('click', listOrders);
 
-function openAlert(cardId){
-  $('#alertCard').textContent = cardId;
-  $('#alertModal').classList.remove('hidden'); $('#alertModal').classList.add('flex');
-}
-$('#alertClose').addEventListener('click',()=>{ $('#alertModal').classList.add('hidden'); $('#alertModal').classList.remove('flex'); });
-$('#aSubmit').addEventListener('click', async()=>{
-  const email = $('#aEmail').value.trim();
-  const kind = $('#aKind').value;
-  const thr = Number($('#aThr').value);
-  const card = $('#alertCard').textContent;
-  if(!email || !card || !Number.isFinite(thr)) return setStatus('Fill email and numeric threshold','error');
-  try{
-    const r = await fetch(WORKER_BASE+'/alerts/create', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({email,kind,threshold:thr,card_id:card})});
-    const j = await r.json();
-    if(!r.ok || !j.ok) throw new Error(j.error||('HTTP '+r.status));
-    setStatus('Alert created. Check your email.','success');
-    $('#alertClose').click();
-  }catch(e){ setStatus('Create alert failed','error'); }
-});
+// ANALYTICS
+let factorChart; async function loadFactorPerformance(){ try { const perf = await fetchJSON(WORKER_BASE+'/admin/factor-performance',{ headers: admHeaders() }); const factors=(perf.factors||[]).slice(0,10); const ctx=$('#factorChart'); const labels=factors.map(f=> f.factor); const data=factors.map(f=> f.ret_30d||0); if(factorChart) factorChart.destroy(); factorChart=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[{ label:'30d Return', data, backgroundColor: data.map(v=> v>0?'rgba(16,185,129,0.6)':'rgba(239,68,68,0.6)') }]}, options:{ scales:{ y:{ ticks:{ callback: v=> (v*100).toFixed(1)+'%' } }}}}); $('#factorChartLegend').textContent='Showing top 10 factors by presence; green positive.'; } catch(e){ $('#factorChartLegend').textContent='Factor performance unavailable (admin token required).'; } }
+async function loadIcSummary(){ try { const ic = await fetchJSON(WORKER_BASE+'/admin/factor-ic/summary',{ headers: admHeaders() }); const rows=(ic.rows||[]).slice(0,9); $('#icSummary').innerHTML = rows.map(r=> `<div class="p-3 rounded bg-slate-800/40 light:bg-slate-100 border border-slate-700/40 light:border-slate-200"><div class="font-semibold text-xs mb-1">${r.factor}</div><div class="text-[10px] space-y-0.5 leading-3"><div>IC30d: ${(r.ic_avg_30d??0).toFixed(3)}</div><div>Hit: ${(r.ic_hit_30d??0).toFixed(2)}</div><div>IR: ${(r.ic_ir_30d??0).toFixed(2)}</div></div></div>`).join(''); } catch(e){ $('#icSummary').textContent='IC summary unavailable.'; } }
 
-// Events
-$('#btnReload').addEventListener('click', loadUniverse);
-$('#reloadMovers').addEventListener('click', loadMovers);
-['q','set','rarity'].forEach(id=>{ $('#'+id).addEventListener('input', filterCards); });
+// ADMIN
+let ADMIN_TOKEN = localStorage.getItem('pq_admin_token')||''; if(ADMIN_TOKEN) $('#admToken').value=ADMIN_TOKEN; function admHeaders(){ return ADMIN_TOKEN? { 'x-admin-token': ADMIN_TOKEN }: {}; }
+$('#admSet').addEventListener('click',()=>{ ADMIN_TOKEN=$('#admToken').value.trim(); localStorage.setItem('pq_admin_token', ADMIN_TOKEN); setStatus('Admin token set','success'); refreshAdmin(); });
+$('#admRefreshAlerts').addEventListener('click', refreshAdmin);
+$('#admRunDue').addEventListener('click', async()=> { try { const j = await fetchJSON(WORKER_BASE+'/admin/ingestion-schedule/run-due?run=1',{ method:'POST', headers: { 'content-type':'application/json', ...admHeaders() }, body: '{}' }); $('#admRunDueResult').textContent = JSON.stringify(j,null,1); setStatus('Run-due executed','success'); } catch(e){ setStatus('Run-due failed','error'); } });
+async function refreshAdmin(){ loadMiniMetrics(); try { const stats = await fetchJSON(WORKER_BASE+'/admin/alerts/stats',{ headers: admHeaders() }); $('#admAlertStats').textContent = JSON.stringify(stats,null,1); const list = await fetchJSON(WORKER_BASE+'/admin/alerts',{ headers: admHeaders() }); $('#admAlertsList').innerHTML = '<table class="w-full"><thead class="sticky top-0 bg-slate-900 text-[10px]"><tr><th class="p-1 text-left">ID</th><th class="p-1">Email</th><th class="p-1">Card</th><th class="p-1">Kind</th><th class="p-1">Fired</th><th class="p-1">Supp</th></tr></thead><tbody>'+ (list.rows||[]).slice(0,100).map(a=> `<tr class="border-b border-slate-800/40"><td class="p-1 text-[10px] font-mono">${a.id.slice(0,8)}</td><td class="p-1 text-[10px]">${a.email}</td><td class="p-1 text-[10px]">${a.card_id}</td><td class="p-1 text-[10px]">${a.kind}</td><td class="p-1 text-[10px]">${a.fired_count||0}</td><td class="p-1 text-[10px]">${a.suppressed_until?'Y':'N'}</td></tr>`).join('') +'</tbody></table>'; } catch(e){ $('#admAlertStats').textContent='Admin endpoints require valid token.'; } }
 
-// Subscribe
-$('#sub').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const email = $('#email').value.trim(); if(!email) return;
-  try{
-    const r = await fetch(WORKER_BASE+'/api/subscribe', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({email}) });
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    setStatus('Subscribed!','success'); $('#email').value='';
-  }catch(e){ setStatus('Subscription failed','error'); }
-});
+// INITIAL LOADS
+loadMovers(); loadUniverse(); loadMiniMetrics(); loadFactorPerformance(); loadIcSummary(); refreshAdmin();
 
-// Boot
-loadMovers();
-loadUniverse();
+// VIEW HOOKS on change
+// Lazy reload certain panels when activated
+document.addEventListener('click', e=> { if(e.target.classList && e.target.classList.contains('nav-link')) { const v=e.target.getAttribute('data-view'); if(v==='analytics'){ loadFactorPerformance(); loadIcSummary(); } if(v==='portfolio'){ loadPortfolio(); } if(v==='admin'){ refreshAdmin(); } }});
+
 </script>
 </body>
 </html>

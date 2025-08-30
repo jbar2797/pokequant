@@ -8,9 +8,22 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+### Added
+- Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
 ### Planned
 - Retry & backoff for alert email sending with failure metrics aggregation
 - Drop legacy plaintext portfolio_secret column after observation window
+
+## [0.6.2] - 2025-08-30
+### Added
+- Admin alerts listing endpoint `/admin/alerts` with filters (email, active=0|1, suppressed=0|1) returning suppression & escalation metadata.
+- Admin alerts stats endpoint `/admin/alerts/stats` summarizing counts and escalation buckets (ge5, ge10, ge25).
+- Portfolio order detail endpoint `/portfolio/orders/detail` returning stored suggestions (factor_deltas, trades) and executed_trades.
+- Ingestion schedule run-due enhancement: `/admin/ingestion-schedule/run-due` supports `?run=1` or body `{ run: true }` to immediately perform incremental ingestion for due datasets (records ingest.scheduled_run per dataset) via new reusable helper.
+- Enriched `/alerts/create` response with `suppressed_until` and `fired_count` fields plus optional initial snooze support.
+- Internal reusable `runIncrementalIngestion` helper shared by manual and scheduled ingestion paths.
+### Changed
+- Version bump to 0.6.2; OpenAPI updated with new admin & portfolio endpoints and enriched alert create response.
 
 ## [0.6.1] - 2025-08-30
 ### Added
