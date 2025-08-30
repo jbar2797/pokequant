@@ -161,6 +161,11 @@ const portfolioCrudSection = document.getElementById('portfolioCrudSection');
 const portfolioLotsBody = document.getElementById('portfolioLotsBody');
 const portfolioLotsEmpty = document.getElementById('portfolioLotsEmpty');
 const portfolioAddLotForm = document.getElementById('portfolioAddLotForm');
+const portfolioTargetsSection = document.getElementById('portfolioTargetsSection');
+let portfolioTargetsLoaded = false;
+let portfolioFactorTargets = {}; // current targets map
+let portfolioFactorExposures = {}; // latest exposures
+let portfolioOrdersCache = []; // recent orders list
 let currentPortfolioAuth = null; // { id, secret }
 
 function getPortfolioAuth(){
@@ -179,6 +184,9 @@ async function loadPortfolio(showToast=true){
     const r = await fetchJSON('/portfolio',{ headers });
     renderPortfolio(r);
     if(showToast) announce('Portfolio loaded','success');
+  // Load factor targets & exposures lazily after portfolio load
+  loadPortfolioTargetsAndExposures();
+  loadPortfolioOrders();
   } catch(e){ if(showToast) announce('Portfolio load failed','error'); }
 }
 
@@ -192,6 +200,7 @@ function renderPortfolio(r){
     else lotsMini.innerHTML = lots.slice(0,12).map(l=> `<div style="border:1px solid #253349;padding:6px 8px;border-radius:8px;background:#162132"><div style="font-size:11px;font-weight:600">${l.card_id}</div><div style="font-size:10px;opacity:.65">Qty ${l.qty}</div></div>`).join('');
   }
   if(portfolioCrudSection) portfolioCrudSection.style.display = 'flex';
+  if(portfolioTargetsSection) portfolioTargetsSection.style.display='flex';
   if(portfolioLotsBody){
     if(!lots.length){
       portfolioLotsBody.innerHTML='';
@@ -202,6 +211,163 @@ function renderPortfolio(r){
       wireLotRowActions();
     }
   }
+}
+
+// ---- Factor Targets & Orders ----
+async function loadPortfolioTargetsAndExposures(){
+  if(!currentPortfolioAuth) return;
+  const headers = { 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+  try {
+    const t = await fetchJSON('/portfolio/targets',{ headers });
+    portfolioFactorTargets = {};
+    (t.rows||[]).forEach(r=> { if(r.kind==='factor') portfolioFactorTargets[r.target_key]=r.target_value; });
+  } catch(e){ portfolioFactorTargets = {}; }
+  try {
+    const ex = await fetchJSON('/portfolio/exposure',{ headers });
+    portfolioFactorExposures = ex.exposures || {};
+  } catch(e){ portfolioFactorExposures = {}; }
+  renderTargetsUI();
+}
+
+function renderTargetsUI(){
+  if(!portfolioTargetsSection) return;
+  const hostId = 'portfolioTargetsContent';
+  let content = document.getElementById(hostId);
+  if(!content){
+    content = document.createElement('div');
+    content.id = hostId;
+    content.style.display='flex';
+    content.style.flexDirection='column';
+    content.style.gap='12px';
+    portfolioTargetsSection.appendChild(content);
+  }
+  const factors = Array.from(new Set([...Object.keys(portfolioFactorTargets), ...Object.keys(portfolioFactorExposures)])).sort();
+  if(!factors.length){ content.innerHTML='<div style="font-size:11px;opacity:.6">No factor data yet.</div>'; return; }
+  content.innerHTML = `
+    <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:500px">
+        <thead style="position:sticky;top:0;background:#101726"><tr>
+          <th style='text-align:left;padding:6px 8px'>Factor</th>
+          <th style='text-align:left;padding:6px 8px'>Exposure</th>
+          <th style='text-align:left;padding:6px 8px'>Target</th>
+          <th style='text-align:left;padding:6px 8px'>Delta</th>
+        </tr></thead>
+        <tbody>
+          ${factors.map(f=> {
+            const ex = portfolioFactorExposures[f];
+            const tgt = portfolioFactorTargets[f];
+            const delta = (ex!=null && tgt!=null)? (tgt - ex): null;
+            return `<tr data-factor='${f}'>
+              <td style='padding:4px 6px;font-size:11px;font-weight:600'>${f}</td>
+              <td style='padding:4px 6px'>${ex!=null? ex.toFixed(3):'—'}</td>
+              <td style='padding:4px 6px'><input type='number' step='0.01' data-target-input value='${tgt!=null? tgt:''}' style='width:80px;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:3px 4px;border-radius:4px;font-size:11px' /></td>
+              <td style='padding:4px 6px'>${delta!=null? delta.toFixed(3):'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div style='display:flex;gap:8px;flex-wrap:wrap'>
+      <button id='portfolioTargetsSave' style='background:#6366f1;border:1px solid #6366f1;color:#fff;padding:6px 12px;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600'>Save Targets</button>
+      <button id='portfolioCreateOrder' style='background:#2563eb;border:1px solid #2563eb;color:#fff;padding:6px 12px;border-radius:8px;font-size:11px;cursor:pointer;font-weight:600'>Create Order</button>
+      <button id='portfolioReloadTargets' style='background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 12px;border-radius:8px;font-size:11px;cursor:pointer'>Reload</button>
+    </div>
+    <div id='portfolioOrdersWrap' style='display:flex;flex-direction:column;gap:8px'>
+      <h4 style='margin:12px 0 0;font-size:12px;font-weight:600;letter-spacing:.5px'>Recent Orders</h4>
+      <div id='portfolioOrdersList' style='font-size:11px;display:flex;flex-direction:column;gap:4px'></div>
+      <div id='portfolioOrderDetail' style='font-size:11px;line-height:1.4'></div>
+    </div>
+  `;
+  // Wire buttons
+  content.querySelector('#portfolioTargetsSave')?.addEventListener('click', saveTargetsFromUI);
+  content.querySelector('#portfolioCreateOrder')?.addEventListener('click', ()=> createPortfolioOrder());
+  content.querySelector('#portfolioReloadTargets')?.addEventListener('click', loadPortfolioTargetsAndExposures);
+  renderOrdersList();
+}
+
+async function saveTargetsFromUI(){
+  if(!currentPortfolioAuth) return announce('Load portfolio first','error');
+  const map = {};
+  portfolioTargetsSection.querySelectorAll('tr[data-factor]').forEach(tr=> {
+    const f = tr.getAttribute('data-factor');
+    const val = parseFloat(tr.querySelector('input[data-target-input]').value);
+    if(Number.isFinite(val)) map[f]=val; // omit empties
+  });
+  try {
+    const headers = { 'content-type':'application/json', 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    await fetchJSON('/portfolio/targets',{ method:'POST', headers, body: JSON.stringify({ factors: map }) });
+    announce('Targets saved','success');
+    portfolioFactorTargets = map;
+    renderTargetsUI();
+  } catch(e){ announce('Save targets failed','error'); }
+}
+
+async function createPortfolioOrder(){
+  if(!currentPortfolioAuth) return announce('Load portfolio first','error');
+  try {
+    const headers = { 'content-type':'application/json', 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    const r = await fetchJSON('/portfolio/orders',{ method:'POST', headers, body: JSON.stringify({ objective: 'align_targets' }) });
+    announce('Order created','success');
+    await loadPortfolioOrders();
+    if(r.id) showOrderDetail(r.id);
+  } catch(e){ announce('Create order failed','error'); }
+}
+
+async function loadPortfolioOrders(){
+  if(!currentPortfolioAuth) return; 
+  try {
+    const headers = { 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    const r = await fetchJSON('/portfolio/orders',{ headers });
+    portfolioOrdersCache = r.rows || [];
+    renderOrdersList();
+  } catch(e){ portfolioOrdersCache = []; renderOrdersList(); }
+}
+
+function renderOrdersList(){
+  const list = document.getElementById('portfolioOrdersList');
+  if(!list) return;
+  if(!portfolioOrdersCache.length){ list.innerHTML = '<div style="opacity:.6">No orders</div>'; return; }
+  list.innerHTML = portfolioOrdersCache.slice(0,8).map(o=> `<div data-order-id='${o.id}' style='border:1px solid #253349;padding:6px 8px;border-radius:6px;background:#162132;display:flex;align-items:center;gap:8px'>
+    <span style='font-family:monospace'>${o.id.slice(0,8)}</span>
+    <span>${o.status}</span>
+    <span style='opacity:.6'>${o.objective||''}</span>
+    <button data-order-detail='${o.id}' style='margin-left:auto;background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 8px;border-radius:5px;cursor:pointer'>Detail</button>
+  </div>`).join('');
+  list.querySelectorAll('button[data-order-detail]').forEach(btn=> btn.addEventListener('click', ()=> showOrderDetail(btn.getAttribute('data-order-detail'))));
+}
+
+async function showOrderDetail(id){
+  if(!currentPortfolioAuth) return;
+  const pane = document.getElementById('portfolioOrderDetail');
+  if(pane) pane.innerHTML = '<div style="opacity:.6">Loading order…</div>';
+  try {
+    const headers = { 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    const r = await fetchJSON(`/portfolio/orders/detail?id=${encodeURIComponent(id)}`,{ headers });
+    if(!pane) return;
+    const sugg = r.suggestions || {}; const factorDeltas = sugg.factor_deltas || {}; const trades = (sugg.trades||[]);
+    pane.innerHTML = `<div style='border:1px solid #253349;padding:10px 12px;border-radius:8px;background:#101726'>
+      <div style='font-size:11px;margin-bottom:6px'><strong>Order</strong> ${r.id} • ${r.status}</div>
+      <div style='display:flex;flex-wrap:wrap;gap:8px;font-size:10px;opacity:.85'>${Object.entries(factorDeltas).map(([f,v])=> `<span style='border:1px solid #253349;padding:4px 6px;border-radius:6px;background:#162132'>${f}: ${v>=0?'+':''}${v.toFixed(3)}</span>`).join('')||'<em style="opacity:.5">No factor deltas</em>'}</div>
+      <div style='margin-top:8px;font-size:10px;opacity:.7'>Trades: ${trades.length||0}</div>
+      <div style='margin-top:8px;display:flex;gap:6px'>
+        <button id='portfolioOrderRefresh' style='background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:10px;padding:4px 8px;border-radius:5px;cursor:pointer'>Refresh</button>
+        <button id='portfolioOrderExecute' ${r.status==='executed'?'disabled':''} style='background:#16a34a;border:1px solid #16a34a;color:#fff;font-size:10px;padding:4px 8px;border-radius:5px;cursor:pointer;${r.status==='executed'?'opacity:.5;cursor:not-allowed':''}'>Execute</button>
+      </div>
+    </div>`;
+    pane.querySelector('#portfolioOrderRefresh')?.addEventListener('click', ()=> showOrderDetail(id));
+    pane.querySelector('#portfolioOrderExecute')?.addEventListener('click', ()=> executePortfolioOrder(id));
+  } catch(e){ if(pane) pane.innerHTML = '<div style="color:#f87171">Failed to load order</div>'; }
+}
+
+async function executePortfolioOrder(id){
+  if(!currentPortfolioAuth) return;
+  try {
+    const headers = { 'content-type':'application/json', 'x-portfolio-id': currentPortfolioAuth.id, 'x-portfolio-secret': currentPortfolioAuth.secret };
+    await fetchJSON('/portfolio/orders/execute',{ method:'POST', headers, body: JSON.stringify({ id }) });
+    announce('Order executed','success');
+    await loadPortfolioOrders();
+    showOrderDetail(id);
+  } catch(e){ announce('Execute failed','error'); }
 }
 
 function portfolioLotRow(l){
@@ -335,6 +501,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');
