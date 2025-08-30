@@ -40,8 +40,8 @@ function switchView(view){
   $$('.nav-link').forEach(b=> b.classList.toggle('nav-active', b.getAttribute('data-view')===view));
   $$('section[data-panel]').forEach(p=> { if(p.getAttribute('data-panel')===view) p.classList.remove('hidden'); else p.classList.add('hidden'); });
   // lazy triggers
-  if(view==='analytics'){ loadFactorPerformance(); loadIcSummary(); }
-  if(view==='portfolio'){ loadPortfolio(); }
+  if(view==='analytics'){ loadFactorPerformance(); loadIcSummary(); loadFactorCorrelations(); }
+  if(view==='portfolio'){ loadPortfolio(); loadExposureTrend(); }
   if(view==='admin'){ refreshAdmin(); }
 }
 $$('.nav-link').forEach(btn=> btn.addEventListener('click',()=> switchView(btn.getAttribute('data-view'))));
@@ -58,12 +58,12 @@ async function fetchJSON(u, opts){
 }
 
 // ---------- Movers ----------
-async function loadMovers(){ $('#movers').innerHTML = skeletonTiles(); $('#losers').innerHTML=skeletonTiles();
+async function loadMovers(){ ensureMoverHosts(); const moversEl=$('#movers'); const losersEl=$('#losers'); if(moversEl) moversEl.innerHTML = skeletonTiles(); if(losersEl) losersEl.innerHTML=skeletonTiles();
   try { const [up,down] = await Promise.all([
     fetchJSON(WORKER_BASE+'/api/movers?n=12'), fetchJSON(WORKER_BASE+'/api/movers?dir=down&n=12')]);
-    $('#movers').innerHTML = up.map(tile).join('');
-    $('#losers').innerHTML = down.map(tile).join('');
-    $('#moversTs').textContent = new Date().toLocaleTimeString();
+    if(moversEl) moversEl.innerHTML = up.map(tile).join('');
+    if(losersEl) losersEl.innerHTML = down.map(tile).join('');
+    $('#moversTs') && ($('#moversTs').textContent = new Date().toLocaleTimeString());
   } catch(e){ setStatus('Failed movers','error'); }
 }
 function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—'); return `<div class="card-tiny text-xs space-y-1">
@@ -72,6 +72,9 @@ function tile(c){ const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price
 </div>`; }
 function skeletonTiles(n=8){ return Array.from({length:n}).map(()=>`<div class="card-tiny animate-pulse h-[110px] bg-slate-800/40 light:bg-slate-200"></div>`).join(''); }
 $('#reloadMovers')?.addEventListener('click', loadMovers);
+
+// Ensure movers containers exist after layout refactor & robust fallback
+function ensureMoverHosts(){ if(!document.getElementById('movers')){ const el=document.createElement('div'); el.id='movers'; } if(!document.getElementById('losers')){ const el2=document.createElement('div'); el2.id='losers'; } }
 
 // ---------- Cards Explorer ----------
 let UNIVERSE = [];
@@ -137,7 +140,7 @@ async function refreshAdmin(){ loadMiniMetrics(); try { const stats = await fetc
 let moversInterval = setInterval(loadMovers, 60_000);
 
 // ---------- Initial Loads ----------
-loadMovers(); loadUniverse(); loadMiniMetrics(); loadFactorPerformance(); loadIcSummary(); refreshAdmin();
+loadMovers(); loadUniverse(); loadMiniMetrics(); loadFactorPerformance(); loadIcSummary(); refreshAdmin(); loadFactorCorrelations();
 
 // Enhance: global search bridges to cards view filtering
 const globalSearchEl = document.getElementById('globalSearch');

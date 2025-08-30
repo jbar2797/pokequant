@@ -210,6 +210,10 @@
             <h3 class="font-semibold">PnL (Latest)</h3>
             <canvas id="pnlSpark" height="50"></canvas>
             <div id="pfPnl" class="text-xs font-mono text-slate-400"></div>
+            <div class="mt-4">
+              <h4 class="font-semibold text-xs mb-1">Exposure Trend (Top Factors)</h4>
+              <canvas id="exposureTrend" height="90" aria-label="Portfolio exposure trend chart"></canvas>
+            </div>
           </div>
         </div>
       </section>
@@ -224,6 +228,11 @@
         <div class="section-card">
           <h3 class="font-semibold mb-3">IC Summary (30d)</h3>
           <div id="icSummary" class="grid md:grid-cols-3 gap-3 text-xs"></div>
+        </div>
+        <div class="section-card">
+          <h3 class="font-semibold mb-3">Factor Correlations (Heatmap)</h3>
+            <canvas id="corrHeatmap" height="300" aria-label="Factor correlation heatmap"></canvas>
+            <div id="corrLegend" class="text-[11px] text-slate-400 mt-2"></div>
         </div>
       </section>
 
