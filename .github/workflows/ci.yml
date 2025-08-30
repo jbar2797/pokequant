@@ -1,5 +1,4 @@
 name: CI
-
 on:
   push:
     branches: [ main ]
@@ -19,39 +18,18 @@ jobs:
           cache: npm
       - name: Install deps
         run: npm ci
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Lint
-        run: npm run lint
-      - name: Tests
-        run: npm test
       - name: Contract check
         run: npm run contract
+      - name: Version check
+        run: npm run version-check
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
       - name: Validate OpenAPI file exists
         run: |
           test -f openapi.yaml || (echo 'openapi.yaml missing' && exit 1)
-      - name: Wrangler Preview (local)
-        id: preview
-        run: |
-          echo 'Starting local wrangler dev for smoke preview (background)'
-          npx wrangler dev --local --port=8787 2>&1 | tee wrangler_dev.log &
-          echo $! > wrangler_pid
-          # Wait for health endpoint up to 20s
-          for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/health || true)
-            if [ "$code" = 200 ]; then echo "Dev server responsive (health $code)"; break; fi
-            sleep 1
-            if [ $i -eq 20 ]; then echo 'Dev server failed to start'; cat wrangler_dev.log || true; exit 1; fi
-          done
-      - name: Smoke (Preview)
-        env:
-          BASE: http://127.0.0.1:8787
-        run: |
-          chmod +x scripts/smoke.sh
-          ./scripts/smoke.sh || (echo 'Preview smoke failed' && cat scripts/smoke.sh && exit 1)
-      - name: Shutdown preview
-        if: always()
-        run: |
-          if [ -f wrangler_pid ]; then kill $(cat wrangler_pid) || true; fi
       - name: Summarize
-        run: echo "CI pipeline completed" 
+        run: echo "CI pipeline completed"

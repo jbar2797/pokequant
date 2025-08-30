@@ -9,6 +9,9 @@ All notable changes to this project will be documented here.
 - …
 - Track cache hit metrics (cache.hit.*) for public read endpoints
  - Add /admin/version for version introspection
+ - Expose cache_hit_ratios in /admin/metrics
+ - CI workflow: contract + version check, lint, typecheck, tests
+ - Stronger ETag invalidation signature (include latest svi & component dates)
 
 ## [0.2.4] - 2025-08-29
 - Add lightweight ETag support on public read endpoints (conditional GETs)

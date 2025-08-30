@@ -31,7 +31,12 @@ Provide as Wrangler vars to tune without code changes.
 See `openapi.yaml` and `docs/API_CONTRACT.md`.
 
 ## CI
-GitHub Actions runs lint, typecheck, tests, and validates OpenAPI file presence.
+GitHub Actions workflow runs:
+- install deps (node cache by lock hash)
+- contract check (`npm run contract`)
+- version sync check (`npm run version-check`)
+- lint, typecheck, tests
+Fail-fast on contract or version drift to keep spec, code, and version aligned.
 
 ## Roadmap (next increments)
 - Rate limiting (KV token bucket) for search & alerts
