@@ -4,13 +4,31 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch: {}
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Pre-flight Cloudflare Pages API check
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          set -e
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
+            echo "::error::Missing CF_API_TOKEN or CF_ACCOUNT_ID secret" >&2
+            exit 1
+          fi
+          echo "Listing Pages projects for account..."
+          status=$(curl -s -o resp.json -w "%{http_code}" -H "Authorization: Bearer $CF_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects") || true
+          echo "HTTP status: $status"
+          if [ "$status" != "200" ]; then
+            echo "::error::Failed to list Pages projects (status $status). Check: 1) Account ID correct 2) Token has 'Cloudflare Pages:Edit' permission 3) Token scoped to this account." >&2
+            jq '.errors // empty' resp.json || cat resp.json || true
+            exit 1
+          fi
+          echo "Project names present:" && (jq -r '.result[].name' resp.json || true)
       - name: Deploy public/ to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
