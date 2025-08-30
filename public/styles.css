@@ -103,6 +103,20 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 .max-h-360 { max-height:360px; }
 .max-h-520 { max-height:520px; }
 .skel-cell { height:12px; }
+
+/* Table utilities */
+.pq-table { width:100%; border-collapse:collapse; }
+.pq-table th { text-align:left; padding:6px 8px; font-weight:600; }
+.pq-table td { padding:4px 6px; }
+.table-head-sticky { position:sticky; top:0; background: var(--pq-surface); box-shadow:0 2px 0 0 var(--pq-border); }
+
+/* Print adjustments */
+@media print {
+  .sidebar, .topbar, #toastHost, #statusBanner, #cardSidePanel { display:none !important; }
+  body { background:#fff; color:#000; }
+  .panel { background:#fff; box-shadow:none; border:1px solid #ccc; }
+  a { color:#000; }
+}
 .fade-in { animation:fade .5s ease; }
 @keyframes fade { from { opacity:0; transform:translateY(4px);} to { opacity:1; transform:translateY(0);} }
 

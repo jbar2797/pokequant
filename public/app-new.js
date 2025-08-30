@@ -123,6 +123,11 @@ function renderCardSkeleton(n=12){
     <td colspan='6'><div class='skel skel-cell' style="margin:4px 0"></div></td>
   </tr>`).join('');
 }
+
+function skeletonRows(hostSelector, cols, n=8){
+  const host = document.querySelector(hostSelector); if(!host) return;
+  host.innerHTML = Array.from({length:n}).map(()=> `<tr class='skel'>${Array.from({length:cols}).map(()=> `<td><div class='skel skel-cell'></div></td>`).join('')}</tr>`).join('');
+}
 function renderPager(){
   const pager = document.getElementById('cardsPager');
   if(!pager) return;
@@ -751,7 +756,7 @@ async function loadAnomalies(ev){
   if(ev) ev.preventDefault();
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
   const panel = document.getElementById('anomaliesPanel'); if(panel) panel.setAttribute('aria-busy','true');
-  if(anomaliesBody) anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;opacity:.6">Loading…</td></tr>';
+  if(anomaliesBody) skeletonRows('#anomaliesBody',8,10);
   const fd = new FormData(anomaliesFilter);
   const status = fd.get('status');
   const qs = status? ('?status='+encodeURIComponent(status)) : '';
@@ -1006,7 +1011,8 @@ const backtestDetailHost = document.getElementById('backtestDetailHost');
 async function loadBacktests(){
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
   const panel = document.getElementById('backtestsPanel'); if(panel) panel.setAttribute('aria-busy','true');
-  backtestsHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading…</div>';
+  backtestsHost.innerHTML = `<table class='pq-table' style='font-size:10px;min-width:700px'><thead class='table-head-sticky'><tr><th>ID</th><th>Factor</th><th>Span</th><th>Ret</th><th>Sharpe</th><th>Created</th><th>Actions</th></tr></thead><tbody id='__btSkel'></tbody></table>`;
+  skeletonRows('#__btSkel',7,10);
   try {
     const r = await fetchJSON('/admin/backtests',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
     const rows = r.rows || r.backtests || [];
@@ -1056,7 +1062,8 @@ async function loadAudit(ev){
   if(ev) ev.preventDefault();
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
   const panel = document.getElementById('auditPanel'); if(panel) panel.setAttribute('aria-busy','true');
-  auditHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading…</div>';
+  auditHost.innerHTML = `<table class='pq-table' style='font-size:10px;min-width:820px'><thead class='table-head-sticky'><tr><th>Time</th><th>Resource</th><th>Action</th><th>Actor</th><th>Resource ID</th><th>Meta</th></tr></thead><tbody id='__auditSkel'></tbody></table>`;
+  skeletonRows('#__auditSkel',6,12);
   const fd = new FormData(auditFilter);
   const params = new URLSearchParams();
   ['resource','action','actor_type','limit'].forEach(k=> { const v = fd.get(k); if(v) params.append(k,v.toString()); });
@@ -1139,7 +1146,7 @@ async function loadAdminAlerts(e){
   if(e) e.preventDefault();
   if(!ADMIN_TOKEN){ announce('Set admin token first','error'); return; }
   const panel = document.getElementById('alertAdminPanel'); if(panel) panel.setAttribute('aria-busy','true');
-  if(alertAdminBody) alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;opacity:.6">Loading…</td></tr>';
+  if(alertAdminBody) skeletonRows('#alertAdminBody',9,12);
   const fd = new FormData(alertAdminFilters);
   const params = new URLSearchParams();
   for(const [k,v] of fd.entries()){ if(v) params.append(k, v.toString()); }
