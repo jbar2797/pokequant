@@ -18,6 +18,11 @@ All notable changes to this project will be documented here.
 - Drop legacy plaintext portfolio_secret column after observation window
 
 ## [0.6.2] - 2025-08-30
+## [0.6.3] - 2025-08-30
+### Added
+- Cloudflare Pages deploy workflow with secret/var validation and wrangler v3 pin; cache-busted frontend script now references 0.6.3 to trigger deploy.
+### Changed
+- Version bump to 0.6.3 across spec, package, index.html, and version.ts.
 ### Added
 - Admin alerts listing endpoint `/admin/alerts` with filters (email, active=0|1, suppressed=0|1) returning suppression & escalation metadata.
 - Admin alerts stats endpoint `/admin/alerts/stats` summarizing counts and escalation buckets (ge5, ge10, ge25).
