@@ -10,11 +10,11 @@
   <link rel="stylesheet" href="/styles.css?v=0.7.4" />
   </head>
   <body>
-  <a href="#mainContent" class="sr-only" onfocus="this.classList.remove('sr-only');this.style.cssText='position:absolute;left:8px;top:8px;background:#162132;color:#e5ecf5;padding:6px 10px;border:1px solid #253349;border-radius:6px;z-index:500'" onblur="this.classList.add('sr-only');this.removeAttribute('style')">Skip to content</a>
+  <a href="#mainContent" class="sr-only skip-link">Skip to content</a>
   <!-- Deployment banner removed post verification -->
-  <div id="srLive" aria-live="polite" style="position:absolute;left:-999px;height:1px;width:1px;overflow:hidden"></div>
-  <div id="toastHost" style="position:fixed;top:46px;right:14px;z-index:400" class="flex flex-col gap-8"></div>
-  <div id="statusBanner" style="position:fixed;top:24px;left:50%;transform:translateX(-50%);display:none;z-index:380" class="f11 btn-ghost"></div>
+  <div id="srLive" aria-live="polite" class="sr-only"></div>
+  <div id="toastHost" class="flex flex-col gap-8 fixed-tr"></div>
+  <div id="statusBanner" class="f11 btn-ghost center-banner"></div>
     <div class="app-shell">
       <aside class="sidebar">
     <div class="brand"><div class="brand-badge"></div> PokeQuant <span class="note" id="appVersion"></span></div>
@@ -47,9 +47,9 @@
             </div>
             <div class="panel" id="alertPanel">
               <h2>Create Alert (Quick)</h2>
-              <form id="alertQuickForm" class="form-inline items-end f12" style="gap:10px">
-                <label class="vcol">Email <input required name="email" class="field" style="width:190px" /></label>
-                <label class="vcol">Card ID <input required name="card_id" placeholder="e.g. card123" class="field" style="width:140px" /></label>
+              <form id="alertQuickForm" class="form-inline items-end f12">
+                <label class="vcol">Email <input required name="email" class="field w-190" /></label>
+                <label class="vcol">Card ID <input required name="card_id" placeholder="e.g. card123" class="field w-140" /></label>
                 <label class="vcol">Kind
                   <select name="kind" class="field">
                     <option value="above">above</option>
@@ -57,39 +57,39 @@
                   </select>
                 </label>
                 <label class="vcol">Threshold
-                  <input required name="threshold" type="number" step="0.01" class="field" style="width:110px" />
+                  <input required name="threshold" type="number" step="0.01" class="field w-110" />
                 </label>
                 <label class="vcol">Snooze (min)
-                  <input name="snooze" type="number" step="1" class="field" style="width:90px" />
+                  <input name="snooze" type="number" step="1" class="field w-90" />
                 </label>
-                <button type="submit" class="btn btn-indigo btn-lg" style="font-weight:600;letter-spacing:.5px">Create</button>
+                <button type="submit" class="btn btn-indigo btn-lg fw-600 ls-05">Create</button>
               </form>
-              <div id="alertQuickResult" class="f11" style="margin-top:10px;opacity:.75"></div>
+              <div id="alertQuickResult" class="f11 mt-3" style="opacity:.75"></div>
             </div>
             <div class="panel" id="alertAdminPanel">
-              <h2 class="flex items-center gap-10">Alerts (Admin) <button id="alertExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">CSV</button></h2>
-              <form id="alertAdminFilters" class="form-inline f11" style="margin-bottom:10px">
-                <label class="vcol">Email <input name="email" placeholder="filter email" class="field field-sm" style="width:170px" /></label>
+              <h2 class="flex items-center gap-10">Alerts (Admin) <button id="alertExportCsv" type="button" class="btn btn-sm btn-outline mla">CSV</button></h2>
+              <form id="alertAdminFilters" class="form-inline f11 mb-3">
+                <label class="vcol">Email <input name="email" placeholder="filter email" class="field field-sm w-170" /></label>
                 <label class="vcol">Active
-                  <select name="active" class="field field-sm" style="width:100px">
+                  <select name="active" class="field field-sm w-100">
                     <option value="">(any)</option>
                     <option value="1">Active</option>
                     <option value="0">Inactive</option>
                   </select>
                 </label>
                 <label class="vcol">Suppressed
-                  <select name="suppressed" class="field field-sm" style="width:120px">
+                  <select name="suppressed" class="field field-sm w-120">
                     <option value="">(any)</option>
                     <option value="1">Suppressed</option>
                     <option value="0">Unsuppressed</option>
                   </select>
                 </label>
-                <button type="submit" class="btn btn-ghost btn-lg" style="height:40px">Load</button>
-                <button type="button" id="alertAdminStatsBtn" class="btn btn-ghost btn-lg" style="height:40px">Stats</button>
+                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
+                <button type="button" id="alertAdminStatsBtn" class="btn btn-ghost btn-lg h-40">Stats</button>
               </form>
               <div id="alertAdminStats" class="f11" style="opacity:.75;margin-bottom:6px"></div>
               <div class="scroll-wrap max-h-320">
-                <table class="pq-table f11" style="min-width:780px">
+                <table class="pq-table f11 min-w-780">
                   <thead class="table-head-sticky"><tr>
                     <th>ID</th>
                     <th>Email</th>
@@ -109,23 +109,23 @@
             </div>
             <div class="panel" id="portfolioPanel">
               <h2>Portfolio Summary</h2>
-              <form id="portfolioAuth" class="form-inline f12" style="gap:10px;margin-bottom:12px">
-                <label class="vcol">ID <input name="pid" placeholder="portfolio id" class="field" style="width:150px" /></label>
-                <label class="vcol">Secret <input name="psec" placeholder="secret" class="field" style="width:170px" /></label>
+              <form id="portfolioAuth" class="form-inline f12 mb-3">
+                <label class="vcol">ID <input name="pid" placeholder="portfolio id" class="field w-150" /></label>
+                <label class="vcol">Secret <input name="psec" placeholder="secret" class="field w-170" /></label>
                 <button type="button" id="portfolioLoadBtn" class="btn btn-ghost btn-lg">Load</button>
                 <button type="button" id="portfolioRefreshBtn" class="btn btn-ghost btn-lg" title="Refresh">↻</button>
                 <button type="button" id="portfolioRotateSecretBtn" class="btn btn-indigo btn-lg" title="Rotate secret">Rotate Secret</button>
               </form>
               <div id="portfolioSummary" class="f12" style="opacity:.75">Enter credentials & load.</div>
-              <div id="portfolioLotsMini" class="grid grid-auto-tiles f11 mt-3" style="gap:8px"></div>
-              <div id="portfolioCrudSection" class="flex flex-col gap-12" style="margin-top:18px;display:none">
+              <div id="portfolioLotsMini" class="grid grid-auto-tiles f11 mt-3 gap-8"></div>
+              <div id="portfolioCrudSection" class="flex flex-col gap-12 mt-5" style="display:none">
                 <h3 class="f14 fw-600" style="margin:0">Lots</h3>
                 <form id="portfolioAddLotForm" class="form-inline items-end f11">
-                  <label class="vcol">Card ID <input required name="card_id" class="field field-sm" style="width:130px" /></label>
-                  <label class="vcol">Qty <input required type="number" step="1" name="qty" class="field field-sm" style="width:80px" /></label>
-                  <label class="vcol">Cost USD <input required type="number" step="0.01" name="cost_usd" class="field field-sm" style="width:100px" /></label>
-                  <label class="vcol">Acquired <input type="date" name="acquired_at" class="field field-sm" style="width:140px" /></label>
-                  <button type="submit" class="btn btn-indigo btn-sm" style="font-weight:600">Add Lot</button>
+                  <label class="vcol">Card ID <input required name="card_id" class="field field-sm w-140" /></label>
+                  <label class="vcol">Qty <input required type="number" step="1" name="qty" class="field field-sm w-80" /></label>
+                  <label class="vcol">Cost USD <input required type="number" step="0.01" name="cost_usd" class="field field-sm w-100" /></label>
+                  <label class="vcol">Acquired <input type="date" name="acquired_at" class="field field-sm w-140" /></label>
+                  <button type="submit" class="btn btn-indigo btn-sm fw-600">Add Lot</button>
                 </form>
                 <div class="scroll-wrap max-h-360">
                   <table id="portfolioLotsTable" class="pq-table f11 min-w-620">
@@ -144,18 +144,18 @@
                 </div>
                 <div id="portfolioLotsEmpty" class="f11" style="opacity:.6;display:none">No lots yet.</div>
               </div>
-              <div id="portfolioTargetsSection" style="margin-top:24px;display:none;flex-direction:column;gap:10px">
-                <h3 style="margin:0;font-size:14px;font-weight:600">Factor Targets (Coming Soon)</h3>
-                <div style="font-size:11px;opacity:.6">UI placeholder – will allow viewing & editing /portfolio/targets then creating optimization orders.</div>
+              <div id="portfolioTargetsSection" class="mt-6" style="display:none;flex-direction:column;gap:10px">
+                <h3 class="f14 fw-600" style="margin:0">Factor Targets (Coming Soon)</h3>
+                <div class="f11" style="opacity:.6">UI placeholder – will allow viewing & editing /portfolio/targets then creating optimization orders.</div>
               </div>
             </div>
             <div class="panel" id="adminMetricsPanel">
               <h2>Admin Metrics (Mini)</h2>
-              <form id="adminAuth" style="display:flex;gap:8px;font-size:12px;margin-bottom:8px">
-                <input id="adminTokenInput" placeholder="Admin token" style="flex:1;min-width:160px;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px" />
-                <button id="adminTokenSet" type="button" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:8px 14px;border-radius:8px;cursor:pointer">Set</button>
+              <form id="adminAuth" class="flex gap-8 f12 mb-2">
+                <input id="adminTokenInput" placeholder="Admin token" class="field w-full min-w-150" />
+                <button id="adminTokenSet" type="button" class="btn btn-ghost btn-lg">Set</button>
               </form>
-              <ul id="adminMetricsList" style="list-style:none;padding:0;margin:0;font-size:11px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px"></ul>
+              <ul id="adminMetricsList" class="f11 grid gap-4" style="list-style:none;padding:0;margin:0;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))"></ul>
             </div>
             <div class="panel" id="factorAnalyticsPanel">
               <h2 class="flex items-center gap-10">Factor Analytics <button type="button" id="factorAnalyticsRefresh" class="btn btn-sm mla">Refresh</button></h2>
