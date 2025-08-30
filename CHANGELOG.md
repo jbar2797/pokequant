@@ -13,6 +13,7 @@ All notable changes to this project will be documented here.
  - UI utilities: Introduced flex/gap/spacing utility classes and replaced upcoming inline styles (partial).
  - Performance: Added debounce (400ms) to admin filter inputs (alerts, anomalies, audit) to reduce redundant fetches.
  - UX: Added sortable cards table headers with aria-sort and aria-busy indicators on loading panels.
+ - Refactor: Introduced additional utility classes (flex/spacing/border/radius/background/sizing) and initial skeleton row helper; removed deprecated `public/app.js` legacy script.
 ### Added
 - Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
 - Front-end refactor: extracted inline script into `public/app.js` module; added toast notifications, loading skeletons for movers, slow-request warning toasts (>1500ms), light polling (60s) for movers, safer null guards, and improved error surfacing.

@@ -115,6 +115,14 @@ function renderCards(){
   renderPager();
   updateCardsHeaderSortState();
 }
+
+// Provide skeleton placeholder rows for large tables (cards only for now)
+function renderCardSkeleton(n=12){
+  const host = document.getElementById('cardsTableBody'); if(!host) return;
+  host.innerHTML = Array.from({length:n}).map(()=> `<tr class='skel'>
+    <td colspan='6'><div class='skel skel-cell' style="margin:4px 0"></div></td>
+  </tr>`).join('');
+}
 function renderPager(){
   const pager = document.getElementById('cardsPager');
   if(!pager) return;
