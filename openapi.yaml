@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.22
+  version: 0.5.23
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -23,6 +23,13 @@ paths:
           headers:
             Cache-Control: { schema: { type: string } }
             ETag: { schema: { type: string }, description: Strong ETag for base data signature }
+          content:
+            application/json:
+              examples:
+                sample:
+                  value:
+                    - { id: cardA, name: Charizard Holo, set_name: Base, rarity: Rare, types: fire|flying }
+                    - { id: cardB, name: Pikachu, set_name: Jungle, rarity: Common }
         '304': { description: Not Modified }
   /api/cards:
     get:
@@ -57,6 +64,13 @@ paths:
           headers:
             Cache-Control: { schema: { type: string } }
             ETag: { schema: { type: string } }
+          content:
+            application/json:
+              examples:
+                sample:
+                  value:
+                    - { id: cardA, pct_change_24h: 0.18, price_usd: 145.2 }
+                    - { id: cardZ, pct_change_24h: -0.12, price_usd: 54.1 }
         '304': { description: Not Modified }
   /api/card:
     get:
@@ -311,6 +325,11 @@ paths:
       description: May return Cache-Control: public, max-age=300; supports conditional GET with ETag
       responses:
         '200': { description: OK, headers: { Cache-Control: { schema: { type: string } }, ETag: { schema: { type: string } } } }
+          content:
+            application/json:
+              examples:
+                sample:
+                  value: [ { name: Base }, { name: Jungle } ]
         '304': { description: Not Modified }
   /api/rarities:
     get:
@@ -318,6 +337,11 @@ paths:
       description: May return Cache-Control: public, max-age=300; supports conditional GET with ETag
       responses:
         '200': { description: OK, headers: { Cache-Control: { schema: { type: string } }, ETag: { schema: { type: string } } } }
+          content:
+            application/json:
+              examples:
+                sample:
+                  value: [ { rarity: Common }, { rarity: Rare } ]
         '304': { description: Not Modified }
   /api/types:
     get:
@@ -325,6 +349,11 @@ paths:
       description: May return Cache-Control: public, max-age=300; supports conditional GET with ETag
       responses:
         '200': { description: OK, headers: { Cache-Control: { schema: { type: string } }, ETag: { schema: { type: string } } } }
+          content:
+            application/json:
+              examples:
+                sample:
+                  value: [ { type: fire }, { type: water } ]
         '304': { description: Not Modified }
   /api/search:
     get:
@@ -336,6 +365,14 @@ paths:
       responses:
     '200': { description: OK, headers: { 'X-RateLimit-Limit': { schema: { type: integer } }, 'X-RateLimit-Remaining': { schema: { type: integer } }, 'X-RateLimit-Reset': { schema: { type: integer } } } }
     '429': { description: Rate limited, headers: { 'Retry-After': { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+      '200':
+        content:
+          application/json:
+            examples:
+              sample:
+                value:
+                  - { id: cardA, name: Charizard Holo, rarity: Rare, score: 7.1, price_usd: 123.45 }
+                  - { id: cardB, name: Pikachu, rarity: Common, score: 3.4, price_usd: 12.34 }
   /portfolio/create:
     post:
       summary: Create portfolio
@@ -389,6 +426,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminMetricsResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows: [ { d: 2025-08-29, metric: req_total, count: 123 } ]
+                    latency: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
+                    cache_hits: [ { d: 2025-08-29, metric: cache.hit.universe, count: 15 } ]
+                    cache_hit_ratios: { universe: 0.65 }
   /admin/latency:
     get:
       summary: Latest latency snapshot (admin)
@@ -412,6 +457,11 @@ paths:
                         p50_ms: { type: number, nullable: true }
                         p95_ms: { type: number, nullable: true }
                 required: [ok, rows]
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
   /admin/run-alerts:
     post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
   security: [ { AdminToken: [] } ]
@@ -495,6 +545,13 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RetentionResult' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    deleted: { metrics_daily: 42, factor_returns: 0 }
+                    ms: 18
+                    overrides: { metrics_daily: 10 }
   /admin/backtests/{id}:
     get:
       summary: Get backtest details (admin)

@@ -8,6 +8,11 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+## [0.5.23] - 2025-08-29
+### Added
+- OpenAPI examples for public & admin metrics endpoints; SECURITY.md; monitoring checklist & portfolio secrets docs.
+### Changed
+- Version bump to 0.5.23.
 ## [0.5.22] - 2025-08-29
 ### Added
 - OpenAPI securitySchemes (AdminToken, IngestToken, PortfolioAuth) and applied security requirements to protected endpoints.

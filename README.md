@@ -58,5 +58,24 @@ Refined goals:
 - Enhanced signal explainability (component breakdown in API)
 - Coverage threshold increases (ratchet up over time)
 
+### Monitoring Checklist (MVP)
+
+- Daily cron success: confirm /admin/metrics latency + recent factor analytics rows.
+- Error rate: count of `req_error` (future planned metric).
+- Cache effectiveness: `cache_hit_ratios` in /admin/metrics.
+- Retention job: run /admin/retention weekly and review deleted counts.
+- Portfolio usage: audit trail entries `resource=lot` for growth trends.
+
+### Portfolio Secrets
+
+Creating a portfolio (`POST /portfolio/create`) returns `{ id, secret }`. Store the secret securely client-side; all subsequent calls include both headers:
+
+```
+x-portfolio-id: <id>
+x-portfolio-secret: <secret>
+```
+
+If a secret leaks, create a new portfolio (rotation endpoint TBD) and migrate positions.
+
 ## License
 Proprietary (set desired license).
