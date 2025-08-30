@@ -19,6 +19,11 @@ All notable changes to this project will be documented here.
 
 ## [0.6.2] - 2025-08-30
 ## [0.6.3] - 2025-08-30
+## [0.6.4] - 2025-08-30
+### Added
+- Temporary conspicuous deployment test banner (0.6.4) in UI to verify Cloudflare Pages updates; slight header background tweak.
+### Changed
+- Version bump to 0.6.4 across code/spec and cache-busted script reference.
 ### Added
 - Cloudflare Pages deploy workflow with secret/var validation and wrangler v3 pin; cache-busted frontend script now references 0.6.3 to trigger deploy.
 ### Changed

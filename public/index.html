@@ -38,7 +38,9 @@
   </style>
 </head>
 <body class="h-full bg-slate-950 text-slate-100 light:bg-slate-50 light:text-slate-900 transition-colors antialiased">
-  <div class="h-full flex" role="application">
+  <!-- DEPLOY TEST BANNER (remove after verification) -->
+  <div class="fixed top-0 left-0 right-0 z-[100] text-center text-[11px] font-semibold tracking-wide py-1 bg-fuchsia-600 text-white shadow-lg">DEPLOY TEST 0.6.4 – If you can read this, Pages updated ✅</div>
+  <div class="h-full flex pt-6" role="application">
     <!-- Sidebar -->
     <aside class="hidden md:flex flex-col w-56 border-r border-slate-800 light:border-slate-200 bg-slate-900/60 light:bg-white/70 backdrop-blur px-4 py-6 gap-6" aria-label="Primary">
       <div class="flex items-center gap-2">
@@ -69,7 +71,7 @@
         </div>
       </div>
       <!-- Global search / status bar -->
-      <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-800 light:border-slate-200 bg-slate-950/60 light:bg-white/60 backdrop-blur sticky top-0 z-30">
+  <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-800 light:border-slate-200 bg-slate-900/70 light:bg-white/70 backdrop-blur sticky top-0 z-30">
         <input id="globalSearch" placeholder="Quick search cards…" class="flex-1 max-w-md text-sm px-3 py-2 rounded bg-slate-900/70 light:bg-white border border-slate-700 light:border-slate-300" aria-label="Global card search" />
         <div id="healthBanner" class="hidden text-[11px] px-2 py-1 rounded border border-slate-700 light:border-slate-300 text-slate-300 light:text-slate-700" role="status" aria-live="polite"></div>
         <div id="status" class="hidden p-2 border rounded bg-amber-500/10 text-amber-300 text-xs light:text-amber-800 light:bg-amber-50 light:border-amber-200" role="status" aria-live="polite"></div>
@@ -334,6 +336,6 @@
       </div>
     </div>
   </div>
-  <script type="module" src="/app.js?v=0.6.3"></script>
+  <script type="module" src="/app.js?v=0.6.4"></script>
 </body>
 </html>
