@@ -498,21 +498,24 @@ async function computeFactorIC(env: Env) {
     }
     if (!rets.some(x=>x!==0)) return { ok:false, skipped:true };
     function rankIC(fvals: number[]): number|null {
-      const pairs = fvals.map((v,i)=>({v, r: rets[i]})).filter(p=> Number.isFinite(p.v) && Number.isFinite(p.r));
-      if (pairs.length < 5) return null;
-      const sortedF = [...pairs].sort((a,b)=> a.v-b.v).map((p,i)=> ({...p, fr: i+1}));
-      const sortedR = [...sortedF].sort((a,b)=> a.r-b.r);
-      const rankMap = new Map<any, number>();
-      sortedR.forEach((p,i)=> rankMap.set(p, i+1));
-      // tie with object ref not robust; simplified: recompute arrays
-      const xf = sortedF.map(p=>p.fr);
-      const yr = [...sortedF].map((p,i)=> { return sortedR.indexOf(p)+1; });
-      const n=xf.length; if (n!==yr.length||n<3) return null;
-      const mean = (a:number[])=> a.reduce((s,x)=>s+x,0)/a.length;
-      const mx=mean(xf), my=mean(yr);
-      let num=0, dx=0, dy=0;
-      for (let i=0;i<n;i++){ const xv=xf[i]-mx, yv=yr[i]-my; num += xv*yv; dx += xv*xv; dy += yv*yv; }
-      const den = Math.sqrt(dx*dy)||0; if (!den) return null; return num/den;
+      // Spearman rank correlation (O(n log n))
+      const data: { v:number; r:number }[] = [];
+      for (let i=0;i<fvals.length;i++) {
+        const fv = fvals[i]; const rv = rets[i];
+        if (Number.isFinite(fv) && Number.isFinite(rv)) data.push({ v: fv, r: rv });
+      }
+      const n = data.length;
+      if (n < 5) return null;
+      const idxF = data.map((d,i)=> i).sort((a,b)=> data[a].v - data[b].v);
+      const idxR = data.map((d,i)=> i).sort((a,b)=> data[a].r - data[b].r);
+      const rankF = new Array(n); const rankR = new Array(n);
+      for (let i=0;i<n;i++) { rankF[idxF[i]] = i+1; rankR[idxR[i]] = i+1; }
+      // Compute Pearson on ranks
+      let sumF=0,sumR=0; for (let i=0;i<n;i++){ sumF += rankF[i]; sumR += rankR[i]; }
+      const mF = sumF/n, mR = sumR/n;
+      let num=0, dF=0, dR=0;
+      for (let i=0;i<n;i++){ const a=rankF[i]-mF, b=rankR[i]-mR; num+=a*b; dF+=a*a; dR+=b*b; }
+      const den = Math.sqrt(dF*dR)||0; if (!den) return null; return num/den;
     }
     const factors: Record<string, number|null> = {
       ts7: rankIC(rows.map(r=> Number(r.ts7))),

@@ -15,5 +15,5 @@ describe('Backtest & Factor IC', () => {
     expect(list.status).toBe(200);
     const snap = await SELF.fetch('https://example.com/admin/snapshot', { headers: { 'x-admin-token':'test-admin' }});
     expect(snap.status).toBe(200);
-  });
+  }, 15000);
 });

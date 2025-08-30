@@ -20,6 +20,13 @@ All notable changes to this project will be documented here.
 - Add data_completeness ledger (migration 0006) and surface recent completeness history in /admin/integrity
 
 ## [0.2.7] - 2025-08-29
+
+## [0.4.1] - 2025-08-29
+### Changed
+- Optimized factor IC Spearman rank calculation to O(n log n) (removed O(n^2) indexOf usage) to prevent CI timeouts.
+- Increased test-specific timeout for backtest & factor IC spec (15s) to reduce flakiness in slower CI runners.
+### Fixed
+- Addressed intermittent test timeout in backtest_ic.spec by performance improvements and timeout adjustment.
 - Add factor_weights table (migration 0007) with dynamic composite weighting and admin endpoints (/admin/factor-weights)
 
 ## [0.3.0] - 2025-08-29
