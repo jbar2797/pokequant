@@ -479,7 +479,13 @@ async function runAlerts(env: Env) {
     const kind = String(a.kind || 'price_below');
     const hit = (kind === 'price_below') ? (px <= th) : (px >= th);
     if (!hit) continue;
-    await env.DB.prepare(`UPDATE alerts_watch SET last_fired_at=datetime('now') WHERE id=?`).bind(a.id).run();
+    await env.DB.prepare(`UPDATE alerts_watch SET last_fired_at=datetime('now'), fired_count=COALESCE(fired_count,0)+1 WHERE id=?`).bind(a.id).run();
+    // Escalation metric at certain counts
+    try {
+      const escRow = await env.DB.prepare(`SELECT fired_count FROM alerts_watch WHERE id=?`).bind(a.id).all();
+      const fc = Number((escRow.results||[])[0]?.fired_count)||0;
+      if (fc===5||fc===10||fc===25) incMetric(env, 'alert.escalation');
+    } catch {/* ignore */}
     // Queue mock email
     try {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT);`).run();
@@ -2394,6 +2400,25 @@ export default {
       await env.DB.prepare(`INSERT OR REPLACE INTO ingestion_schedule (dataset, frequency_minutes, last_run_at) VALUES (?,?,COALESCE((SELECT last_run_at FROM ingestion_schedule WHERE dataset=?), NULL))`).bind(dataset, freq, dataset).run();
       await audit(env, { actor_type:'admin', action:'set_schedule', resource:'ingestion_schedule', resource_id:dataset, details:{ freq } });
       return json({ ok:true, dataset, frequency_minutes: freq });
+    }
+    if (url.pathname === '/admin/ingestion-schedule/run-due' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ingestion_schedule (dataset TEXT PRIMARY KEY, frequency_minutes INTEGER, last_run_at TEXT);`).run();
+      const nowIso = new Date().toISOString();
+      const dueRs = await env.DB.prepare(`SELECT dataset, frequency_minutes, last_run_at FROM ingestion_schedule`).all();
+      const due: string[] = [];
+      for (const r of (dueRs.results||[]) as any[]) {
+        const last = r.last_run_at ? Date.parse(r.last_run_at) : 0;
+        const mins = Number(r.frequency_minutes)||0;
+        if (!mins) continue;
+        if (Date.now() - last >= mins*60000) due.push(String(r.dataset));
+      }
+      // For MVP just update last_run_at and increment metric
+      for (const d of due) {
+        await env.DB.prepare(`UPDATE ingestion_schedule SET last_run_at=? WHERE dataset=?`).bind(nowIso, d).run();
+        incMetric(env, 'ingest.scheduled_run');
+      }
+      return json({ ok:true, ran: due });
     }
     if (url.pathname === '/portfolio/attribution' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';

@@ -465,6 +465,12 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
     description: 'Add executed_trades column to portfolio_orders',
     sql: `ALTER TABLE portfolio_orders ADD COLUMN executed_trades JSON;`
   }
+  ,
+  {
+    id: '0037_alerts_fired_count',
+    description: 'Add fired_count column to alerts_watch for escalation logic',
+    sql: `ALTER TABLE alerts_watch ADD COLUMN fired_count INTEGER DEFAULT 0;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;
