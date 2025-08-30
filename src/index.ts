@@ -19,6 +19,7 @@ import { portfolioAuth } from './lib/portfolio_auth';
 import { getFactorUniverse, computeFactorReturns, computeFactorRiskModel, smoothFactorReturns, computeSignalQuality, computeFactorIC } from './lib/factors';
 import { computeIntegritySnapshot, updateDataCompleteness } from './lib/integrity';
 import { purgeOldData } from './lib/retention';
+import { snapshotPortfolioNAV, computePortfolioPnL } from './lib/portfolio_nav';
 import { ensureTestSeed, ensureAlertsTable, getAlertThresholdCol } from './lib/data';
 import { runIncrementalIngestion } from './lib/ingestion';
 import { baseDataSignature } from './lib/base_data';
@@ -318,19 +319,6 @@ async function detectAnomalies(env: Env) {
   } catch (e) { log('anomaly_error', { error:String(e) }); }
 }
 
-// ----- Portfolio NAV snapshot -----
-async function snapshotPortfolioNAV(env: Env) {
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_nav (portfolio_id TEXT, as_of DATE, market_value REAL, PRIMARY KEY(portfolio_id,as_of));`).run();
-    const ports = await env.DB.prepare(`SELECT id FROM portfolios`).all();
-    const today = new Date().toISOString().slice(0,10);
-    for (const p of (ports.results||[]) as any[]) {
-      const lots = await env.DB.prepare(`SELECT l.card_id,l.qty,(SELECT price_usd FROM prices_daily px WHERE px.card_id=l.card_id ORDER BY as_of DESC LIMIT 1) AS px FROM lots l WHERE l.portfolio_id=?`).bind(p.id).all();
-      let mv=0; for (const r of (lots.results||[]) as any[]) { mv += (Number(r.px)||0) * (Number(r.qty)||0); }
-      await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_nav (portfolio_id, as_of, market_value) VALUES (?,?,?)`).bind(p.id, today, mv).run();
-    }
-  } catch (e) { log('portfolio_nav_error', { error:String(e) }); }
-}
 
 // Factor returns: compute top-bottom quintile forward return per enabled factor (using previous day factor values and forward price move)
 // factor returns now in lib/factors
@@ -344,30 +332,6 @@ async function snapshotPortfolioNAV(env: Env) {
 // ----- Signal quality metrics (IC stability & half-life) -----
 // signal quality now in lib/factors
 
-// ----- Portfolio daily PnL & turnover cost estimation -----
-async function computePortfolioPnL(env: Env) {
-  try {
-    // Need previous day NAV and today NAV; simple return plus turnover proxy from lot changes.
-    const navs = await env.DB.prepare(`SELECT portfolio_id, as_of, market_value FROM portfolio_nav ORDER BY as_of ASC`).all();
-    const rows = (navs.results||[]) as any[];
-    const byPortfolio: Record<string,{d:string; mv:number}[]> = {};
-    for (const r of rows) { const pid=String(r.portfolio_id); const mv=Number(r.market_value)||0; const d=String(r.as_of||''); if (!d) continue; (byPortfolio[pid] ||= []).push({ d, mv }); }
-    for (const [pid, arr] of Object.entries(byPortfolio)) {
-      if (arr.length < 2) continue;
-      arr.sort((a,b)=> a.d.localeCompare(b.d));
-      for (let i=1;i<arr.length;i++) {
-        const prev = arr[i-1], cur = arr[i];
-        if (prev.mv>0 && cur.mv>0) {
-          const ret = (cur.mv - prev.mv)/prev.mv;
-          // Turnover cost placeholder: 0 (would require trade ledger); realized pnl approx diff
-          await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_pnl (portfolio_id, as_of, ret, turnover_cost, realized_pnl) VALUES (?,?,?,?,?)`)
-            .bind(pid, cur.d, ret, 0, (cur.mv-prev.mv)).run();
-        }
-      }
-    }
-    return { ok:true };
-  } catch (e) { log('portfolio_pnl_error', { error:String(e) }); return { ok:false, error:String(e) }; }
-}
 
 // Snapshot portfolio factor exposures into history table
 async function snapshotPortfolioFactorExposure(env: Env) {
@@ -486,6 +450,9 @@ export default {
       await Promise.all([
   import('./routes/factors'),
         import('./routes/admin'),
+  import('./routes/anomalies'),
+  import('./routes/portfolio_nav'),
+  import('./routes/backfill'),
         import('./routes/public'),
         import('./routes/alerts'),
         import('./routes/metadata'),
@@ -962,115 +929,6 @@ export default {
       return json({ ok:true, deleted, ms: dur, overrides: overrides && Object.keys(overrides).length ? overrides : undefined });
     }
 
-    // Anomalies list (supports status filtering)
-    if (url.pathname === '/admin/anomalies' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const status = (url.searchParams.get('status')||'').toLowerCase();
-      const where = status === 'resolved' ? 'WHERE resolved=1' : status === 'open' ? 'WHERE COALESCE(resolved,0)=0' : '';
-      const rs = await env.DB.prepare(`SELECT id, as_of, card_id, kind, magnitude, created_at, resolved, resolution_kind, resolution_note, resolved_at FROM anomalies ${where} ORDER BY created_at DESC LIMIT 200`).all();
-      return json({ ok:true, rows: rs.results||[] });
-    }
-    if (url.pathname === '/admin/anomalies/resolve' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const body: any = await req.json().catch(()=>({}));
-      const id = (body.id||'').toString();
-      const action = (body.action||'ack').toString(); // ack | dismiss | ignore
-      const note = body.note ? String(body.note).slice(0,200) : null;
-      if (!id) return json({ ok:false, error:'id_required' },400);
-      const valid = new Set(['ack','dismiss','ignore']);
-      if (!valid.has(action)) return json({ ok:false, error:'invalid_action' },400);
-      await env.DB.prepare(`UPDATE anomalies SET resolved=1, resolution_kind=?, resolution_note=?, resolved_at=datetime('now') WHERE id=?`).bind(action, note, id).run();
-  await audit(env, { actor_type:'admin', action:'resolve', resource:'anomaly', resource_id:id, details:{ action } });
-  return json({ ok:true, id, action });
-    }
-
-    // Portfolio NAV history (admin)
-    if (url.pathname === '/admin/portfolio-nav' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT portfolio_id, as_of, market_value FROM portfolio_nav ORDER BY as_of DESC LIMIT 500`).all();
-      return json({ ok:true, rows: rs.results||[] });
-    }
-    if (url.pathname === '/admin/portfolio-nav/snapshot' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      await snapshotPortfolioNAV(env);
-      return json({ ok:true });
-    }
-
-    // Portfolio PnL (admin aggregate view) - derives daily returns first
-    if (url.pathname === '/admin/portfolio-pnl' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      // Derive any missing pnl rows based on existing NAV snapshots
-      await computePortfolioPnL(env);
-      const pid = url.searchParams.get('portfolio_id');
-      let rows; if (pid) {
-        rows = await env.DB.prepare(`SELECT portfolio_id, as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT 180`).bind(pid).all();
-      } else {
-        rows = await env.DB.prepare(`SELECT portfolio_id, as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl ORDER BY as_of DESC, portfolio_id ASC LIMIT 500`).all();
-      }
-      return json({ ok:true, rows: (rows.results||[]) });
-    }
-
-    // Backfill jobs
-    if (url.pathname === '/admin/backfill' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const body: any = await req.json().catch(()=>({}));
-      const dataset = (body.dataset||'prices_daily').toString();
-      const days = Math.min(365, Math.max(1, Number(body.days)||30));
-      const to = new Date();
-      const from = new Date(Date.now() - (days-1)*86400000);
-      const id = crypto.randomUUID();
-      await env.DB.prepare(`INSERT INTO backfill_jobs (id, created_at, dataset, from_date, to_date, days, status, processed, total) VALUES (?,?,?,?,?,?,?,?,?)`)
-        .bind(id, new Date().toISOString(), dataset, from.toISOString().slice(0,10), to.toISOString().slice(0,10), days, 'pending', 0, days).run();
-      // Ingestion provenance record (audit synthetic backfill)
-      const provId = crypto.randomUUID();
-      try {
-        await env.DB.prepare(`INSERT INTO ingestion_provenance (id,dataset,source,from_date,to_date,started_at,status,rows) VALUES (?,?,?,?,?,datetime('now'),'running',0)`).bind(provId, dataset, 'synthetic-backfill', from.toISOString().slice(0,10), to.toISOString().slice(0,10)).run();
-      } catch { /* ignore table missing */ }
-      // Kick off inline processing (synchronous simplified) - simulate fill of missing rows (no external fetch yet)
-      try {
-        let insertedRows = 0;
-        for (let i=0;i<days;i++) {
-          const d = new Date(from.getTime() + i*86400000).toISOString().slice(0,10);
-          // If dataset is prices_daily ensure at least one synthetic price row for existing cards (idempotent)
-          if (dataset === 'prices_daily') {
-            const cards = await env.DB.prepare(`SELECT id FROM cards LIMIT 50`).all();
-            for (const c of (cards.results||[]) as any[]) {
-              // Skip if already present
-              const have = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind(c.id, d).all();
-              if (have.results?.length) continue;
-              // Simple synthetic backfill: copy latest known price
-              const latest = await env.DB.prepare(`SELECT price_usd, price_eur FROM prices_daily WHERE card_id=? ORDER BY as_of DESC LIMIT 1`).bind(c.id).all();
-              const pu = (latest.results?.[0] as any)?.price_usd || Math.random()*50+1;
-              const pe = (latest.results?.[0] as any)?.price_eur || pu*0.9;
-              await env.DB.prepare(`INSERT OR IGNORE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind(c.id, d, pu, pe).run();
-              insertedRows++;
-            }
-          }
-          // Update job progress
-          await env.DB.prepare(`UPDATE backfill_jobs SET processed=? WHERE id=?`).bind(i+1, id).run();
-        }
-        await env.DB.prepare(`UPDATE backfill_jobs SET status='completed' WHERE id=?`).bind(id).run();
-        try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='completed', rows=?, completed_at=datetime('now') WHERE id=?`).bind(insertedRows, provId).run(); } catch { /* ignore */ }
-  await audit(env, { actor_type:'admin', action:'backfill_complete', resource:'backfill_job', resource_id:id, details:{ dataset, days, insertedRows } });
-      } catch (e:any) {
-        await env.DB.prepare(`UPDATE backfill_jobs SET status='error', error=? WHERE id=?`).bind(String(e), id).run();
-        try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='error', error=?, completed_at=datetime('now') WHERE id=?`).bind(String(e), provId).run(); } catch { /* ignore */ }
-  await audit(env, { actor_type:'admin', action:'backfill_error', resource:'backfill_job', resource_id:id, details:{ dataset, error:String(e) } });
-      }
-      const job = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
-      return json({ ok:true, job: job.results?.[0] });
-    }
-    if (url.pathname === '/admin/backfill' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rows = await env.DB.prepare(`SELECT id,dataset,from_date,to_date,days,status,processed,total,created_at FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
-      return json({ ok:true, rows: rows.results||[] });
-    }
-    if (url.pathname.startsWith('/admin/backfill/') && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const id = url.pathname.split('/').pop();
-      const row = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
-      return json({ ok:true, job: row.results?.[0]||null });
-    }
 
     // Migrations list
     if (url.pathname === '/admin/migrations' && req.method === 'GET') {

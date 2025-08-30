@@ -3,14 +3,17 @@ import { audit } from '../lib/audit';
 import type { Env } from '../lib/types';
 import { router } from '../router';
 import { runIncrementalIngestion } from '../lib/ingestion';
+import { computeIntegritySnapshot, updateDataCompleteness } from '../lib/integrity';
+import { purgeOldData } from '../lib/retention';
+import { incMetric, incMetricBy, recordLatency } from '../lib/metrics';
+
+// Helper to enforce admin auth
+function adminAuth(env: Env, req: Request) {
+  return req.headers.get('x-admin-token') === env.ADMIN_TOKEN;
+}
 
 export function registerAdminRoutes() {
   router
-    .add('GET','/admin/backfill', async ({ env, req }) => {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT id, created_at, dataset, from_date, to_date, days, status, processed, total, error FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
-      return json({ ok:true, rows: rs.results||[] });
-    })
     .add('GET','/admin/ingestion/provenance', async ({ env, req, url }) => {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const dataset = (url.searchParams.get('dataset')||'').trim();
@@ -95,6 +98,56 @@ export function registerAdminRoutes() {
         return err('ingest_failed', 500, { error_detail: String(e) });
       }
     });
+
+  // Integrity snapshot (moved from index.ts)
+  router.add('GET','/admin/integrity', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+    try { const integrity = await computeIntegritySnapshot(env); return json(integrity); } catch (e:any) { return json({ ok:false, error:String(e) },500); }
+  });
+
+  // Retention purge (moved from index.ts)
+  router.add('POST','/admin/retention', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+    let overrides: Record<string, number>|undefined;
+    try {
+      const body: any = await req.json().catch(()=> ({}));
+      if (body && typeof body === 'object' && body.windows && typeof body.windows === 'object') {
+        overrides = {};
+        for (const [k,v] of Object.entries(body.windows)) {
+          const days = Number(v);
+            if (Number.isFinite(days) && days >= 0 && days <= 365) overrides[k] = Math.floor(days);
+        }
+      }
+    } catch { /* ignore */ }
+    const t0r = Date.now();
+    const deleted = await purgeOldData(env, overrides);
+    const dur = Date.now() - t0r;
+    await audit(env, { actor_type:'admin', action:'purge', resource:'retention', resource_id:null, details: { deleted, ms: dur, overrides } });
+    for (const [table, n] of Object.entries(deleted)) { if (n>0) incMetricBy(env, `retention.deleted.${table}`, n); }
+    await recordLatency(env, 'job.retention', dur);
+    return json({ ok:true, deleted, ms: dur, overrides: overrides && Object.keys(overrides).length ? overrides : undefined });
+  });
+
+  // Metrics & latency endpoints moved
+  router.add('GET','/admin/metrics', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+    try {
+      const rs = await env.DB.prepare(`SELECT d, metric, count FROM metrics_daily WHERE d >= date('now','-3 day') ORDER BY d DESC, metric ASC`).all();
+      let latency: any[] = [];
+      try { const lrs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d >= date('now','-3 day') ORDER BY d DESC, base_metric ASC`).all(); latency = lrs.results || []; } catch {/* ignore */}
+      const cacheHits = (rs.results||[]).filter((r:any)=> typeof r.metric === 'string' && r.metric.startsWith('cache.hit.'));
+      const baseMap = new Map<string, number>();
+      for (const r of (rs.results||[]) as any[]) { if (typeof r.metric === 'string') baseMap.set(r.metric, Number(r.count)||0); }
+      const ratios: Record<string, number> = {};
+      const pairs: [string,string][] = [ ['universe','universe.list'], ['cards','cards.list'], ['movers','cards.movers'], ['sets','sets'], ['rarities','rarities'], ['types','types'] ];
+      for (const [short, base] of pairs) { const hit = baseMap.get(`cache.hit.${short}`)||0; const total = (baseMap.get(base)||0) + hit; if (total>0) ratios[short] = +(hit/total).toFixed(3); }
+      return json({ ok:true, rows: rs.results||[], latency, cache_hits: cacheHits, cache_hit_ratios: ratios });
+    } catch { return json({ ok:true, rows: [] }); }
+  });
+  router.add('GET','/admin/latency', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+    try { const rs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d = date('now') ORDER BY base_metric ASC`).all(); return json({ ok:true, rows: rs.results||[] }); } catch { return json({ ok:true, rows: [] }); }
+  });
 }
 
 registerAdminRoutes();
