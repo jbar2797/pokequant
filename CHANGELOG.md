@@ -12,6 +12,14 @@ All notable changes to this project will be documented here.
 - Retry & backoff for alert email sending with failure metrics aggregation
 - Drop legacy plaintext portfolio_secret column after observation window
 
+## [0.6.1] - 2025-08-30
+### Added
+- Alert snooze & suppression: optional snooze_minutes on /alerts/create and new /alerts/snooze endpoint to extend suppression window.
+- Ingestion scheduling: /admin/ingestion-schedule (GET/POST) to configure dataset frequency_minutes and /admin/ingestion-schedule/run-due to advance due schedules (records ingest.scheduled_run metric).
+- Alert escalation tracking: fired_count column (migration 0037) increments per alert fire; escalation milestones (5,10,25) emit alert.escalation metric.
+### Changed
+- Version bump to 0.6.1; OpenAPI updated with snooze & scheduling endpoints and new metrics examples (alert.escalation, ingest.scheduled_run).
+
 ## [0.6.0] - 2025-08-30
 ### Added
 - Portfolio targets & optimization orders MVP: endpoints /portfolio/targets (GET/POST), /portfolio/orders (GET/POST), /portfolio/orders/execute (POST) with factor delta suggestion generation.
