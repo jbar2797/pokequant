@@ -11,5 +11,7 @@ describe('ETag', () => {
     const r2 = await SELF.fetch('https://example.com/api/universe', { headers: { 'If-None-Match': etag! } });
     expect(r2.status).toBe(304);
     expect(r2.headers.get('ETag')).toBe(etag);
+  const bodyText = await r2.text();
+  expect(bodyText).toBe(''); // 304 should have empty body
   });
 });
