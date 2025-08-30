@@ -485,6 +485,89 @@ async function loadAdminMetrics(){
   } catch(e){ const list = document.getElementById('adminMetricsList'); if(list) list.innerHTML = '<li style="opacity:.6">Metrics unavailable</li>'; announce('Admin metrics unavailable','error'); }
 }
 
+// --- Factor Analytics (admin) ---
+const factorAnalyticsRefresh = document.getElementById('factorAnalyticsRefresh');
+const factorPerformanceHost = document.getElementById('factorPerformanceHost');
+const factorCorrelationsHost = document.getElementById('factorCorrelationsHost');
+const factorAnalyticsStatus = document.getElementById('factorAnalyticsStatus');
+
+async function loadFactorAnalytics(){
+  if(!ADMIN_TOKEN){ announce('Admin token needed','error'); return; }
+  if(factorAnalyticsStatus) factorAnalyticsStatus.textContent = 'Loading factor analytics…';
+  await Promise.all([loadFactorPerformance(), loadFactorCorrelations()]);
+  if(factorAnalyticsStatus) factorAnalyticsStatus.textContent = 'Loaded factor analytics';
+  announce('Factor analytics loaded','success');
+}
+
+async function loadFactorPerformance(){
+  try {
+    const r = await fetchJSON('/admin/factor-performance',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.factors||[];
+    if(!rows.length){ factorPerformanceHost.innerHTML = '<div style="font-size:11px;opacity:.6;padding:8px">No factor performance rows</div>'; return; }
+    factorPerformanceHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:11px;min-width:720px'>
+      <thead style='position:sticky;top:0;background:#101726'><tr>
+        <th style='text-align:left;padding:6px 8px'>Factor</th>
+        <th style='text-align:left;padding:6px 8px'>IC30d</th>
+        <th style='text-align:left;padding:6px 8px'>IR30d</th>
+        <th style='text-align:left;padding:6px 8px'>Ret30d</th>
+        <th style='text-align:left;padding:6px 8px'>Smoothed</th>
+        <th style='text-align:left;padding:6px 8px'>Suggest Wt</th>
+      </tr></thead><tbody>
+      ${rows.map(f=> `<tr>
+        <td style='padding:4px 6px;font-weight:600'>${f.factor}</td>
+        <td style='padding:4px 6px'>${fmtNum(f.ic_avg_30d)}</td>
+        <td style='padding:4px 6px'>${fmtNum(f.ic_ir_30d)}</td>
+        <td style='padding:4px 6px'>${fmtNum(f.ret_30d)}</td>
+        <td style='padding:4px 6px'>${fmtNum(f.ret_smoothed)}</td>
+        <td style='padding:4px 6px'>${f.weight_suggest!=null? (f.weight_suggest*100).toFixed(1)+'%':'—'}</td>
+      </tr>`).join('')}
+      </tbody></table>`;
+  } catch(e){ factorPerformanceHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Factor performance failed</div>'; }
+}
+
+async function loadFactorCorrelations(){
+  try {
+    const r = await fetchJSON('/admin/factor-correlations',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const matrix = r.matrix || r.rows || []; // unsure actual shape; fallback
+    // Expect maybe { factors:[], matrix:[[...]] }? We'll attempt to parse
+    if(Array.isArray(r.factors) && Array.isArray(r.matrix)){
+      const factors = r.factors;
+      factorCorrelationsHost.innerHTML = correlationTable(factors, r.matrix);
+    } else if(Array.isArray(matrix) && matrix.length && matrix[0].factor_i){
+      // pair list; build set
+      const factors = Array.from(new Set(matrix.map(p=> p.factor_i).concat(matrix.map(p=> p.factor_j)))).sort();
+      // build matrix map corr
+      const corrMap = {}; matrix.forEach(p=> { corrMap[p.factor_i+"|"+p.factor_j]=p.corr; corrMap[p.factor_j+"|"+p.factor_i]=p.corr; });
+      const table = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:720px'>
+        <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Factor</th>${factors.map(f=> `<th style='padding:4px 6px'>${f}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${factors.map(fi=> `<tr><td style='padding:4px 6px;font-weight:600'>${fi}</td>${factors.map(fj=> {
+            const v = fi===fj?1:corrMap[fi+'|'+fj];
+            const color = v==null? '#334155': (v>0? `rgba(16,185,129,${Math.min(1,Math.abs(v))})`:`rgba(239,68,68,${Math.min(1,Math.abs(v))})`);
+            return `<td style='padding:2px 4px;text-align:center;background:${color};color:#fff'>${v!=null? v.toFixed(2):''}</td>`; }).join('')}</tr>`).join('')}
+        </tbody></table>`;
+      factorCorrelationsHost.innerHTML = table;
+    } else {
+      factorCorrelationsHost.innerHTML = '<div style="font-size:11px;opacity:.6;padding:8px">No correlation data</div>';
+    }
+  } catch(e){ factorCorrelationsHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Correlations failed</div>'; }
+}
+
+function fmtNum(v){ return v==null? '—': Number(v).toFixed(3); }
+function correlationTable(factors, matrix){
+  return `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:720px'>
+    <thead style='position:sticky;top:0;background:#101726'><tr><th style='padding:4px 6px;text-align:left'>Factor</th>${factors.map(f=> `<th style='padding:4px 6px'>${f}</th>`).join('')}</tr></thead>
+    <tbody>${matrix.map((row,i)=> `<tr><td style='padding:4px 6px;font-weight:600'>${factors[i]}</td>${row.map((v,j)=> {
+      const val = v==null? null: Number(v);
+      const color = val==null? '#334155': (val>0? `rgba(16,185,129,${Math.min(1,Math.abs(val))})`:`rgba(239,68,68,${Math.min(1,Math.abs(val))})`);
+      return `<td style='padding:2px 4px;text-align:center;background:${color};color:#fff'>${val!=null? val.toFixed(2):''}</td>`; }).join('')}</tr>`).join('')}</tbody>
+  </table>`;
+}
+
+if(factorAnalyticsRefresh){
+  factorAnalyticsRefresh.addEventListener('click', loadFactorAnalytics);
+}
+
 // --- Alerts Admin Panel ---
 const alertAdminBody = document.getElementById('alertAdminBody');
 const alertAdminFilters = document.getElementById('alertAdminFilters');
@@ -584,6 +667,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');
