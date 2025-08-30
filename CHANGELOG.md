@@ -71,6 +71,14 @@ All notable changes to this project will be documented here.
 ### Changed
 - OpenAPI version bump to 0.5.8
 
+## [0.5.9] - 2025-08-30
+### Added
+- Rolling factor IC summary window stats (full, 30d, 7d) with avg_ic, avg_abs_ic, hit_rate, ir per window (/admin/factor-ic/summary)
+- Consolidated /admin/factor-performance endpoint combining factor returns + IC with suggested normalized weight_suggest
+### Changed
+- /admin/factor-returns now documents rolling aggregates in description
+- OpenAPI version bump to 0.5.9
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.

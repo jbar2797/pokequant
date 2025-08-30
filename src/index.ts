@@ -1503,8 +1503,39 @@ export default {
     }
     if (url.pathname === '/admin/factor-ic/summary' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT factor, COUNT(*) AS n, AVG(ic) AS avg_ic, AVG(ABS(ic)) AS avg_abs_ic FROM factor_ic WHERE as_of >= date('now','-90 day') GROUP BY factor`).all();
-      return json({ ok:true, rows: rs.results||[] });
+      const rs = await env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic WHERE as_of >= date('now','-90 day') ORDER BY factor ASC, as_of ASC`).all();
+      const rows = (rs.results||[]) as any[];
+      const byFactor: Record<string, { d:string; ic:number }[]> = {};
+      for (const r of rows) {
+        const f = String(r.factor); const ic = Number(r.ic); const d = String(r.as_of);
+        if (!Number.isFinite(ic)) continue;
+        (byFactor[f] ||= []).push({ d, ic });
+      }
+      const out: any[] = [];
+      const win = (arr:{d:string; ic:number}[], days:number) => arr.filter(_=>true).slice(-days).map(o=> o.ic);
+      const avg = (a:number[]) => a.length ? a.reduce((s,x)=>s+x,0)/a.length : null;
+      const std = (a:number[]) => { if (a.length<2) return null; const m = avg(a)!; let s=0; for (const v of a) s+=(v-m)*(v-m); return Math.sqrt(s/(a.length-1)); };
+      for (const [factor, arr] of Object.entries(byFactor)) {
+        const all = arr.map(o=> o.ic);
+        const last30 = win(arr,30); const last7 = win(arr,7);
+        const makeStats = (vals:number[]) => {
+          const a = avg(vals); const s = std(vals);
+          const absA = vals.length ? vals.reduce((s,x)=>s+Math.abs(x),0)/vals.length : null;
+          const hit = vals.length ? vals.filter(x=> x>0).length / vals.length : null;
+          const ir = (a!=null && s && s>0) ? (a/s)*Math.sqrt(252) : null;
+          return { avg: a!=null? +a.toFixed(6): null, avg_abs: absA!=null? +absA.toFixed(6): null, hit_rate: hit!=null? +hit.toFixed(3): null, ir: ir!=null? +ir.toFixed(4): null, n: vals.length };
+        };
+        const allStats = makeStats(all);
+        const s30 = makeStats(last30);
+        const s7 = makeStats(last7);
+        out.push({ factor,
+          n: allStats.n,
+          avg_ic: allStats.avg, avg_abs_ic: allStats.avg_abs, hit_rate: allStats.hit_rate, ir: allStats.ir,
+          avg_ic_30: s30.avg, avg_abs_ic_30: s30.avg_abs, hit_rate_30: s30.hit_rate, ir_30: s30.ir,
+          avg_ic_7: s7.avg, avg_abs_ic_7: s7.avg_abs, hit_rate_7: s7.hit_rate, ir_7: s7.ir
+        });
+      }
+      return json({ ok:true, rows: out });
     }
     if (url.pathname === '/admin/factor-returns' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
@@ -1545,6 +1576,46 @@ export default {
       const recent = rows.slice().sort((a,b)=> (a.as_of===b.as_of ? (a.factor<b.factor?-1:1) : (a.as_of>b.as_of?-1:1))).slice(0,400);
       return json({ ok:true, rows: recent, aggregates });
     }
+    if (url.pathname === '/admin/factor-performance' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      // Fetch factor returns + ic for joined performance view
+      const [fr, ic] = await Promise.all([
+        env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now','-120 day') ORDER BY factor ASC, as_of ASC`).all(),
+        env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic WHERE as_of >= date('now','-120 day') ORDER BY factor ASC, as_of ASC`).all()
+      ]);
+      const frBy: Record<string, {d:string; r:number}[]> = {};
+      for (const r of (fr.results||[]) as any[]) { const f=String(r.factor); const ret=Number(r.ret); if (!Number.isFinite(ret)) continue; (frBy[f] ||= []).push({ d:String(r.as_of), r:ret }); }
+      const icBy: Record<string, {d:string; ic:number}[]> = {};
+      for (const r of (ic.results||[]) as any[]) { const f=String(r.factor); const v=Number(r.ic); if (!Number.isFinite(v)) continue; (icBy[f] ||= []).push({ d:String(r.as_of), ic:v }); }
+      const factors = Array.from(new Set([...Object.keys(frBy), ...Object.keys(icBy)])).sort();
+      const avg = (a:number[])=> a.length? a.reduce((s,x)=>s+x,0)/a.length : null;
+      const std = (a:number[])=> { if (a.length<2) return null; const m=avg(a)!; let s=0; for (const v of a) s+=(v-m)*(v-m); return Math.sqrt(s/(a.length-1)); };
+      const compound = (rets:number[]) => rets.length ? rets.reduce((p,x)=> p*(1+x),1)-1 : null;
+      const out = [] as any[];
+      for (const f of factors) {
+        const frArr = frBy[f]||[]; const icArr = icBy[f]||[];
+        const last30Ret = frArr.slice(-30).map(o=> o.r); const last7Ret = frArr.slice(-7).map(o=> o.r);
+        const ret30C = compound(last30Ret); const ret7C = compound(last7Ret);
+        const ret30Avg = avg(last30Ret); const ret30Std = std(last30Ret);
+        const ret30Sharpe = (ret30Avg!=null && ret30Std && ret30Std>0) ? (ret30Avg/ret30Std)*Math.sqrt(252) : null;
+        const ic30 = icArr.slice(-30).map(o=> o.ic); const ic7 = icArr.slice(-7).map(o=> o.ic);
+        const ic30AbsAvg = ic30.length ? ic30.reduce((s,x)=> s+Math.abs(x),0)/ic30.length : null;
+        const weightSuggest = ic30AbsAvg!=null ? ic30AbsAvg : (ic7.length ? ic7.reduce((s,x)=> s+Math.abs(x),0)/ic7.length : null);
+        out.push({ factor: f,
+          ret_compound_30: ret30C!=null? +ret30C.toFixed(6): null,
+          ret_compound_7: ret7C!=null? +ret7C.toFixed(6): null,
+          sharpe30: ret30Sharpe!=null? +ret30Sharpe.toFixed(4): null,
+          ic_avg_abs_30: ic30AbsAvg!=null? +ic30AbsAvg.toFixed(6): null,
+          weight_suggest: weightSuggest!=null? +weightSuggest.toFixed(6): null
+        });
+      }
+      // Normalize suggested weights to sum to 1 (if any)
+      const sum = out.reduce((s,x)=> s + (x.weight_suggest||0),0);
+      if (sum > 0) {
+        for (const o of out) o.weight_suggest = +(o.weight_suggest / sum).toFixed(6);
+      }
+      return json({ ok:true, factors: out });
+    }
     if (url.pathname === '/admin/factor-returns/run' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const out = await computeFactorReturns(env);
@@ -1556,7 +1627,7 @@ export default {
       const body: any = await req.json().catch(()=>({}));
       const table = (body.table||'').toString();
       const rows = Array.isArray(body.rows) ? body.rows : [];
-      const allow = new Set(['signal_components_daily','factor_returns','portfolio_nav','portfolio_factor_exposure']);
+      const allow = new Set(['signal_components_daily','factor_returns','portfolio_nav','portfolio_factor_exposure','factor_ic']);
       if (!allow.has(table)) return json({ ok:false, error:'table_not_allowed' },400);
       if (!rows.length) return json({ ok:false, error:'no_rows' },400);
       for (const r of rows) {

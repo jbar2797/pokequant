@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.8
+  version: 0.5.9
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -76,65 +76,49 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CardTimeseries' }
   /research/card-csv:
-              /admin/factor-returns:
-                get:
-              summary: Latest stored factor daily top-bottom quintile returns (with rolling aggregates)
-                  security:
-                    - AdminToken: []
-                  responses:
-                    '200':
-                      description: ok
-              /admin/factor-returns/run:
-                post:
-                  summary: Force recomputation of factor returns for latest date
-                  security:
-                    - AdminToken: []
-                  responses:
-                    '200':
-                      description: ok
-              /admin/portfolio-exposure/snapshot:
-                post:
-                  summary: Force snapshot of portfolio factor exposure history for current latest components date
-                  security:
-                    - AdminToken: []
-                  responses:
-                    '200':
-                      description: ok
-              /admin/portfolio-nav/snapshot:
-                post:
-                  summary: Force portfolio NAV snapshot for latest prices
-                  security:
-                    - AdminToken: []
-                  responses:
-                    '200':
-                      description: ok
-              /admin/test-insert:
-                post:
-                  summary: (Test) Insert rows into allowlisted tables for test seeding
-                  security:
-                    - AdminToken: []
-                  responses:
-                    '200':
-                      description: ok
-              /portfolio/exposure/history:
-                get:
-                  summary: Portfolio factor exposure history (snapshots)
-                  security:
-                    - PortfolioAuth: []
-                  responses:
-                    '200':
-                      description: ok
-              /portfolio/attribution:
-                get:
-                  summary: Portfolio performance attribution (factor contributions vs residual)
-                  security:
-                    - PortfolioAuth: []
-                  responses:
-                    '200':
-                      description: ok
     get:
       summary: Card CSV export
       responses: { '200': { description: CSV } }
+  /admin/factor-returns:
+    get:
+      summary: Latest stored factor daily top-bottom quintile returns
+      description: Returns list plus rolling aggregates (7d/30d compound, averages, Sharpe) under aggregates field.
+      responses:
+        '200': { description: OK }
+  /admin/factor-returns/run:
+    post:
+      summary: Force recomputation of factor returns for latest date
+      responses: { '200': { description: OK } }
+  /admin/factor-ic/summary:
+    get:
+      summary: Rolling IC performance summary
+      description: Per-factor stats over full history (<=90d) plus trailing 30d and 7d windows: average IC, absolute average IC, hit rate (>0), and information ratio (annualized) with window-specific fields.
+      responses: { '200': { description: OK } }
+  /admin/factor-performance:
+    get:
+      summary: Consolidated factor performance & suggested weights
+      description: Combines recent factor returns and IC to produce per-factor performance metrics and normalized weight_suggest from trailing 30d absolute IC.
+      responses: { '200': { description: OK } }
+  /admin/portfolio-exposure/snapshot:
+    post:
+      summary: Force snapshot of portfolio factor exposure history for current latest components date
+      responses: { '200': { description: OK } }
+  /admin/portfolio-nav/snapshot:
+    post:
+      summary: Force portfolio NAV snapshot for latest prices
+      responses: { '200': { description: OK } }
+  /admin/test-insert:
+    post:
+      summary: (Test) Insert rows into allowlisted tables for test seeding
+      responses: { '200': { description: OK } }
+  /portfolio/exposure/history:
+    get:
+      summary: Portfolio factor exposure history (snapshots)
+      responses: { '200': { description: OK } }
+  /portfolio/attribution:
+    get:
+      summary: Portfolio performance attribution (factor contributions vs residual)
+      responses: { '200': { description: OK } }
   /api/subscribe:
     post:
       summary: Subscribe email
