@@ -8,6 +8,12 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+## [0.5.30] - 2025-08-30
+### Added
+- Admin endpoint POST /admin/portfolio/force-legacy to null secret_hash for a portfolio (testing legacy auth metric path)
+### Changed
+- portfolioAuth now awaits legacy metric increment for deterministic testing
+- Version bump to 0.5.30
 ## [0.5.25] - 2025-08-29
 ### Added
 - Portfolio secret rotation endpoint documented in OpenAPI with example.
@@ -25,6 +31,19 @@ All notable changes to this project will be documented here.
 ### Changed
 - Refactored portfolio endpoints (exposure, history, attribution, pnl) to reuse portfolioAuth helper.
 - Version bump to 0.5.27; OpenAPI paths added for update-lot.
+## [0.5.28] - 2025-08-29
+### Added
+- Migration 0029 to null plaintext portfolio secrets after hashing; migration 0030 alert_email_queue table.
+- Legacy auth usage metric (portfolio.auth_legacy) increments when plaintext secret used pre-hash.
+- Alert email queue simulation: queue on alert fire, admin processing endpoint /admin/alert-queue/send.
+### Changed
+- Version bump to 0.5.28; OpenAPI updated with alert queue endpoint and version.
+
+## [0.5.29] - 2025-08-30
+### Added
+- Enriched OpenAPI schemas for portfolio lot CRUD (add/update/delete), portfolio summary, rotate-secret response, and alert queue processing response
+### Changed
+- Bumped version across openapi.yaml, package.json, src/version.ts
 ## [0.5.24] - 2025-08-29
 ### Added
 - Portfolio secret hashing (SHA-256) with backward compatibility and new /portfolio/rotate-secret endpoint.

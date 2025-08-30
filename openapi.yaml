@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.27
+  version: 0.5.30
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -258,6 +258,28 @@ paths:
       summary: Force portfolio NAV snapshot for latest prices
       responses: { '200': { description: OK } }
   security: [ { AdminToken: [] } ]
+  /admin/portfolio/force-legacy:
+    post:
+      summary: Null secret_hash for a portfolio to force legacy plaintext auth (testing only)
+      description: Admin-only test utility to simulate legacy auth usage; next authenticated portfolio request will increment portfolio.auth_legacy.
+      security: [ { AdminToken: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ id ]
+              properties:
+                id: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              examples:
+                sample:
+                  value: { ok: true, id: 'uuid', had_hash: true }
   /admin/test-insert:
     post:
       summary: (Test) Insert rows into allowlisted tables for test seeding
@@ -380,11 +402,33 @@ paths:
   /portfolio/add-lot:
     post:
       summary: Add portfolio lot
-      responses: { '200': { description: OK } }
+      security: [ { PortfolioAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PortfolioLotAddRequest' }
+            examples:
+              sample:
+                value: { card_id: card1, qty: 2, cost_usd: 12.5 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioLotAddResponse' }
+        '403': { description: Forbidden }
   /portfolio:
     get:
       summary: Get portfolio
-      responses: { '200': { description: OK } }
+      security: [ { PortfolioAuth: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioResponse' }
+        '403': { description: Forbidden }
   /portfolio/export:
     get:
       summary: Export portfolio
@@ -402,11 +446,15 @@ paths:
         required: true
         content:
           application/json:
+            schema: { $ref: '#/components/schemas/PortfolioLotDeleteRequest' }
             examples:
-              sample:
-                value: { lot_id: 123e4567-e89b-12d3-a456-426614174000 }
+              sample: { value: { lot_id: 123e4567-e89b-12d3-a456-426614174000 } }
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioLotDeleteResponse' }
         '403': { description: Forbidden }
   /portfolio/update-lot:
     post:
@@ -417,11 +465,15 @@ paths:
         required: true
         content:
           application/json:
+            schema: { $ref: '#/components/schemas/PortfolioLotUpdateRequest' }
             examples:
-              sample:
-                value: { lot_id: 123e4567-e89b-12d3-a456-426614174000, qty: 5, cost_usd: 42.5 }
+              sample: { value: { lot_id: 123e4567-e89b-12d3-a456-426614174000, qty: 5, cost_usd: 42.5 } }
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioLotUpdateResponse' }
         '403': { description: Forbidden }
   /portfolio/rotate-secret:
     post:
@@ -435,9 +487,9 @@ paths:
           description: OK (new secret issued)
           content:
             application/json:
+              schema: { $ref: '#/components/schemas/PortfolioRotateSecretResponse' }
               examples:
-                sample:
-                  value: { ok: true, id: portfolio123, secret: 5af0b4c9d2e14c0b9f3e77aa22b1c4d1 }
+                sample: { value: { ok: true, id: portfolio123, secret: 5af0b4c9d2e14c0b9f3e77aa22b1c4d1 } }
         '403': { description: Forbidden }
   /alerts/create:
     post:
@@ -511,6 +563,17 @@ paths:
   /admin/run-alerts:
     post: { summary: Run alerts evaluation only, responses: { '200': { description: OK } } }
   security: [ { AdminToken: [] } ]
+  /admin/alert-queue/send:
+    post:
+      summary: Process queued alert emails (mock send)
+      description: Marks up to 50 queued alert notifications as sent. Simulation only (no external email delivery in MVP).
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlertQueueProcessResponse' }
   /admin/migrations:
     get: { summary: List applied migrations (admin), responses: { '200': { description: OK } } }
   security: [ { AdminToken: [] } ]
@@ -685,6 +748,81 @@ paths:
   security: [ { AdminToken: [] } ]
 components:
   schemas:
+    PortfolioLot:
+      type: object
+      properties:
+        lot_id: { type: string }
+        card_id: { type: string }
+        qty: { type: number }
+        cost_usd: { type: number }
+        acquired_at: { type: string, nullable: true }
+        price_usd: { type: number, nullable: true }
+      required: [lot_id, card_id, qty]
+    PortfolioResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        totals:
+          type: object
+          properties:
+            market_value: { type: number }
+            cost_basis: { type: number }
+            unrealized: { type: number }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/PortfolioLot' }
+      required: [ok, rows]
+    PortfolioLotAddRequest:
+      type: object
+      properties:
+        card_id: { type: string }
+        qty: { type: number }
+        cost_usd: { type: number }
+        acquired_at: { type: string, nullable: true }
+      required: [card_id, qty, cost_usd]
+    PortfolioLotAddResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        lot_id: { type: string }
+      required: [ok, lot_id]
+    PortfolioLotDeleteRequest:
+      type: object
+      properties:
+        lot_id: { type: string }
+      required: [lot_id]
+    PortfolioLotDeleteResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        deleted: { type: integer }
+      required: [ok, deleted]
+    PortfolioLotUpdateRequest:
+      type: object
+      properties:
+        lot_id: { type: string }
+        qty: { type: number, nullable: true }
+        cost_usd: { type: number, nullable: true }
+      required: [lot_id]
+    PortfolioLotUpdateResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        updated: { type: integer }
+      required: [ok, updated]
+    PortfolioRotateSecretResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        secret: { type: string }
+      required: [ok, id, secret]
+    AlertQueueProcessResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        processed: { type: integer }
+      required: [ok, processed]
   securitySchemes:
     AdminToken:
       type: apiKey

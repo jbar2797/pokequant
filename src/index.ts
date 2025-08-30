@@ -56,6 +56,10 @@ async function portfolioAuth(env: Env, id: string, secret: string): Promise<{ ok
       if (!row.secret_hash && legacyOk) {
         try { await env.DB.prepare(`UPDATE portfolios SET secret_hash=? WHERE id=?`).bind(providedHash, id).run(); } catch {/* ignore */}
       }
+      if (legacyOk && !hashOk) {
+        // Increment legacy auth usage metric (daily counter)
+    await incMetric(env, 'portfolio.auth_legacy');
+      }
       return { ok:true, legacy: legacyOk && !hashOk };
     }
     return { ok:false, legacy:false };
@@ -475,6 +479,14 @@ async function runAlerts(env: Env) {
     const hit = (kind === 'price_below') ? (px <= th) : (px >= th);
     if (!hit) continue;
     await env.DB.prepare(`UPDATE alerts_watch SET last_fired_at=datetime('now') WHERE id=?`).bind(a.id).run();
+    // Queue mock email
+    try {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT);`).run();
+      const qid = crypto.randomUUID();
+      await env.DB.prepare(`INSERT INTO alert_email_queue (id, created_at, email, card_id, kind, threshold_usd, status) VALUES (?,?,?,?,?,?,?)`).bind(qid, new Date().toISOString(), a.email, a.card_id, kind, th, 'queued').run();
+  // Metric for queued alert notifications
+  incMetric(env, 'alert.queued'); // fire & forget
+    } catch {/* ignore queue errors */}
     fired++;
   }
   return { checked: (rs.results ?? []).length, fired };
@@ -1562,6 +1574,18 @@ export default {
       await audit(env, { actor_type:'portfolio', actor_id:pid, action:'rotate_secret', resource:'portfolio', resource_id:pid });
       return json({ ok:true, id: pid, secret: newSecret });
     }
+    if (url.pathname === '/admin/alert-queue/send' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT);`).run(); } catch {}
+      const rs = await env.DB.prepare(`SELECT id FROM alert_email_queue WHERE status='queued' ORDER BY created_at ASC LIMIT 50`).all();
+      const ids = (rs.results||[]).map((r:any)=> r.id);
+      for (const id of ids) {
+        await env.DB.prepare(`UPDATE alert_email_queue SET status='sent', sent_at=datetime('now') WHERE id=?`).bind(id).run();
+      }
+  if (ids.length) incMetricBy(env, 'alert.sent', ids.length); // fire & forget
+      await audit(env, { actor_type:'admin', action:'process', resource:'alert_email_queue', details:{ processed: ids.length } });
+      return json({ ok:true, processed: ids.length });
+    }
     if (url.pathname === '/portfolio' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
@@ -1721,6 +1745,29 @@ export default {
         return json({ ok:true, rows: rs.results || [] });
       } catch {
         return json({ ok:true, rows: [] });
+      }
+    }
+
+    // Admin test utility: force legacy portfolio auth by nulling secret_hash for a portfolio id
+    if (url.pathname === '/admin/portfolio/force-legacy' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const pid = (body.id||'').toString();
+      if (!pid) return json({ ok:false, error:'id_required' },400);
+      try {
+        // Ensure portfolios table & column exist
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
+        try { await env.DB.prepare(`ALTER TABLE portfolios ADD COLUMN secret_hash TEXT`).run(); } catch {/* ignore */}
+        const row = await env.DB.prepare(`SELECT secret, secret_hash FROM portfolios WHERE id=?`).bind(pid).all();
+        if (!row.results?.length) return json({ ok:false, error:'not_found' },404);
+        const hadHash = !!(row.results[0] as any).secret_hash;
+        if (hadHash) {
+          await env.DB.prepare(`UPDATE portfolios SET secret_hash=NULL WHERE id=?`).bind(pid).run();
+        }
+        await audit(env, { actor_type:'admin', action:'force_legacy', resource:'portfolio', resource_id:pid, details:{ hadHash } });
+        return json({ ok:true, id: pid, had_hash: hadHash });
+      } catch (e:any) {
+        return json({ ok:false, error:String(e) },500);
       }
     }
 
