@@ -6,23 +6,16 @@ All notable changes to this project will be documented here.
 - Reference sprints or PRs if helpful.
 
 ## [Unreleased]
+- …
 - Add examples to OpenAPI for key endpoints (in progress)
-- OpenAPI: documenting enriched `/alerts/create` response fields (suppressed_until, fired_count) & optional `run` flag note for `/admin/ingestion-schedule/run-due`.
-- Retry & backoff for alert email sending with failure metrics aggregation
-- Drop legacy plaintext portfolio_secret column after observation window
-
-## [0.7.4] - 2025-08-30
 ### Added
 - Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
 - Front-end refactor: extracted inline script into `public/app.js` module; added toast notifications, loading skeletons for movers, slow-request warning toasts (>1500ms), light polling (60s) for movers, safer null guards, and improved error surfacing.
 ### Changed
-- Accessibility: Added aria-current nav updates, main landmark, pagination ARIA roles, and sr-only utility class.
-- UI utilities: Introduced flex/gap/spacing utility classes and replaced inline styles across all panels with utility-first approach.
-- Performance: Added debounce (400ms) to admin filter inputs (alerts, anomalies, audit) to reduce redundant fetches.
-- UX: Added sortable cards table headers with aria-sort and aria-busy indicators on loading panels.
-- Refactor: Introduced additional utility classes (flex/spacing/border/radius/background/sizing) and initial skeleton row helper; removed deprecated `public/app.js` legacy script.
-- UI Polish: Added skeleton loading rows for alerts/anomalies/backtests/audit/cards and print-friendly stylesheet.
-- Cleanup: Replaced inline styles for alerts quick/admin, portfolio auth & lots, anomalies, data integrity, ingestion, factor analytics + IC + performance, factor weights, backtests, audit, cards sample, and side panel scaffolding with utility classes (vcol, form-inline, scroll-wrap, pager-bar, pq-table, btn variants, grid-auto-*).
+- OpenAPI (Unreleased): documenting enriched `/alerts/create` response fields (suppressed_until, fired_count) & optional `run` flag note for `/admin/ingestion-schedule/run-due`.
+### Planned
+- Retry & backoff for alert email sending with failure metrics aggregation
+- Drop legacy plaintext portfolio_secret column after observation window
 
 ## [0.6.2] - 2025-08-30
 ## [0.6.3] - 2025-08-30
@@ -36,21 +29,18 @@ All notable changes to this project will be documented here.
 - Modular JS foundation: `core.js` (fetch helpers, formatting), `movers.js` (movers feature), `app-new.js` (new entry entrypoint wiring limited views).
 ### Notes
 - Not yet activated in `index.html` in this version (staged only).
+## [0.7.4] - 2025-08-30
+### Added / Changed
+- Extracted shared runtime utilities (logging, http helpers, crypto, dates, rate limit, metrics, audit, portfolio auth, factor analytics) into new `src/lib/` modules to begin modularization of worker.
+- Updated version references across backend, OpenAPI spec, frontend assets.
+- Removed duplicate in-file implementations replaced by library imports to resolve symbol conflicts.
+
 ## [0.7.2] - 2025-08-30
 ### Changed
 - Replaced legacy HTML with new minimal shell and activated modular scripts (`core.js`, `movers.js`, `app-new.js`).
 - Added deployment banner to force cache bust & visual confirmation.
 ### Deprecated
 - Legacy monolithic `public/app.js` retained temporarily for reference; to be removed once remaining features (portfolio, analytics, admin) are ported.
-## [0.7.3] - 2025-08-30
-### Added
-- Client-side CSV export buttons (cards, alerts, anomalies, ingestion provenance, audit trail).
-- Pagination for large admin tables (alerts, anomalies, backtests, audit) with reusable pager state & controls.
-### Changed
-- Introduced generic pagination helpers (`pagers`, `buildPagerControls`) in `app-new.js`.
-- Partial migration to reusable button/input utility classes (ongoing cleanup planned).
-### Planned
-- Complete utility class rollout (remove remaining inline styles) & add ARIA enhancements for pagination controls.
 ## [0.6.5] - 2025-08-30
 ### Added
 - Stronger deploy verification banner (gradient with timestamp) to confirm Pages propagation.

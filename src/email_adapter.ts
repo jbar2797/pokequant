@@ -1,7 +1,7 @@
 // src/email_adapter.ts
 // Pluggable email sending abstraction. Uses Resend if RESEND_API_KEY present.
 
-import type { Env } from './index';
+import type { Env } from './lib/types';
 export const EMAIL_RETRY_MAX = 3;
 
 export interface EmailSendResult {

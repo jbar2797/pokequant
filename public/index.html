@@ -10,29 +10,24 @@
   <link rel="stylesheet" href="/styles.css?v=0.7.4" />
   </head>
   <body>
-  <a href="#mainContent" class="sr-only skip-link">Skip to content</a>
-  <!-- Deployment banner removed post verification -->
-  <div id="srLive" aria-live="polite" class="sr-only"></div>
-  <div id="toastHost" class="flex flex-col gap-8 fixed-tr"></div>
-  <div id="statusBanner" class="f11 btn-ghost center-banner"></div>
     <div class="app-shell">
       <aside class="sidebar">
-    <div class="brand"><div class="brand-badge"></div> PokeQuant <span class="note" id="appVersion"></span></div>
-  <button id="themeToggle" class="btn btn-pill">🌙</button>
+        <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
         <nav class="nav" aria-label="Primary">
           <button data-view="overview" class="active" aria-current="page">Overview</button>
           <button data-view="cards">Cards</button>
+          <button data-view="portfolio">Portfolio</button>
         </nav>
-  <div class="note" style="margin-top:auto;line-height:1.4">Prototype UI. Not investment advice.</div>
+        <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
       </aside>
       <div class="main">
         <div class="topbar">
           <div style="font-weight:600;letter-spacing:.5px" id="currentViewLabel">Overview</div>
           <div class="grow"></div>
-          <input id="globalSearch" placeholder="Search cards…" aria-label="Search cards" class="field" style="min-width:240px" />
+          <input id="globalSearch" placeholder="Search cards…" aria-label="Search cards" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:12px;padding:6px 10px;border-radius:8px;min-width:240px" />
         </div>
-  <div id="mainContent" role="main" style="padding:26px 26px 60px" class="flex flex-col gap-40">
-          <section data-panel="overview" class="fade-in flex flex-col" style="gap:34px">
+        <div style="padding:26px 26px 60px;display:flex;flex-direction:column;gap:40px">
+          <section data-panel="overview" class="fade-in" style="display:flex;flex-direction:column;gap:34px">
             <div class="panel">
               <h2>Top Movers</h2>
               <div id="moversUp" class="grid-tiles"></div>
@@ -41,278 +36,46 @@
               <h2>Biggest Losers</h2>
               <div id="moversDown" class="grid-tiles"></div>
             </div>
-            <div class="panel">
-              <h2>System Health</h2>
-              <div id="healthInfo" class="f12" style="opacity:.75">Loading health…</div>
-            </div>
-            <div class="panel" id="alertPanel">
-              <h2>Create Alert (Quick)</h2>
-              <form id="alertQuickForm" class="form-inline items-end f12">
-                <label class="vcol">Email <input required name="email" class="field w-190" /></label>
-                <label class="vcol">Card ID <input required name="card_id" placeholder="e.g. card123" class="field w-140" /></label>
-                <label class="vcol">Kind
-                  <select name="kind" class="field">
-                    <option value="above">above</option>
-                    <option value="below">below</option>
-                  </select>
-                </label>
-                <label class="vcol">Threshold
-                  <input required name="threshold" type="number" step="0.01" class="field w-110" />
-                </label>
-                <label class="vcol">Snooze (min)
-                  <input name="snooze" type="number" step="1" class="field w-90" />
-                </label>
-                <button type="submit" class="btn btn-indigo btn-lg fw-600 ls-05">Create</button>
-              </form>
-              <div id="alertQuickResult" class="f11 mt-3" style="opacity:.75"></div>
-            </div>
-            <div class="panel" id="alertAdminPanel">
-              <h2 class="flex items-center gap-10">Alerts (Admin) <button id="alertExportCsv" type="button" class="btn btn-sm btn-outline mla">CSV</button></h2>
-              <form id="alertAdminFilters" class="form-inline f11 mb-3">
-                <label class="vcol">Email <input name="email" placeholder="filter email" class="field field-sm w-170" /></label>
-                <label class="vcol">Active
-                  <select name="active" class="field field-sm w-100">
-                    <option value="">(any)</option>
-                    <option value="1">Active</option>
-                    <option value="0">Inactive</option>
-                  </select>
-                </label>
-                <label class="vcol">Suppressed
-                  <select name="suppressed" class="field field-sm w-120">
-                    <option value="">(any)</option>
-                    <option value="1">Suppressed</option>
-                    <option value="0">Unsuppressed</option>
-                  </select>
-                </label>
-                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
-                <button type="button" id="alertAdminStatsBtn" class="btn btn-ghost btn-lg h-40">Stats</button>
-              </form>
-              <div id="alertAdminStats" class="f11" style="opacity:.75;margin-bottom:6px"></div>
-              <div class="scroll-wrap max-h-320">
-                <table class="pq-table f11 min-w-780">
-                  <thead class="table-head-sticky"><tr>
-                    <th>ID</th>
-                    <th>Email</th>
-                    <th>Card</th>
-                    <th>Kind</th>
-                    <th>Thresh</th>
-                    <th>Active</th>
-                    <th>Suppressed Until</th>
-                    <th>Fired</th>
-                    <th>Actions</th>
-                  </tr></thead>
-                  <tbody id="alertAdminBody"></tbody>
-                </table>
-              </div>
-              <div id="alertPager" class="pager-bar"></div>
-              <div class="note" style="margin-top:6px">Snooze requires manage token (returned on creation). Deactivate may not require token (admin flow).</div>
-            </div>
-            <div class="panel" id="portfolioPanel">
-              <h2>Portfolio Summary</h2>
-              <form id="portfolioAuth" class="form-inline f12 mb-3">
-                <label class="vcol">ID <input name="pid" placeholder="portfolio id" class="field w-150" /></label>
-                <label class="vcol">Secret <input name="psec" placeholder="secret" class="field w-170" /></label>
-                <button type="button" id="portfolioLoadBtn" class="btn btn-ghost btn-lg">Load</button>
-                <button type="button" id="portfolioRefreshBtn" class="btn btn-ghost btn-lg" title="Refresh">↻</button>
-                <button type="button" id="portfolioRotateSecretBtn" class="btn btn-indigo btn-lg" title="Rotate secret">Rotate Secret</button>
-              </form>
-              <div id="portfolioSummary" class="f12" style="opacity:.75">Enter credentials & load.</div>
-              <div id="portfolioLotsMini" class="grid grid-auto-tiles f11 mt-3 gap-8"></div>
-              <div id="portfolioCrudSection" class="flex flex-col gap-12 mt-5" style="display:none">
-                <h3 class="f14 fw-600" style="margin:0">Lots</h3>
-                <form id="portfolioAddLotForm" class="form-inline items-end f11">
-                  <label class="vcol">Card ID <input required name="card_id" class="field field-sm w-140" /></label>
-                  <label class="vcol">Qty <input required type="number" step="1" name="qty" class="field field-sm w-80" /></label>
-                  <label class="vcol">Cost USD <input required type="number" step="0.01" name="cost_usd" class="field field-sm w-100" /></label>
-                  <label class="vcol">Acquired <input type="date" name="acquired_at" class="field field-sm w-140" /></label>
-                  <button type="submit" class="btn btn-indigo btn-sm fw-600">Add Lot</button>
-                </form>
-                <div class="scroll-wrap max-h-360">
-                  <table id="portfolioLotsTable" class="pq-table f11 min-w-620">
-                    <thead class="table-head-sticky">
-                      <tr>
-                        <th>Card</th>
-                        <th>Qty</th>
-                        <th>Cost</th>
-                        <th>MV</th>
-                        <th>Unrlzd</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody id="portfolioLotsBody"></tbody>
-                  </table>
-                </div>
-                <div id="portfolioLotsEmpty" class="f11" style="opacity:.6;display:none">No lots yet.</div>
-              </div>
-              <div id="portfolioTargetsSection" class="mt-6" style="display:none;flex-direction:column;gap:10px">
-                <h3 class="f14 fw-600" style="margin:0">Factor Targets (Coming Soon)</h3>
-                <div class="f11" style="opacity:.6">UI placeholder – will allow viewing & editing /portfolio/targets then creating optimization orders.</div>
-              </div>
-            </div>
-            <div class="panel" id="adminMetricsPanel">
-              <h2>Admin Metrics (Mini)</h2>
-              <form id="adminAuth" class="flex gap-8 f12 mb-2">
-                <input id="adminTokenInput" placeholder="Admin token" class="field w-full min-w-150" />
-                <button id="adminTokenSet" type="button" class="btn btn-ghost btn-lg">Set</button>
-              </form>
-              <ul id="adminMetricsList" class="f11 grid gap-4" style="list-style:none;padding:0;margin:0;grid-template-columns:repeat(auto-fill,minmax(140px,1fr))"></ul>
-            </div>
-            <div class="panel" id="factorAnalyticsPanel">
-              <h2 class="flex items-center gap-10">Factor Analytics <button type="button" id="factorAnalyticsRefresh" class="btn btn-sm mla">Refresh</button></h2>
-              <div id="factorAnalyticsStatus" class="note-sm mb-2">Set admin token & refresh.</div>
-              <div id="factorPerformanceHost" class="scroll-wrap max-h-300 mb-3"></div>
-              <div id="factorCorrelationsHost" class="scroll-wrap max-h-260"></div>
-            </div>
-            <div class="panel" id="anomaliesPanel">
-              <h2 class="flex items-center gap-10">Anomalies <div class="flex gap-6 mla"><button id="anomaliesRefresh" type="button" class="btn btn-sm">Refresh</button><button id="anomaliesExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
-              <form id="anomaliesFilter" class="form-inline f11 mb-2">
-                <label class="vcol">Status
-                  <select name="status" class="field field-sm">
-                    <option value="">(any)</option>
-                    <option value="open">Open</option>
-                    <option value="resolved">Resolved</option>
-                  </select>
-                </label>
-                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
-              </form>
-              <div class="scroll-wrap max-h-260">
-                <table class="pq-table f11 min-w-780">
-                  <thead class="table-head-sticky"><tr>
-                    <th>ID</th>
-                    <th>Metric</th>
-                    <th>Observed</th>
-                    <th>Expected</th>
-                    <th>Status</th>
-                    <th>Created</th>
-                    <th>Note</th>
-                    <th>Actions</th>
-                  </tr></thead>
-                  <tbody id="anomaliesBody"></tbody>
-                </table>
-              </div>
-              <div id="anomaliesPager" class="pager-bar"></div>
-              <div class="note mt-2">Actions: ack (acknowledge), dismiss (resolved legit), ignore (noise).</div>
-            </div>
-            <div class="panel" id="integrityPanel">
-              <h2 class="flex items-center gap-10">Data Integrity <button id="integrityRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
-              <div id="integrityStatus" class="note-sm mb-2">Set admin token & refresh.</div>
-              <div id="integrityFlags" class="flex flex-wrap gap-6 f10 mb-3"></div>
-              <div id="integrityCoverage" class="f10 grid gap-6 grid-auto-140 mb-3"></div>
-              <div id="integrityLatest" class="f10 grid gap-6 grid-auto-160"></div>
-            </div>
-            <div class="panel" id="ingestionPanel">
-              <h2 class="flex items-center gap-10">Ingestion <div class="flex gap-6 mla"><button id="ingestionRefresh" type="button" class="btn btn-sm">Refresh</button><button id="ingestionProvExportCsv" type="button" class="btn btn-sm btn-outline">Provenance CSV</button></div></h2>
-              <div id="ingestionStatus" class="note-sm mb-2">Set admin token & refresh / run.</div>
-              <div class="flex flex-wrap gap-8 mb-4 f11">
-                <button id="ingestionRunDue" type="button" class="btn btn-blue btn-sm">Run Due</button>
-                <button id="ingestionRunFast" type="button" class="btn btn-indigo btn-sm">Fast Signals</button>
-                <button id="ingestionRunFull" type="button" class="btn btn-green btn-sm">Full Pipeline</button>
-                <button id="ingestionMockPrices" type="button" class="btn btn-sm">Mock Prices</button>
-              </div>
-              <div id="ingestionSchedules" class="grid grid-auto-wide gap-10 mb-4"></div>
-              <div id="ingestionConfigHost" class="mb-4"></div>
-              <div id="ingestionProvenanceHost" class="scroll-wrap max-h-220 mb-3"></div>
-              <form id="ingestionConfigForm" class="form-inline f11 items-end mt-3">
-                <label class="vcol">Dataset <input name="dataset" required placeholder="prices_daily" class="field field-sm w-140"/></label>
-                <label class="vcol">Source <input name="source" required placeholder="external-mock" class="field field-sm w-140"/></label>
-                <label class="vcol">Cursor <input name="cursor" placeholder="2025-08-01" class="field field-sm w-120"/></label>
-                <label class="vcol">Enabled
-                  <select name="enabled" class="field field-sm w-90">
-                    <option value="">(skip)</option>
-                    <option value="1">Yes</option>
-                    <option value="0">No</option>
-                  </select>
-                </label>
-                <button type="submit" class="btn btn-ghost btn-lg h-40">Upsert Config</button>
-              </form>
-            </div>
-            <div class="panel" id="factorIcPanel">
-              <h2 class="flex items-center gap-10">Factor IC <button id="factorIcRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
-              <div id="factorIcStatus" class="note-sm mb-2">Set admin token & refresh.</div>
-              <div id="factorIcSummaryHost" class="scroll-wrap max-h-220 mb-3"></div>
-              <div id="factorIcHistoryHost" class="scroll-wrap max-h-260"></div>
-              <div class="mt-3 flex items-center gap-8 f11">
-                <label class="flex items-center gap-4">Chart Factor
-                  <select id="factorIcChartSelect" class="field field-sm"></select>
-                </label>
-                <button id="factorIcChartRefresh" type="button" class="btn btn-sm">Update Chart</button>
-              </div>
-              <div class="mt-3"><canvas id="factorIcChart" height="140" aria-label="Factor IC Chart" role="img"></canvas></div>
-            </div>
-            <div class="panel" id="portfolioPerfPanel">
-              <h2 class="flex items-center gap-10">Portfolio Performance <button id="portfolioPerfRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
-              <form id="portfolioPerfAuth" class="form-inline f11 mb-2">
-                <label class="vcol">ID <input name="pid" placeholder="portfolio id" class="field field-sm w-140" /></label>
-                <label class="vcol">Secret <input name="psec" placeholder="secret" class="field field-sm w-160" /></label>
-                <label class="vcol">Days <input name="days" type="number" value="60" class="field field-sm w-80" /></label>
-                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
-              </form>
-              <div id="portfolioPnlHost" class="scroll-wrap max-h-220 mb-3"></div>
-              <div id="portfolioAttributionHost" class="scroll-wrap max-h-220"></div>
-              <div class="mt-3"><canvas id="portfolioPnlChart" height="140" aria-label="Portfolio PnL Chart" role="img"></canvas></div>
-            </div>
-            <div class="panel" id="factorWeightsPanel">
-              <h2 class="flex items-center gap-10">Factor Weights <button id="factorWeightsRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
-              <div id="factorWeightsStatus" class="note-sm mb-2">Set admin token & refresh or derive.</div>
-              <div class="flex gap-8 mb-2 f11">
-                <button id="factorWeightsAuto" type="button" class="btn btn-indigo btn-sm">Auto Derive</button>
-              </div>
-              <div id="factorWeightsHost" class="scroll-wrap max-h-240"></div>
-            </div>
-            <div class="panel" id="backtestsPanel">
-              <h2 class="flex items-center gap-10">Backtests <button id="backtestsRefresh" type="button" class="btn btn-sm mla">Refresh</button></h2>
-              <div id="backtestsHost" class="scroll-wrap max-h-260 mb-2"></div>
-              <div id="backtestsPager" class="pager-bar mt-2"></div>
-              <div id="backtestDetailHost" class="scroll-wrap max-h-260"></div>
-            </div>
-            <div class="panel" id="auditPanel">
-              <h2 class="flex items-center gap-10">Audit Trail <div class="flex gap-6 mla"><button id="auditRefresh" type="button" class="btn btn-sm">Refresh</button><button id="auditExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
-              <form id="auditFilter" class="form-inline f11 mb-2">
-                <label class="vcol">Resource <input name="resource" placeholder="portfolio" class="field field-sm w-140" /></label>
-                <label class="vcol">Action <input name="action" placeholder="update" class="field field-sm w-120" /></label>
-                <label class="vcol">Actor <input name="actor_type" placeholder="admin" class="field field-sm w-120" /></label>
-                <label class="vcol">Limit <input name="limit" type="number" value="50" class="field field-sm w-80" /></label>
-                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
-                <button type="button" id="auditStatsBtn" class="btn btn-ghost btn-lg h-40">Stats</button>
-              </form>
-              <div id="auditStats" class="note-sm mb-2"></div>
-              <div id="auditHost" class="scroll-wrap max-h-280"></div>
-              <div id="auditPager" class="pager-bar"></div>
-            </div>
           </section>
           <section data-panel="cards" hidden>
-            <div class="panel">
-              <h2 class="flex items-center gap-10">Cards (sample) <button id="cardsExportCsv" type="button" class="btn btn-sm btn-outline mla">Export CSV</button></h2>
-              <div class="scroll-wrap max-h-520" style="border-radius:12px">
-                <table class="pq-table" style="font-size:12px;min-width:880px">
-                  <thead id="cardsHeader" class="table-head-sticky">
+            <div class="panel" style="overflow:auto">
+              <h2>Cards (sample)</h2>
+              <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:880px">
+                  <thead style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
                     <tr>
-                      <th data-sort="name" aria-sort="none">Card</th>
-                      <th data-sort="set_name" aria-sort="none">Set</th>
-                      <th data-sort="rarity" aria-sort="none">Rarity</th>
-                      <th data-sort="price_usd" aria-sort="none">Price</th>
-                      <th data-sort="signal" aria-sort="none">Signal</th>
-                      <th data-sort="id" aria-sort="none">ID</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Card</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Set</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Rarity</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Price</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">Signal</th>
+                      <th style="text-align:left;padding:8px 10px;font-weight:600">ID</th>
                     </tr>
                   </thead>
                   <tbody id="cardsTableBody"></tbody>
                 </table>
               </div>
-              <div id="cardsPager" class="pager-bar mt-2 f11"></div>
+            </div>
+          </section>
+          <section data-panel="portfolio" hidden>
+            <div class="panel">
+              <h2>Portfolio (preview)</h2>
+              <div id="portfolioSummary" style="font-size:12px;opacity:.75">Loading portfolio…</div>
+              <div id="portfolioLots" style="margin-top:16px;font-size:12px"></div>
             </div>
           </section>
         </div>
       </div>
     </div>
-    <!-- Card side panel -->
-  <div id="cardSidePanel" class="hidden" aria-labelledby="cardPanelTitle" role="dialog" aria-modal="false" tabindex="-1"></div>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-4jGoJZ9jUkZOtJ0i0kBWKGZHJ8L7Kr9d5EnYzWx/juE=" crossorigin="anonymous"></script>
-  <!-- Modal removed to fix persistent rectangle; will reintroduce later with proper lifecycle -->
-  <script type="module" src="/core.js?v=0.7.4"></script>
+    <div id="cardModalNew" hidden class="pq-modal" role="dialog" aria-modal="true" aria-labelledby="cardModalTitle" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:300;padding:30px">
+      <div class="pq-modal-inner" style="background:#101726;border:1px solid #253349;border-radius:18px;max-width:880px;width:100%;padding:32px;position:relative">
+        <button id="cardModalCloseNew" aria-label="Close modal" style="position:absolute;top:10px;right:12px;background:#162132;border:1px solid #253349;color:#e5ecf5;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">Close</button>
+        <div id="cardModalBodyNew"></div>
+      </div>
+    </div>
+    <script type="module" src="/core.js?v=0.7.4"></script>
   <script type="module" src="/movers.js?v=0.7.4"></script>
-  <script type="module" src="/toast.js?v=0.7.4"></script>
-  <script type="module" src="/theme.js?v=0.7.4"></script>
-  <script type="module" src="/health.js?v=0.7.4"></script>
+  <script type="module" src="/portfolio.js?v=0.7.4"></script>
   <script type="module" src="/app-new.js?v=0.7.4"></script>
   </body>
 </html>

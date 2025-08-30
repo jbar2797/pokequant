@@ -17,25 +17,10 @@ import { incMetric, incMetricBy, recordLatency } from './lib/metrics';
 import { audit } from './lib/audit';
 import { portfolioAuth } from './lib/portfolio_auth';
 import { getFactorUniverse, computeFactorReturns, computeFactorRiskModel, smoothFactorReturns, computeSignalQuality, computeFactorIC } from './lib/factors';
+import { ensureTestSeed, ensureAlertsTable, getAlertThresholdCol } from './lib/data';
+import { baseDataSignature } from './lib/base_data';
 
 
-// Shared signature for ETag generation across public endpoints.
-// Includes counts and latest dates across multiple tables so cache busts when any base dataset changes.
-// Format: v2:<cardCount>:<latestPrice>:<latestSignal>:<latestSvi>:<latestComponents>
-async function baseDataSignature(env: Env): Promise<string> {
-  try {
-    const rs = await env.DB.prepare(`SELECT
-      (SELECT COUNT(*) FROM cards) AS cards,
-      (SELECT MAX(as_of) FROM prices_daily) AS lp,
-      (SELECT MAX(as_of) FROM signals_daily) AS ls,
-      (SELECT MAX(as_of) FROM svi_daily) AS lv,
-      (SELECT MAX(as_of) FROM signal_components_daily) AS lc`).all();
-    const row: any = rs.results?.[0] || {};
-    return `v2:${row.cards||0}:${row.lp||''}:${row.ls||''}:${row.lv||''}:${row.lc||''}`;
-  } catch {
-    return 'v2:0::::';
-  }
-}
 
 // ---------- performance indices (lazy, one-time per isolate) ----------
 let INDICES_DONE = false;
@@ -70,34 +55,6 @@ async function ensureIndices(env: Env) {
 // Lightweight audit trail for state-changing endpoints. Best-effort (errors ignored).
 // audit helper now in lib/audit
 
-// Lazy test seeding (only if DB empty / tables missing) to allow unit tests to pass without migration step.
-async function ensureTestSeed(env: Env) {
-  try {
-    const check = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='cards'`).all();
-    const tableExists = !!(check.results && check.results.length);
-    if (!tableExists) {
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, name TEXT, set_name TEXT, rarity TEXT, image_url TEXT, types TEXT);`).run();
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS prices_daily (card_id TEXT, as_of DATE, price_usd REAL, price_eur REAL, src_updated_at TEXT, PRIMARY KEY(card_id,as_of));`).run();
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id,as_of));`).run();
-    }
-    // Ensure newer columns from migrations exist when using lightweight seed path
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN number TEXT`).run(); } catch { /* ignore if exists */ }
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN set_id TEXT`).run(); } catch { /* ignore */ }
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN tcgplayer_url TEXT`).run(); } catch { /* ignore */ }
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN cardmarket_url TEXT`).run(); } catch { /* ignore */ }
-    // Seed if zero rows (helps local preview & smoke tests)
-    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all().catch(()=>({ results: [{ n: 0 }] } as any));
-    const n = Number(count.results?.[0]?.n) || 0;
-    if (n === 0) {
-      // Simple placeholder card (with image placeholder) so UI shows something meaningful
-      await env.DB.prepare(`INSERT INTO cards (id,name,set_name,rarity,image_url,types,number,set_id) VALUES ('card1','Test Card','Test Set','Promo','https://placehold.co/160x223?text=PK','Fire','001','set1');`).run();
-      const today = new Date().toISOString().slice(0,10);
-      await env.DB.prepare(`INSERT OR REPLACE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES ('card1', ?, 12.34, 11.11, datetime('now'))`).bind(today).run();
-      await env.DB.prepare(`INSERT OR REPLACE INTO signals_daily (card_id, as_of, score, signal, reasons, edge_z, exp_ret, exp_sd) VALUES ('card1', ?, 1.5, 'BUY', 'test seed', 0.5, 0.02, 0.05)`).bind(today).run();
-      try { await env.DB.prepare(`INSERT OR REPLACE INTO signal_components_daily (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break) VALUES ('card1', ?, 0.1, 0.2, -0.05, 0.3, 1.2, 0)`).bind(today).run(); } catch { /* ignore if table missing */ }
-    }
-  } catch { /* ignore in prod */ }
-}
 
 // ---------- universe fetch (unchanged) ----------
 async function fetchUniverse(env: Env) {
@@ -264,35 +221,6 @@ async function computeSignalsBulk(env: Env, daysLookback = 365) {
   await flush(writesComponents);
 
   return { idsProcessed: ids.length, wroteSignals: writesSignals.length };
-}
-
-// ---------- Alerts (defensive) ----------
-async function ensureAlertsTable(env: Env) {
-  // Create full shape if missing; safe if exists.
-  await env.DB.prepare(`
-    CREATE TABLE IF NOT EXISTS alerts_watch (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL,
-      card_id TEXT NOT NULL,
-      kind TEXT DEFAULT 'price_below',
-      threshold_usd REAL,
-      active INTEGER DEFAULT 1,
-      manage_token TEXT,
-      created_at TEXT,
-      last_fired_at TEXT
-    );
-  `).run();
-}
-
-// Determine which threshold column exists (backwards compat: older deployments used 'threshold')
-async function getAlertThresholdCol(env: Env): Promise<'threshold_usd'|'threshold'> {
-  try {
-    const rs = await env.DB.prepare(`PRAGMA table_info('alerts_watch')`).all();
-    const cols = (rs.results||[]).map((r:any)=> (r.name||r.cid||'').toString());
-    if (cols.includes('threshold_usd')) return 'threshold_usd';
-    if (cols.includes('threshold')) return 'threshold';
-  } catch {}
-  return 'threshold_usd';
 }
 
 async function runAlerts(env: Env) {
@@ -617,47 +545,6 @@ async function snapshotPortfolioFactorExposure(env: Env) {
   } catch (e) { log('portfolio_factor_exposure_error', { error:String(e) }); }
 }
 
-// Portfolio performance attribution: link prior-day exposures * factor_returns to next-day NAV return
-async function computePortfolioAttribution(env: Env, portfolioId: string, days: number) {
-  const look = Math.min(180, Math.max(1, days));
-  // Get NAV series
-  const navRs = await env.DB.prepare(`SELECT as_of, market_value FROM portfolio_nav WHERE portfolio_id=? ORDER BY as_of ASC`).bind(portfolioId).all();
-  const navRows = (navRs.results||[]) as any[];
-  if (navRows.length < 2) return [];
-  // Map NAV by date
-  const navMap = new Map<string, number>();
-  for (const r of navRows) navMap.set(String(r.as_of), Number(r.market_value)||0);
-  // Get factor returns and exposures within window
-  const exposuresRs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? AND as_of >= date('now', ? )`).bind(portfolioId, `-${look} day`).all();
-  const factRetRs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ? )`).bind(`-${look} day`).all();
-  const exposuresByDay: Record<string, Record<string, number>> = {};
-  for (const r of (exposuresRs.results||[]) as any[]) {
-    const d = String(r.as_of); const f = String(r.factor); const v = Number(r.exposure); if (!Number.isFinite(v)) continue;
-    (exposuresByDay[d] ||= {})[f] = v;
-  }
-  const factorRetByDay: Record<string, Record<string, number>> = {};
-  for (const r of (factRetRs.results||[]) as any[]) {
-    const d = String(r.as_of); const f = String(r.factor); const v = Number(r.ret); if (!Number.isFinite(v)) continue;
-    (factorRetByDay[d] ||= {})[f] = v;
-  }
-  // For each day d where nav[d] and nav[next] exist and we have exposures[d] and factor_returns[d]
-  const dates = Array.from(navMap.keys()).sort();
-  const out: any[] = [];
-  for (let i=0;i<dates.length-1;i++) {
-    const d = dates[i]; const nd = dates[i+1];
-    const nav0 = navMap.get(d)!; const nav1 = navMap.get(nd)!; if (!(nav0>0 && nav1>0)) continue;
-    const portRet = (nav1 - nav0)/nav0;
-    const ex = exposuresByDay[d]; const fr = factorRetByDay[d];
-    if (!ex || !fr) continue;
-    let sum = 0; const contrib: Record<string, number> = {};
-    for (const [f, e] of Object.entries(ex)) {
-      const r = fr[f]; if (!Number.isFinite(r)) continue; const c = e * r; contrib[f] = +c.toFixed(6); sum += c;
-    }
-    const residual = portRet - sum;
-    out.push({ as_of: d, to: nd, portfolio_return: +portRet.toFixed(6), factor_contrib_sum: +sum.toFixed(6), residual: +residual.toFixed(6), contributions: contrib });
-  }
-  return out.slice(-look);
-}
 
 // ----- Stub email send for alerts (no external provider integrated) -----
 async function sendEmailAlert(_env: Env, _to: string, _subject: string, _body: string) {

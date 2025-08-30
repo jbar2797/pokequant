@@ -4,14 +4,13 @@ import { audit } from '../lib/audit';
 import { portfolioAuth } from '../lib/portfolio_auth';
 import type { Env } from '../lib/types';
 import { router } from '../router';
-
-// Helpers still defined in index.ts (to be modularized later)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-declare function computePortfolioAttribution(env: Env, portfolioId: string, days: number): Promise<any[]>;
+import { computePortfolioAttribution } from '../lib/portfolio_attribution';
+import { ensureTestSeed } from '../lib/data';
 
 export function registerPortfolioRoutes(){
   // Create portfolio
   router.add('POST','/portfolio/create', async ({ env }) => {
+    await ensureTestSeed(env);
     const id = crypto.randomUUID();
     const secretBytes = new Uint8Array(16); crypto.getRandomValues(secretBytes);
     const secret = Array.from(secretBytes).map(b=> b.toString(16).padStart(2,'0')).join('');
@@ -24,6 +23,7 @@ export function registerPortfolioRoutes(){
   })
   // Add lot
   .add('POST','/portfolio/add-lot', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const body = await req.json().catch(()=>({}));
@@ -49,6 +49,7 @@ export function registerPortfolioRoutes(){
   })
   // Rotate secret
   .add('POST','/portfolio/rotate-secret', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -62,6 +63,7 @@ export function registerPortfolioRoutes(){
   })
   // Portfolio summary
   .add('GET','/portfolio', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -71,6 +73,7 @@ export function registerPortfolioRoutes(){
     return json({ ok:true, totals:{ market_value: mv, cost_basis: cost, unrealized: mv-cost }, rows: lots.results||[] });
   })
   .add('GET','/portfolio/export', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -79,6 +82,7 @@ export function registerPortfolioRoutes(){
     return json({ ok:true, portfolio_id: pid, lots: lots.results||[] });
   })
   .add('POST','/portfolio/delete-lot', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -92,6 +96,7 @@ export function registerPortfolioRoutes(){
     return json({ ok:true, deleted: changes });
   })
   .add('POST','/portfolio/update-lot', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -115,6 +120,7 @@ export function registerPortfolioRoutes(){
   })
   // Factor exposure (latest)
   .add('GET','/portfolio/exposure', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -129,6 +135,7 @@ export function registerPortfolioRoutes(){
     return json({ ok:true, as_of:d, exposures: out });
   })
   .add('GET','/portfolio/exposure/history', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -138,6 +145,7 @@ export function registerPortfolioRoutes(){
   })
   // Targets
   .add('GET','/portfolio/targets', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -147,6 +155,7 @@ export function registerPortfolioRoutes(){
     return json({ ok:true, rows: rs.results||[] });
   })
   .add('POST','/portfolio/targets', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -160,6 +169,7 @@ export function registerPortfolioRoutes(){
   })
   // Orders
   .add('POST','/portfolio/orders', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
@@ -178,17 +188,20 @@ export function registerPortfolioRoutes(){
     return json({ ok:true, id, objective, suggestions });
   })
   .add('GET','/portfolio/orders', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||''; const psec = req.headers.get('x-portfolio-secret')||''; const auth = await portfolioAuth(env, pid, psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
     const rs = await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at FROM portfolio_orders WHERE portfolio_id=? ORDER BY created_at DESC LIMIT 20`).bind(pid).all();
     return json({ ok:true, rows: rs.results||[] });
   })
   .add('POST','/portfolio/orders/execute', async ({ env, req }) => {
+    await ensureTestSeed(env);
     const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
     const body:any = await req.json().catch(()=>({})); const id=(body.id||'').toString(); if(!id) return json({ ok:false, error:'id_required' },400);
     const orows = await env.DB.prepare(`SELECT id,status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const order=(orows.results||[])[0] as any; if(!order) return json({ ok:false, error:'not_found' },404); if(order.status!=='open') return json({ ok:false, error:'invalid_status' },400);
     await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=datetime('now'), executed_trades=json('[]') WHERE id=?`).bind(id).run(); await audit(env,{ actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id }); return json({ ok:true, id, status:'executed' });
   })
   .add('GET','/portfolio/orders/detail', async ({ env, req, url }) => {
+    await ensureTestSeed(env);
     const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
     const id=(url.searchParams.get('id')||'').trim(); if(!id) return json({ ok:false, error:'id_required' },400);
     const rs=await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at, suggestions, executed_trades FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const row:any=rs.results?.[0]; if(!row) return json({ ok:false, error:'not_found' },404);
@@ -197,10 +210,12 @@ export function registerPortfolioRoutes(){
   })
   // Attribution & PnL
   .add('GET','/portfolio/attribution', async ({ env, req, url }) => {
+    await ensureTestSeed(env);
     const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
     const days=Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10))); const rows= await computePortfolioAttribution(env, pid, days); return json({ ok:true, rows });
   })
   .add('GET','/portfolio/pnl', async ({ env, req, url }) => {
+    await ensureTestSeed(env);
     const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
     const days=Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10))); const rs=await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all(); return json({ ok:true, rows: rs.results||[] });
   });

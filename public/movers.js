@@ -1,4 +1,4 @@
-// Movers module (v0.7.2)
+// Movers module (v0.7.4)
 import { fetchJSON, signalBadge, fmtUSD, abbreviateSet, PLACEHOLDER } from './core.js';
 
 export async function loadMovers(){

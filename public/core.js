@@ -1,6 +1,6 @@
-// Core bootstrap for PokeQuant 0.7.2
+// Core bootstrap for PokeQuant 0.7.4
 export const API_BASE = 'https://pokequant.jonathanbarreneche.workers.dev';
-export const VERSION = '0.7.2';
+export const VERSION = '0.7.4';
 export const PLACEHOLDER = '/placeholder-card.svg';
 
 export function qs(sel, root=document){ return root.querySelector(sel); }
