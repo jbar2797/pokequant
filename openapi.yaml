@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.2.6
+  version: 0.2.7
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -232,6 +232,14 @@ paths:
       description: Coverage counts, latest dates, recent gap heuristics, and staleness flags.
       responses:
         '200': { description: OK }
+  /admin/factor-weights:
+    get:
+      summary: List factor weights (admin)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Upsert active factor weight version (admin)
+      description: Deactivates prior weights and inserts new version.
+      responses: { '200': { description: OK } }
 components:
   schemas:
     Error:

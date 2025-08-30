@@ -279,7 +279,31 @@ async function computeSignalsBulk(env: Env, daysLookback = 365) {
     if (prices.length < 1 && svis.length < 7) continue;
 
     const out = compositeScore(prices, svis);
-    const { score, signal, reasons, edgeZ, expRet, expSd, components } = out;
+    let { score, signal, reasons, edgeZ, expRet, expSd, components } = out;
+    // Dynamic weight override (optional): factor_weights table
+    try {
+      const wRes = await env.DB.prepare(`SELECT factor, weight FROM factor_weights WHERE active=1 AND version=(SELECT MAX(version) FROM factor_weights WHERE active=1)`).all();
+      const rows = (wRes.results||[]) as any[];
+      if (rows.length) {
+        const m: Record<string, number> = {};
+        for (const r of rows) m[String(r.factor)] = Number(r.weight);
+        const parts: number[] = []; let totalW = 0;
+        // Map known factors: ts7, ts30, z_svi, risk(vol)
+        if (components.ts7 !== null && m.ts7 !== undefined) { parts.push((components.ts7 as number)*m.ts7*100); totalW += Math.abs(m.ts7); }
+        if (components.ts30 !== null && m.ts30 !== undefined) { parts.push((components.ts30 as number)*m.ts30*100); totalW += Math.abs(m.ts30); }
+        if (components.zSVI !== null && m.z_svi !== undefined) { parts.push((components.zSVI as number)*m.z_svi*10); totalW += Math.abs(m.z_svi); }
+        if (components.vol !== null && m.risk !== undefined) { parts.push(-(components.vol as number)*m.risk*10); totalW += Math.abs(m.risk); }
+        if (parts.length && totalW>0) {
+          const base = 50 + parts.reduce((a,b)=>a+b,0);
+          score = Math.max(0, Math.min(100, base));
+          signal = score >= 66 ? 'BUY' : score <= 33 ? 'SELL' : 'HOLD';
+          edgeZ = (score - 50)/15;
+          expRet = 0.001 * (score - 50);
+          expSd = Math.max(0.01, (components.vol ?? 0.2)/Math.sqrt(252));
+          reasons.push('dyn_weights_applied');
+        }
+      }
+    } catch {/* ignore weighting errors */}
 
     writesSignals.push(env.DB.prepare(`
       INSERT OR REPLACE INTO signals_daily
@@ -995,6 +1019,36 @@ export default {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       // Spec version duplicated in openapi.yaml (info.version). Keeping a single source via APP_VERSION.
       return json({ ok:true, version: APP_VERSION });
+    }
+
+    // List factor weights
+    if (url.pathname === '/admin/factor-weights' && req.method === 'GET') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      try {
+        const rs = await env.DB.prepare(`SELECT version, factor, weight, active, created_at FROM factor_weights ORDER BY version DESC, factor ASC`).all();
+        return json({ ok:true, rows: rs.results||[] });
+      } catch (e:any) {
+        return json({ ok:false, error:String(e) },500);
+      }
+    }
+    // Upsert factor weights (overwrite version)
+    if (url.pathname === '/admin/factor-weights' && req.method === 'POST') {
+      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const version = (body.version || new Date().toISOString().slice(0,19).replace(/[:T]/g,'').replace(/-/g,''));
+      const weights = Array.isArray(body.weights) ? body.weights : [];
+      if (!weights.length) return json({ ok:false, error:'weights_required' },400);
+      // deactivate previous active
+      try {
+        await env.DB.prepare(`UPDATE factor_weights SET active=0 WHERE active=1`).run();
+        for (const w of weights) {
+          if (!w.factor || typeof w.weight !== 'number') continue;
+          await env.DB.prepare(`INSERT OR REPLACE INTO factor_weights (version,factor,weight,active,created_at) VALUES (?,?,?,?,datetime('now'))`).bind(version, String(w.factor), Number(w.weight), 1).run();
+        }
+        return json({ ok:true, version, count: weights.length });
+      } catch (e:any) {
+        return json({ ok:false, error:String(e) },500);
+      }
     }
 
     // Run alerts only (for tests / manual)

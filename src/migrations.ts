@@ -129,6 +129,19 @@ CREATE TABLE IF NOT EXISTS alerts_watch (
   PRIMARY KEY(dataset, as_of)
 );`
   }
+  ,
+  {
+    id: '0007_factor_weights',
+    description: 'Add factor_weights table for dynamic composite weighting',
+    sql: `CREATE TABLE IF NOT EXISTS factor_weights (
+  version TEXT NOT NULL,
+  factor TEXT NOT NULL,
+  weight REAL NOT NULL,
+  active INTEGER DEFAULT 1,
+  created_at TEXT,
+  PRIMARY KEY(version, factor)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;
