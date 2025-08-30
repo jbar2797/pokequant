@@ -14,10 +14,11 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          PAGES_PROJECT_NAME: ${{ secrets.PAGES_PROJECT_NAME }}
         run: |
           set -e
-          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ]; then
-            echo "::error::Missing CF_API_TOKEN or CF_ACCOUNT_ID secret" >&2
+          if [ -z "$CF_API_TOKEN" ] || [ -z "$CF_ACCOUNT_ID" ] || [ -z "$PAGES_PROJECT_NAME" ]; then
+            echo "::error::Missing one of CF_API_TOKEN, CF_ACCOUNT_ID, PAGES_PROJECT_NAME secrets" >&2
             exit 1
           fi
           echo "Listing Pages projects for account..."
@@ -29,6 +30,11 @@ jobs:
             exit 1
           fi
           echo "Project names present:" && (jq -r '.result[].name' resp.json || true)
+          if ! jq -e --arg n "$PAGES_PROJECT_NAME" '.result[].name | select(. == $n)' resp.json > /dev/null; then
+            echo "::error::Target project '$PAGES_PROJECT_NAME' not found in account. Create it first in Cloudflare Pages UI (same account) or fix PAGES_PROJECT_NAME secret." >&2
+            exit 1
+          fi
+          echo "Confirmed target project '$PAGES_PROJECT_NAME' exists. Proceeding to deploy."
       - name: Deploy public/ to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
