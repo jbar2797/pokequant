@@ -35,6 +35,15 @@ All notable changes to this project will be documented here.
 - Added deployment banner to force cache bust & visual confirmation.
 ### Deprecated
 - Legacy monolithic `public/app.js` retained temporarily for reference; to be removed once remaining features (portfolio, analytics, admin) are ported.
+## [0.7.3] - 2025-08-30
+### Added
+- Client-side CSV export buttons (cards, alerts, anomalies, ingestion provenance, audit trail).
+- Pagination for large admin tables (alerts, anomalies, backtests, audit) with reusable pager state & controls.
+### Changed
+- Introduced generic pagination helpers (`pagers`, `buildPagerControls`) in `app-new.js`.
+- Partial migration to reusable button/input utility classes (ongoing cleanup planned).
+### Planned
+- Complete utility class rollout (remove remaining inline styles) & add ARIA enhancements for pagination controls.
 ## [0.6.5] - 2025-08-30
 ### Added
 - Stronger deploy verification banner (gradient with timestamp) to confirm Pages propagation.

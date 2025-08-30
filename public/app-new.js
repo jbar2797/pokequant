@@ -20,6 +20,40 @@ function announce(msg, kind){
 // Simple state
 const state = { cards: [], view: 'overview', filtered: [], page:1, pageSize:50 };
 
+// Generic pager state for large admin datasets (alerts, anomalies, backtests, audit)
+const pagers = {
+  alerts: { page:1, pageSize:50, rows:[] },
+  anomalies: { page:1, pageSize:50, rows:[] },
+  backtests: { page:1, pageSize:50, rows:[] },
+  audit: { page:1, pageSize:50, rows:[] }
+};
+
+function buildPagerControls(containerId, key, renderFn){
+  const cfg = pagers[key];
+  const host = document.getElementById(containerId);
+  if(!host) return;
+  const total = cfg.rows.length;
+  const pages = Math.max(1, Math.ceil(total / cfg.pageSize));
+  if(cfg.page > pages) cfg.page = pages;
+  host.innerHTML = `
+    <div role="navigation" aria-label="${key} pagination" style="display:flex;align-items:center;gap:8px;font-size:11px;flex-wrap:wrap">
+      <button data-act="prev" class="btn btn-sm" aria-label="Previous page" ${cfg.page===1?'disabled':''} style="${cfg.page===1?'opacity:.4;cursor:not-allowed':''}">Prev</button>
+      <button data-act="next" class="btn btn-sm" aria-label="Next page" ${cfg.page===pages?'disabled':''} style="${cfg.page===pages?'opacity:.4;cursor:not-allowed':''}">Next</button>
+      <span aria-live="polite">Page <strong>${cfg.page}</strong> / ${pages} \u2022 ${total} rows</span>
+      <label style="margin-left:auto;display:flex;align-items:center;gap:4px">Page Size
+        <select data-ps class="field field-sm" aria-label="Select page size" style="padding:4px 6px">${[25,50,100,200].map(n=> `<option ${n===cfg.pageSize?'selected':''}>${n}</option>`).join('')}</select>
+      </label>
+    </div>`;
+  host.querySelector('[data-act=prev]')?.addEventListener('click', ()=> { if(cfg.page>1){ cfg.page--; renderFn(); announce(`${key} page ${cfg.page} of ${pages}`,'info'); }});
+  host.querySelector('[data-act=next]')?.addEventListener('click', ()=> { if(cfg.page<pages){ cfg.page++; renderFn(); announce(`${key} page ${cfg.page} of ${pages}`,'info'); }});
+  host.querySelector('[data-ps]')?.addEventListener('change', e=> { cfg.pageSize = Number(e.target.value)||50; cfg.page=1; renderFn(); announce(`${key} page size ${cfg.pageSize}`,'info'); });
+}
+
+function slicePage(rows, cfg){
+  const start = (cfg.page-1)*cfg.pageSize;
+  return rows.slice(start, start+cfg.pageSize);
+}
+
 // Navigation
 function switchView(v){
   state.view = v;
@@ -64,17 +98,19 @@ function renderPager(){
   const pages = Math.max(1, Math.ceil(total/state.pageSize));
   if(state.page>pages) state.page=pages;
   pager.innerHTML = `
-    <button data-page="prev" ${state.page===1?'disabled':''} style="padding:4px 8px;background:#162132;color:#e5ecf5;border:1px solid #253349;border-radius:6px;cursor:pointer;${state.page===1?'opacity:.4;cursor:not-allowed':''}">Prev</button>
-    <span>Page <strong>${state.page}</strong> / ${pages} • ${total} rows</span>
-    <button data-page="next" ${state.page===pages?'disabled':''} style="padding:4px 8px;background:#162132;color:#e5ecf5;border:1px solid #253349;border-radius:6px;cursor:pointer;${state.page===pages?'opacity:.4;cursor:not-allowed':''}">Next</button>
-    <label style="margin-left:auto;display:flex;align-items:center;gap:4px">Page Size
-      <select id="cardsPageSize" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:4px 6px;border-radius:6px">
-        ${[25,50,100,200].map(n=> `<option ${n===state.pageSize?'selected':''}>${n}</option>`).join('')}
-      </select>
-    </label>`;
-  pager.querySelector('[data-page="prev"]').onclick = ()=> { if(state.page>1){ state.page--; renderCards(); } };
-  pager.querySelector('[data-page="next"]').onclick = ()=> { const pages2=Math.ceil(state.filtered.length/state.pageSize); if(state.page<pages2){ state.page++; renderCards(); } };
-  pager.querySelector('#cardsPageSize').onchange = (e)=> { state.pageSize=Number(e.target.value)||50; state.page=1; renderCards(); };
+    <div role="navigation" aria-label="cards pagination" style="display:flex;align-items:center;gap:8px;font-size:11px;flex-wrap:wrap">
+      <button data-page="prev" aria-label="Previous page" ${state.page===1?'disabled':''} class="btn btn-sm" style="${state.page===1?'opacity:.4;cursor:not-allowed':''}">Prev</button>
+      <button data-page="next" aria-label="Next page" ${state.page===pages?'disabled':''} class="btn btn-sm" style="${state.page===pages?'opacity:.4;cursor:not-allowed':''}">Next</button>
+      <span aria-live="polite">Page <strong>${state.page}</strong> / ${pages} • ${total} rows</span>
+      <label style="margin-left:auto;display:flex;align-items:center;gap:4px">Page Size
+        <select id="cardsPageSize" class="field field-sm" aria-label="Select page size" style="padding:4px 6px">
+          ${[25,50,100,200].map(n=> `<option ${n===state.pageSize?'selected':''}>${n}</option>`).join('')}
+        </select>
+      </label>
+    </div>`;
+  pager.querySelector('[data-page="prev"]').onclick = ()=> { if(state.page>1){ state.page--; renderCards(); announce(`cards page ${state.page} of ${pages}`,'info'); } };
+  pager.querySelector('[data-page="next"]').onclick = ()=> { const pages2=Math.ceil(state.filtered.length/state.pageSize); if(state.page<pages2){ state.page++; renderCards(); announce(`cards page ${state.page} of ${pages2}`,'info'); } };
+  pager.querySelector('#cardsPageSize').onchange = (e)=> { state.pageSize=Number(e.target.value)||50; state.page=1; renderCards(); announce(`cards page size ${state.pageSize}`,'info'); };
 }
 function row(c){
   const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—');
@@ -661,10 +697,19 @@ async function loadAnomalies(ev){
   try {
     const r = await fetchJSON('/admin/anomalies'+qs,{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
     const rows = r.rows || r.anomalies || [];
-    if(!rows.length){ anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;opacity:.6">No anomalies</td></tr>'; return; }
-    anomaliesBody.innerHTML = rows.slice(0,300).map(a=> anomalyRow(a)).join('');
-    wireAnomalyActions();
+    pagers.anomalies.rows = rows;
+    pagers.anomalies.page = 1;
+    renderAnomaliesPaged();
   } catch(e){ anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;color:#f87171">Load failed</td></tr>'; announce('Anomalies load failed','error'); }
+}
+function renderAnomaliesPaged(){
+  if(!anomaliesBody){ return; }
+  const cfg = pagers.anomalies;
+  const rows = cfg.rows;
+  if(!rows.length){ anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;opacity:.6">No anomalies</td></tr>'; buildPagerControls('anomaliesPager','anomalies', renderAnomaliesPaged); return; }
+  anomaliesBody.innerHTML = slicePage(rows, cfg).map(a=> anomalyRow(a)).join('');
+  wireAnomalyActions();
+  buildPagerControls('anomaliesPager','anomalies', renderAnomaliesPaged);
 }
 function anomalyRow(a){
   return `<tr data-anomaly-id='${a.id}'>
@@ -898,20 +943,29 @@ async function loadBacktests(){
   try {
     const r = await fetchJSON('/admin/backtests',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
     const rows = r.rows || r.backtests || [];
-    if(!rows.length){ backtestsHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">No backtests</div>'; return; }
-    backtestsHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:700px'>
-      <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>ID</th><th style='text-align:left;padding:4px 6px'>Factor</th><th style='text-align:left;padding:4px 6px'>Span</th><th style='text-align:left;padding:4px 6px'>Ret</th><th style='text-align:left;padding:4px 6px'>Sharpe</th><th style='text-align:left;padding:4px 6px'>Created</th><th style='text-align:left;padding:4px 6px'>Actions</th></tr></thead>
-      <tbody>${rows.slice(0,200).map(b=> `<tr data-backtest-id='${b.id}'>
-        <td style='padding:2px 4px;font-family:monospace'>${(b.id||'').toString().slice(0,8)}</td>
-        <td style='padding:2px 4px'>${b.factor||''}</td>
-        <td style='padding:2px 4px'>${b.days||''}</td>
-        <td style='padding:2px 4px'>${fmtNum(b.ret)}</td>
-        <td style='padding:2px 4px'>${fmtNum(b.sharpe)}</td>
-        <td style='padding:2px 4px;font-size:9px'>${(b.created_at||'').replace('T',' ').slice(0,16)}</td>
-        <td style='padding:2px 4px'><button data-backtest-detail='${b.id}' style='background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Detail</button></td>
-      </tr>`).join('')}</tbody></table>`;
-    backtestsHost.querySelectorAll('button[data-backtest-detail]').forEach(btn=> btn.addEventListener('click', ()=> loadBacktestDetail(btn.getAttribute('data-backtest-detail'))));
+    pagers.backtests.rows = rows;
+    pagers.backtests.page = 1;
+    renderBacktestsPaged();
   } catch(e){ backtestsHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Backtests load failed</div>'; }
+}
+function renderBacktestsPaged(){
+  const cfg = pagers.backtests;
+  const rows = cfg.rows;
+  if(!rows.length){ backtestsHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">No backtests</div>'; buildPagerControls('backtestsPager','backtests', renderBacktestsPaged); return; }
+  const pageRows = slicePage(rows, cfg);
+  backtestsHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:700px'>
+    <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>ID</th><th style='text-align:left;padding:4px 6px'>Factor</th><th style='text-align:left;padding:4px 6px'>Span</th><th style='text-align:left;padding:4px 6px'>Ret</th><th style='text-align:left;padding:4px 6px'>Sharpe</th><th style='text-align:left;padding:4px 6px'>Created</th><th style='text-align:left;padding:4px 6px'>Actions</th></tr></thead>
+    <tbody>${pageRows.map(b=> `<tr data-backtest-id='${b.id}'>
+      <td style='padding:2px 4px;font-family:monospace'>${(b.id||'').toString().slice(0,8)}</td>
+      <td style='padding:2px 4px'>${b.factor||''}</td>
+      <td style='padding:2px 4px'>${b.days||''}</td>
+      <td style='padding:2px 4px'>${fmtNum(b.ret)}</td>
+      <td style='padding:2px 4px'>${fmtNum(b.sharpe)}</td>
+      <td style='padding:2px 4px;font-size:9px'>${(b.created_at||'').replace('T',' ').slice(0,16)}</td>
+      <td style='padding:2px 4px'><button data-backtest-detail='${b.id}' style='background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Detail</button></td>
+    </tr>`).join('')}</tbody></table>`;
+  backtestsHost.querySelectorAll('button[data-backtest-detail]').forEach(btn=> btn.addEventListener('click', ()=> loadBacktestDetail(btn.getAttribute('data-backtest-detail'))));
+  buildPagerControls('backtestsPager','backtests', renderBacktestsPaged);
 }
 async function loadBacktestDetail(id){
   if(!ADMIN_TOKEN) return;
@@ -940,11 +994,19 @@ async function loadAudit(ev){
   try {
     const r = await fetchJSON('/admin/audit'+(params.toString()? '?'+params.toString():''),{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
     const rows = r.rows || [];
-    if(!rows.length){ auditHost.innerHTML='<div style="padding:8px;font-size:11px;opacity:.6">No audit rows</div>'; return; }
-    auditHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:820px'>
-      <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Time</th><th style='text-align:left;padding:4px 6px'>Resource</th><th style='text-align:left;padding:4px 6px'>Action</th><th style='text-align:left;padding:4px 6px'>Actor</th><th style='text-align:left;padding:4px 6px'>Resource ID</th><th style='text-align:left;padding:4px 6px'>Meta</th></tr></thead>
-      <tbody>${rows.slice(0,500).map(a=> `<tr><td style='padding:2px 4px'>${(a.ts||'').replace('T',' ').slice(0,19)}</td><td style='padding:2px 4px'>${a.resource||''}</td><td style='padding:2px 4px'>${a.action||''}</td><td style='padding:2px 4px'>${a.actor_type||''}</td><td style='padding:2px 4px;font-size:9px'>${a.resource_id||''}</td><td style='padding:2px 4px;font-size:9px;max-width:240px;overflow:hidden;text-overflow:ellipsis'>${formatMeta(a.meta)}</td></tr>`).join('')}</tbody></table>`;
+    pagers.audit.rows = rows;
+    pagers.audit.page = 1;
+    renderAuditPaged();
   } catch(e){ auditHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Audit load failed</div>'; }
+}
+function renderAuditPaged(){
+  const cfg = pagers.audit; const rows = cfg.rows;
+  if(!rows.length){ auditHost.innerHTML='<div style="padding:8px;font-size:11px;opacity:.6">No audit rows</div>'; buildPagerControls('auditPager','audit', renderAuditPaged); return; }
+  const pageRows = slicePage(rows, cfg);
+  auditHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:820px'>
+    <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:4px 6px'>Time</th><th style='text-align:left;padding:4px 6px'>Resource</th><th style='text-align:left;padding:4px 6px'>Action</th><th style='text-align:left;padding:4px 6px'>Actor</th><th style='text-align:left;padding:4px 6px'>Resource ID</th><th style='text-align:left;padding:4px 6px'>Meta</th></tr></thead>
+    <tbody>${pageRows.map(a=> `<tr><td style='padding:2px 4px'>${(a.ts||'').replace('T',' ').slice(0,19)}</td><td style='padding:2px 4px'>${a.resource||''}</td><td style='padding:2px 4px'>${a.action||''}</td><td style='padding:2px 4px'>${a.actor_type||''}</td><td style='padding:2px 4px;font-size:9px'>${a.resource_id||''}</td><td style='padding:2px 4px;font-size:9px;max-width:240px;overflow:hidden;text-overflow:ellipsis'>${formatMeta(a.meta)}</td></tr>`).join('')}</tbody></table>`;
+  buildPagerControls('auditPager','audit', renderAuditPaged);
 }
 async function loadAuditStats(){
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
@@ -960,6 +1022,40 @@ if(auditStatsBtn) auditStatsBtn.addEventListener('click', loadAuditStats);
 // Helpers
 function escapeHtml(s){ return s?.replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]) ); }
 function formatMeta(m){ if(!m) return ''; if(typeof m==='string') return m.slice(0,80); try { return JSON.stringify(m).slice(0,120); } catch(e){ return ''; } }
+
+// --- CSV Export Utilities (lightweight, client-side) ---
+function tableToCsv(tbl){
+  const rows = Array.from(tbl.querySelectorAll('tr'));
+  return rows.map(r=> Array.from(r.children).map(c=> {
+    const txt = (c.textContent||'').replace(/\s+/g,' ').trim();
+    if(/[",\n]/.test(txt)) return '"'+txt.replace(/"/g,'""')+'"';
+    return txt;
+  }).join(',')).join('\n');
+}
+function downloadCsv(name, csv){
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=> { URL.revokeObjectURL(a.href); a.remove(); }, 80);
+}
+function exportTable(selector, filename){
+  const tbl = document.querySelector(selector);
+  if(!tbl){ announce('Table not found','error'); return; }
+  const csv = tableToCsv(tbl);
+  downloadCsv(filename, csv);
+  announce('CSV exported','success');
+}
+// Button wiring (defer until DOM ready state already loaded here)
+document.getElementById('cardsExportCsv')?.addEventListener('click', ()=> {
+  if(!state.cards.length){ announce('Load cards first','error'); return; }
+  const header = ['id','name','set','rarity','price_usd','price_eur','signal'];
+  const rows = state.cards.map(c=> [c.id,c.name,c.set_name,c.rarity,c.price_usd,c.price_eur,c.signal]);
+  const csv = [header.join(','), ...rows.map(r=> r.map(v=> v==null?'':(''+v).includes(',')? '"'+(''+v).replace(/"/g,'""')+'"': v).join(','))].join('\n');
+  downloadCsv('cards.csv', csv);
+  announce('Cards CSV exported','success');
+});
+document.getElementById('alertExportCsv')?.addEventListener('click', ()=> exportTable('#alertAdminPanel table','alerts.csv'));
+document.getElementById('anomaliesExportCsv')?.addEventListener('click', ()=> exportTable('#anomaliesPanel table','anomalies.csv'));
+document.getElementById('ingestionProvExportCsv')?.addEventListener('click', ()=> exportTable('#ingestionProvenanceHost table','provenance.csv'));
+document.getElementById('auditExportCsv')?.addEventListener('click', ()=> exportTable('#auditHost table','audit.csv'));
 
 // --- Alerts Admin Panel ---
 const alertAdminBody = document.getElementById('alertAdminBody');
@@ -978,10 +1074,18 @@ async function loadAdminAlerts(e){
     const r = await fetchJSON('/admin/alerts'+(params.toString()? ('?'+params.toString()):''), { headers: { 'x-admin-token': ADMIN_TOKEN } });
     if(!alertAdminBody) return;
     const rows = r.rows||[];
-    if(!rows.length){ alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;opacity:.6">No alerts</td></tr>'; return; }
-    alertAdminBody.innerHTML = rows.slice(0,400).map(a=> alertRow(a)).join('');
-    wireAlertActions();
+    pagers.alerts.rows = rows;
+    pagers.alerts.page = 1;
+    renderAlertsPaged();
   } catch(err){ if(alertAdminBody) alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;color:#f87171">Load failed</td></tr>'; announce('Alerts load failed','error'); }
+}
+function renderAlertsPaged(){
+  if(!alertAdminBody) return;
+  const cfg = pagers.alerts; const rows = cfg.rows;
+  if(!rows.length){ alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;opacity:.6">No alerts</td></tr>'; buildPagerControls('alertPager','alerts', renderAlertsPaged); return; }
+  alertAdminBody.innerHTML = slicePage(rows, cfg).map(a=> alertRow(a)).join('');
+  wireAlertActions();
+  buildPagerControls('alertPager','alerts', renderAlertsPaged);
 }
 
 function alertRow(a){
@@ -1060,6 +1164,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion, loadFactorIC, loadBacktests, loadAudit, loadPortfolioPerformance, loadFactorWeights, rebuildFactorIcChart, rebuildPortfolioPnlChart };
+window.PQv2 = { state, pagers, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion, loadFactorIC, loadBacktests, loadAudit, loadPortfolioPerformance, loadFactorWeights, rebuildFactorIcChart, rebuildPortfolioPnlChart };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');

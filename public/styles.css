@@ -18,6 +18,26 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 * { box-sizing: border-box; }
 ::selection { background:#6366f1aa; color:#fff; }
 
+/* Component Utilities (v0.7.2 incremental extraction) */
+.btn { font:inherit; font-size:11px; padding:6px 10px; border:1px solid var(--pq-border); background: var(--pq-surface-alt); color: var(--pq-text); border-radius: var(--pq-radius-sm); cursor:pointer; display:inline-flex; align-items:center; gap:6px; line-height:1.1; transition:background .15s, filter .15s; }
+.btn-sm { padding:4px 8px; font-size:10px; }
+.btn-lg { padding:8px 14px; font-size:12px; }
+.btn-pill { border-radius:999px; }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn:not(:disabled):hover { filter:brightness(1.12); }
+.btn-blue { background:#2563eb; border-color:#2563eb; color:#fff; }
+.btn-indigo { background:#6366f1; border-color:#6366f1; color:#fff; }
+.btn-green { background:#16a34a; border-color:#16a34a; color:#fff; }
+.btn-red { background:#b91c1c; border-color:#b91c1c; color:#fff; }
+.btn-outline { background: var(--pq-surface-alt); }
+.btn-ghost { background: transparent; border-color: var(--pq-border); }
+.btn-group { display:inline-flex; gap:6px; }
+.csv-hint { font-size:10px; opacity:.55; }
+.field { background: var(--pq-surface-alt); border:1px solid var(--pq-border); color:var(--pq-text); padding:6px 8px; border-radius: var(--pq-radius-sm); font:inherit; font-size:12px; min-width:0; }
+.field-sm { padding:5px 6px; font-size:11px; }
+.table-scroll { overflow:auto; border:1px solid var(--pq-border); border-radius: var(--pq-radius-md); }
+.chip { border:1px solid var(--pq-border); background: var(--pq-surface-alt); padding:4px 6px; border-radius: var(--pq-radius-sm); font-size:10px; display:inline-block; }
+
 /* Layout */
 .app-shell { display:flex; min-height:100%; }
 .sidebar { width:240px; display:flex; flex-direction:column; gap:20px; padding:20px 18px 24px; background: var(--pq-surface); border-right:1px solid var(--pq-border); position:sticky; top:0; height:100vh; }

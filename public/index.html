@@ -3,11 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>PokeQuant v0.7.2</title>
+  <title>PokeQuant v0.7.3</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=0.7.2" />
+  <link rel="stylesheet" href="/styles.css?v=0.7.3" />
   </head>
   <body>
   <a href="#mainContent" style="position:absolute;left:-999px;top:auto;width:1px;height:1px;overflow:hidden" onfocus="this.style.cssText='position:absolute;left:8px;top:8px;background:#162132;color:#e5ecf5;padding:6px 10px;border:1px solid #253349;border-radius:6px;z-index:500'" onblur="this.style.left='-999px'">Skip to content</a>
@@ -18,7 +18,7 @@
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
-        <button id="themeToggle" style="font-size:11px;padding:6px 10px;border:1px solid #253349;background:#162132;color:#e5ecf5;border-radius:8px;cursor:pointer">🌙</button>
+  <button id="themeToggle" class="btn" style="border-radius:8px">🌙</button>
         <nav class="nav" aria-label="Primary">
           <button data-view="overview" class="active" aria-current="page">Overview</button>
           <button data-view="cards">Cards</button>
@@ -29,7 +29,7 @@
         <div class="topbar">
           <div style="font-weight:600;letter-spacing:.5px" id="currentViewLabel">Overview</div>
           <div class="grow"></div>
-          <input id="globalSearch" placeholder="Search cards…" aria-label="Search cards" style="background:#162132;border:1px solid #253349;color:#e5ecf5;font-size:12px;padding:6px 10px;border-radius:8px;min-width:240px" />
+          <input id="globalSearch" placeholder="Search cards…" aria-label="Search cards" class="field" style="min-width:240px" />
         </div>
         <div style="padding:26px 26px 60px;display:flex;flex-direction:column;gap:40px">
           <section data-panel="overview" class="fade-in" style="display:flex;flex-direction:column;gap:34px">
@@ -62,12 +62,12 @@
                 <label style="display:flex;flex-direction:column;gap:4px">Snooze (min)
                   <input name="snooze" type="number" step="1" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 8px;border-radius:6px;width:90px" />
                 </label>
-                <button type="submit" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:600;letter-spacing:.5px">Create</button>
+                <button type="submit" class="btn btn-indigo btn-lg" style="border-radius:8px;font-weight:600;letter-spacing:.5px">Create</button>
               </form>
               <div id="alertQuickResult" style="margin-top:10px;font-size:11px;opacity:.75"></div>
             </div>
             <div class="panel" id="alertAdminPanel">
-              <h2>Alerts (Admin)</h2>
+              <h2 style="display:flex;align-items:center;gap:10px">Alerts (Admin) <button id="alertExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">CSV</button></h2>
               <form id="alertAdminFilters" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px">
                 <label style="display:flex;flex-direction:column;gap:4px">Email <input name="email" placeholder="filter email" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:170px" /></label>
                 <label style="display:flex;flex-direction:column;gap:4px">Active
@@ -104,6 +104,7 @@
                   <tbody id="alertAdminBody"></tbody>
                 </table>
               </div>
+              <div id="alertPager" style="margin-top:8px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
               <div style="font-size:10px;opacity:.55;margin-top:6px">Snooze requires manage token (returned on creation). Deactivate may not require token (admin flow).</div>
             </div>
             <div class="panel" id="portfolioPanel">
@@ -163,7 +164,7 @@
               <div id="factorCorrelationsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
             </div>
             <div class="panel" id="anomaliesPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Anomalies <button id="anomaliesRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <h2 style="display:flex;align-items:center;gap:10px">Anomalies <div style="margin-left:auto;display:flex;gap:6px"><button id="anomaliesRefresh" type="button" class="btn btn-sm">Refresh</button><button id="anomaliesExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
               <form id="anomaliesFilter" style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;margin-bottom:8px">
                 <label style="display:flex;flex-direction:column;gap:4px">Status
                   <select name="status" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px">
@@ -189,6 +190,7 @@
                   <tbody id="anomaliesBody"></tbody>
                 </table>
               </div>
+              <div id="anomaliesPager" style="margin-top:8px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
               <div style="font-size:10px;opacity:.55;margin-top:6px">Actions: ack (acknowledge), dismiss (resolved legit), ignore (noise).</div>
             </div>
             <div class="panel" id="integrityPanel">
@@ -199,7 +201,7 @@
               <div id="integrityLatest" style="font-size:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px"></div>
             </div>
             <div class="panel" id="ingestionPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Ingestion <button id="ingestionRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <h2 style="display:flex;align-items:center;gap:10px">Ingestion <div style="margin-left:auto;display:flex;gap:6px"><button id="ingestionRefresh" type="button" class="btn btn-sm">Refresh</button><button id="ingestionProvExportCsv" type="button" class="btn btn-sm btn-outline">Provenance CSV</button></div></h2>
               <div id="ingestionStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh / run.</div>
               <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;font-size:11px">
                 <button id="ingestionRunDue" type="button" style="background:#2563eb;border:1px solid #2563eb;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Run Due</button>
@@ -260,10 +262,11 @@
             <div class="panel" id="backtestsPanel">
               <h2 style="display:flex;align-items:center;gap:10px">Backtests <button id="backtestsRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
               <div id="backtestsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px;margin-bottom:10px"></div>
+              <div id="backtestsPager" style="margin-top:4px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
               <div id="backtestDetailHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
             </div>
             <div class="panel" id="auditPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Audit Trail <button id="auditRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <h2 style="display:flex;align-items:center;gap:10px">Audit Trail <div style="margin-left:auto;display:flex;gap:6px"><button id="auditRefresh" type="button" class="btn btn-sm">Refresh</button><button id="auditExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
               <form id="auditFilter" style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:10px">
                 <label style="display:flex;flex-direction:column;gap:4px">Resource <input name="resource" placeholder="portfolio" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px" /></label>
                 <label style="display:flex;flex-direction:column;gap:4px">Action <input name="action" placeholder="update" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px" /></label>
@@ -274,11 +277,12 @@
               </form>
               <div id="auditStats" style="font-size:11px;opacity:.65;margin-bottom:6px"></div>
               <div id="auditHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:280px"></div>
+              <div id="auditPager" style="margin-top:8px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
             </div>
           </section>
           <section data-panel="cards" hidden>
             <div class="panel" style="overflow:auto">
-              <h2>Cards (sample)</h2>
+              <h2 style="display:flex;align-items:center;gap:10px">Cards (sample) <button id="cardsExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">Export CSV</button></h2>
               <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
                 <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:880px">
                   <thead style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
@@ -311,11 +315,11 @@
     </div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" integrity="sha256-4jGoJZ9jUkZOtJ0i0kBWKGZHJ8L7Kr9d5EnYzWx/juE=" crossorigin="anonymous"></script>
   <!-- Modal removed to fix persistent rectangle; will reintroduce later with proper lifecycle -->
-  <script type="module" src="/core.js?v=0.7.2"></script>
-  <script type="module" src="/movers.js?v=0.7.2"></script>
-  <script type="module" src="/toast.js?v=0.7.2"></script>
-  <script type="module" src="/theme.js?v=0.7.2"></script>
-  <script type="module" src="/health.js?v=0.7.2"></script>
-  <script type="module" src="/app-new.js?v=0.7.2"></script>
+  <script type="module" src="/core.js?v=0.7.3"></script>
+  <script type="module" src="/movers.js?v=0.7.3"></script>
+  <script type="module" src="/toast.js?v=0.7.3"></script>
+  <script type="module" src="/theme.js?v=0.7.3"></script>
+  <script type="module" src="/health.js?v=0.7.3"></script>
+  <script type="module" src="/app-new.js?v=0.7.3"></script>
   </body>
 </html>
