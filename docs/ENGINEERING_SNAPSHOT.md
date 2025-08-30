@@ -2,7 +2,7 @@
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
 
-Last Updated: 2025-08-30T00:00:00Z (initialize placeholder; update on edit)
+Last Updated: 2025-08-30T22:30:00Z (sprint started; request metrics instrumentation added)
 
 ## 1. High-Level Architecture
 - Cloudflare Worker (TypeScript) + D1 (SQLite) backing store
@@ -29,7 +29,7 @@ Last Updated: 2025-08-30T00:00:00Z (initialize placeholder; update on edit)
 | Security Tokens | portfolio_auth, admin, ingest | Needs Hardening | Ingest token not hashed yet; dual admin token rotation missing. |
 
 ## 3. Active Sprint Goals (Week 1–2 Hardening)
-- [ ] Error & status-class request metrics (expose via /admin/metrics)
+- [x] Error & status-class request metrics (expose via /admin/metrics) — initial counters added (req.total, req.status.*xx, request.error.*)
 - [ ] Hash ingest token + dual admin token support
 - [ ] Anomalies & backfill pagination (limit + cursor)
 - [ ] Retention configuration table & CRUD
@@ -50,6 +50,7 @@ Last Updated: 2025-08-30T00:00:00Z (initialize placeholder; update on edit)
 - Architecture diagram documentation page
 
 ## 6. Recently Completed (chronological, last 8)
+0. Sprint kickoff & request metrics instrumentation (req.total/status/error) — 2025-08-30
 1. Extract anomalies routes to `routes/anomalies.ts`
 2. Extract backfill routes to `routes/backfill.ts`
 3. Extract portfolio NAV & PnL routes + move helpers to `lib/portfolio_nav.ts`

@@ -1,6 +1,6 @@
 // Lightweight router abstraction for Cloudflare Worker
 import type { Env } from './lib/types';
-import { recordLatency } from './lib/metrics';
+import { recordLatency, incMetric } from './lib/metrics';
 import { log } from './lib/log';
 
 export interface RouteContext {
@@ -24,13 +24,22 @@ export class Router {
     const t0 = Date.now();
     try {
       const resp = await r.handler({ req, env, url });
+      const dur = Date.now() - t0;
       const tagBase = 'lat' + url.pathname.replace(/\//g, '.');
-      await recordLatency(env, tagBase, Date.now() - t0); // ensure DB write completes before returning
+      await recordLatency(env, tagBase, dur);
+      try {
+        await incMetric(env, 'req.total');
+        await incMetric(env, `req.status.${Math.floor(resp.status/100)}xx`);
+        if (resp.status >= 500) await incMetric(env, 'request.error.5xx');
+        else if (resp.status >= 400) await incMetric(env, 'request.error.4xx');
+      } catch {/* metric errors ignored */}
       return resp;
     } catch (e:any) {
       log('route_error', { path: url.pathname, error:String(e) });
+      const dur = Date.now() - t0;
       const tagBase = 'lat' + url.pathname.replace(/\//g, '.');
-      await recordLatency(env, tagBase, Date.now() - t0);
+      await recordLatency(env, tagBase, dur);
+      try { await incMetric(env, 'req.total'); await incMetric(env, 'req.status.5xx'); await incMetric(env, 'request.error.5xx'); } catch {}
       return new Response('Internal Error', { status:500 });
     }
   }

@@ -467,8 +467,17 @@ export default {
     // Per-request evaluation (env differs by environment / binding)
     (globalThis as any).__LOG_DISABLED = (env.LOG_ENABLED === '0');
   function done(resp: Response, tag: string) {
-      try { log('req_timing', { path: url.pathname, tag, ms: Date.now() - t0, status: resp.status }); } catch {}
-  recordLatency(env, `lat.${tag}`, Date.now() - t0); // fire & forget
+      const ms = Date.now() - t0;
+      try { log('req_timing', { path: url.pathname, tag, ms, status: resp.status }); } catch {}
+      // fire & forget latency (router already records for routed paths)
+      recordLatency(env, `lat.${tag}`, ms); // eslint-disable-line @typescript-eslint/no-floating-promises
+      // request metrics (monolith endpoints only; routed endpoints handled in router.ts)
+      (async () => { try {
+        await incMetric(env, 'req.total');
+        await incMetric(env, `req.status.${Math.floor(resp.status/100)}xx`);
+        if (resp.status >= 500) await incMetric(env, 'request.error.5xx');
+        else if (resp.status >= 400) await incMetric(env, 'request.error.4xx');
+      } catch {} })();
       return resp;
     }
     if (url.pathname === '/admin/backfill' && req.method === 'GET') {
