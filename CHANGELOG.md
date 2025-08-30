@@ -27,6 +27,13 @@ All notable changes to this project will be documented here.
 - Increased test-specific timeout for backtest & factor IC spec (15s) to reduce flakiness in slower CI runners.
 ### Fixed
 - Addressed intermittent test timeout in backtest_ic.spec by performance improvements and timeout adjustment.
+
+## [0.4.2] - 2025-08-29
+### Changed
+- Factor IC now uses forward return: ranks factor values on day D against price return from D to D+1, and stores IC under date D (observation date) instead of current day.
+- Added idempotence guard to skip recomputation if IC already present for a date.
+### Notes
+- This lays groundwork for evaluating predictive power without lookahead bias.
 - Add factor_weights table (migration 0007) with dynamic composite weighting and admin endpoints (/admin/factor-weights)
 
 ## [0.3.0] - 2025-08-29

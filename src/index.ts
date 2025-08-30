@@ -479,26 +479,32 @@ async function sendEmailAlert(_env: Env, _to: string, _subject: string, _body: s
 // ----- Factor IC computation (simple rank IC for today's factors vs future return placeholder) -----
 async function computeFactorIC(env: Env) {
   try {
-    // We approximate next-day return with difference between last two prices for now (since we may not have forward returns yet)
-    const rs = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest))
-      SELECT p.card_id,
-        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=(SELECT d FROM latest)) AS px_latest,
-        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=(SELECT d FROM prev)) AS px_prev,
-        (SELECT ts7 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=(SELECT MAX(as_of) FROM signal_components_daily)) AS ts7,
-        (SELECT ts30 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=(SELECT MAX(as_of) FROM signal_components_daily)) AS ts30,
-        (SELECT z_svi FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=(SELECT MAX(as_of) FROM signal_components_daily)) AS z_svi
+    // Forward return IC: use factor values on day D (prev) vs return from D to D+1 (latest)
+    const meta = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM prices_daily), prev AS (SELECT MAX(as_of) AS d FROM prices_daily WHERE as_of < (SELECT d FROM latest)) SELECT (SELECT d FROM prev) AS prev_d, (SELECT d FROM latest) AS latest_d`).all();
+    const metaRow = (meta.results||[])[0] as any;
+    if (!metaRow || !metaRow.prev_d || !metaRow.latest_d) return { ok:false, skipped:true };
+    const prevDay = metaRow.prev_d as string;
+    const latestDay = metaRow.latest_d as string;
+    // Skip if already computed for prevDay (all three factors present)
+    const existing = await env.DB.prepare(`SELECT COUNT(*) AS c FROM factor_ic WHERE as_of=?`).bind(prevDay).all();
+    if (((existing.results||[])[0] as any)?.c >= 3) return { ok:true, skipped:true, already:true };
+    const rs = await env.DB.prepare(`SELECT p.card_id,
+        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_prev,
+        (SELECT price_usd FROM prices_daily WHERE card_id=p.card_id AND as_of=?) AS px_next,
+        (SELECT ts7 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS ts7,
+        (SELECT ts30 FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS ts30,
+        (SELECT z_svi FROM signal_components_daily sc WHERE sc.card_id=p.card_id AND sc.as_of=?) AS z_svi
       FROM prices_daily p
-      WHERE p.as_of=(SELECT d FROM prev)`).all();
+      WHERE p.as_of=?`).bind(prevDay, latestDay, prevDay, prevDay, prevDay, prevDay).all();
     const rows = (rs.results||[]) as any[];
     if (!rows.length) return { ok:false, skipped:true };
-    const rets: number[] = []; // simple daily return
+    const rets: number[] = [];
     for (const r of rows) {
-      const a = Number(r.px_prev)||0, b=Number(r.px_latest)||0;
-      rets.push(a>0? (b-a)/a : 0);
+      const a = Number(r.px_prev)||0, b=Number(r.px_next)||0;
+      rets.push(a>0 && b>0 ? (b-a)/a : 0);
     }
-    if (!rets.some(x=>x!==0)) return { ok:false, skipped:true };
+    if (rets.filter(x=>x!==0).length < 3) return { ok:false, skipped:true };
     function rankIC(fvals: number[]): number|null {
-      // Spearman rank correlation (O(n log n))
       const data: { v:number; r:number }[] = [];
       for (let i=0;i<fvals.length;i++) {
         const fv = fvals[i]; const rv = rets[i];
@@ -506,15 +512,13 @@ async function computeFactorIC(env: Env) {
       }
       const n = data.length;
       if (n < 5) return null;
-      const idxF = data.map((d,i)=> i).sort((a,b)=> data[a].v - data[b].v);
-      const idxR = data.map((d,i)=> i).sort((a,b)=> data[a].r - data[b].r);
+      const idxF = data.map((_,i)=> i).sort((a,b)=> data[a].v - data[b].v);
+      const idxR = data.map((_,i)=> i).sort((a,b)=> data[a].r - data[b].r);
       const rankF = new Array(n); const rankR = new Array(n);
-      for (let i=0;i<n;i++) { rankF[idxF[i]] = i+1; rankR[idxR[i]] = i+1; }
-      // Compute Pearson on ranks
-      let sumF=0,sumR=0; for (let i=0;i<n;i++){ sumF += rankF[i]; sumR += rankR[i]; }
-      const mF = sumF/n, mR = sumR/n;
-      let num=0, dF=0, dR=0;
-      for (let i=0;i<n;i++){ const a=rankF[i]-mF, b=rankR[i]-mR; num+=a*b; dF+=a*a; dR+=b*b; }
+      for (let i=0;i<n;i++){ rankF[idxF[i]] = i+1; rankR[idxR[i]] = i+1; }
+      let sumF=0,sumR=0; for (let i=0;i<n;i++){ sumF+=rankF[i]; sumR+=rankR[i]; }
+      const mF = sumF/n, mR = sumR/n; let num=0,dF=0,dR=0;
+      for (let i=0;i<n;i++){ const a1=rankF[i]-mF,b1=rankR[i]-mR; num+=a1*b1; dF+=a1*a1; dR+=b1*b1; }
       const den = Math.sqrt(dF*dR)||0; if (!den) return null; return num/den;
     }
     const factors: Record<string, number|null> = {
@@ -522,12 +526,11 @@ async function computeFactorIC(env: Env) {
       ts30: rankIC(rows.map(r=> Number(r.ts30))),
       z_svi: rankIC(rows.map(r=> Number(r.z_svi)))
     };
-    const today = new Date().toISOString().slice(0,10);
     for (const [f, ic] of Object.entries(factors)) {
       if (ic === null) continue;
-      await env.DB.prepare(`INSERT OR REPLACE INTO factor_ic (as_of,factor,ic) VALUES (?,?,?)`).bind(today, f, ic).run();
+      await env.DB.prepare(`INSERT OR REPLACE INTO factor_ic (as_of,factor,ic) VALUES (?,?,?)`).bind(prevDay, f, ic).run();
     }
-    return { ok:true, factors };
+    return { ok:true, factors, as_of: prevDay, forward_to: latestDay };
   } catch (e) {
     log('factor_ic_error', { error:String(e) });
     return { ok:false, error:String(e) };
