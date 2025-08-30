@@ -79,6 +79,31 @@ All notable changes to this project will be documented here.
 - /admin/factor-returns now documents rolling aggregates in description
 - OpenAPI version bump to 0.5.9
 
+## [0.5.10] - 2025-08-30
+### Added
+- Ingestion provenance audit for backfill jobs: /admin/backfill POST now writes ingestion_provenance row (synthetic-backfill source) with lifecycle status/row count.
+### Changed
+- Internal refactor to isolate provenance logic within backfill handler (removed accidental earlier insertion noise).
+- OpenAPI version bump to 0.5.10.
+
+## [0.5.11] - 2025-08-30
+### Added
+- Mock external ingestion endpoint /admin/ingest/prices (deterministic pseudo data) with provenance source=external-mock.
+### Changed
+- Version bump to 0.5.11 (spec, package, version.ts) to include mock ingestion.
+
+## [0.5.12] - 2025-08-30
+### Added
+- ingestion_config table + endpoints /admin/ingestion/config (GET, POST) for per-dataset/source cursor & enable tracking (migration 0019)
+### Changed
+- Provenance endpoint now supports filters (dataset, source, status, limit param)
+
+## [0.5.13] - 2025-08-30
+### Added
+- /admin/ingestion/run endpoint: iterates enabled ingestion_config entries and ingests forward incremental prices_daily rows (cursor advanced, provenance recorded) with deterministic pseudo data scaffold.
+### Changed
+- Version bump to 0.5.13 (spec, package, version.ts)
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.

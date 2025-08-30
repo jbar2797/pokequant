@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.9
+  version: 0.5.13
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -361,6 +361,29 @@ paths:
   /admin/backfill/{id}:
     get:
       summary: Backfill job detail (admin)
+      responses: { '200': { description: OK } }
+  /admin/ingestion/provenance:
+    get:
+      summary: List ingestion provenance records (admin)
+  description: Optional query params: dataset, source, status, limit (<=500)
+      responses: { '200': { description: OK } }
+  /admin/ingest/prices:
+    post:
+      summary: Mock external price ingestion (admin)
+      description: Inserts deterministic pseudo price history for recent days (default 3, max 30) and records provenance with source=external-mock.
+      responses: { '200': { description: OK } }
+  /admin/ingestion/config:
+    get:
+      summary: List ingestion configuration entries (admin)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Upsert ingestion configuration entry (admin)
+      description: Body: { dataset, source, cursor?, enabled?, meta? }
+      responses: { '200': { description: OK } }
+  /admin/ingestion/run:
+    post:
+      summary: Run incremental ingestion for enabled config entries (admin)
+      description: Advances cursor per (dataset,source) and records provenance; currently supports prices_daily only (deterministic pseudo data scaffold).
       responses: { '200': { description: OK } }
 components:
   schemas:

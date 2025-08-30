@@ -257,6 +257,37 @@ ALTER TABLE anomalies ADD COLUMN resolution_kind TEXT;
 ALTER TABLE anomalies ADD COLUMN resolution_note TEXT;
 ALTER TABLE anomalies ADD COLUMN resolved_at TEXT;`
   }
+  ,
+  {
+    id: '0018_ingestion_provenance',
+    description: 'Add ingestion_provenance table to audit external/historical ingestion runs',
+    sql: `CREATE TABLE IF NOT EXISTS ingestion_provenance (
+  id TEXT PRIMARY KEY,
+  dataset TEXT,
+  source TEXT,
+  from_date DATE,
+  to_date DATE,
+  started_at TEXT,
+  completed_at TEXT,
+  status TEXT,
+  rows INTEGER,
+  error TEXT
+);`
+  }
+  ,
+  {
+    id: '0019_ingestion_config',
+    description: 'Add ingestion_config table to track per-dataset per-source cursors and enable flags',
+    sql: `CREATE TABLE IF NOT EXISTS ingestion_config (
+  dataset TEXT NOT NULL,
+  source TEXT NOT NULL,
+  cursor TEXT,
+  enabled INTEGER DEFAULT 1,
+  last_run_at TEXT,
+  meta TEXT,
+  PRIMARY KEY(dataset, source)
+);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;
