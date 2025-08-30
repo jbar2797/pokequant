@@ -2,7 +2,7 @@
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
 
-Last Updated: 2025-08-30T22:30:00Z (sprint started; request metrics instrumentation added)
+Last Updated: 2025-08-30T22:45:00Z (dual admin token + ingest hashing complete)
 
 ## 1. High-Level Architecture
 - Cloudflare Worker (TypeScript) + D1 (SQLite) backing store
@@ -30,7 +30,7 @@ Last Updated: 2025-08-30T22:30:00Z (sprint started; request metrics instrumentat
 
 ## 3. Active Sprint Goals (Week 1–2 Hardening)
 - [x] Error & status-class request metrics (expose via /admin/metrics) — initial counters added (req.total, req.status.*xx, request.error.*)
-- [ ] Hash ingest token + dual admin token support
+- [x] Hash ingest token + dual admin token support (plaintext-or-hash auth + ADMIN_TOKEN_NEXT added)
 - [ ] Anomalies & backfill pagination (limit + cursor)
 - [ ] Retention configuration table & CRUD
 - [ ] OpenAPI spec updated for new modular routes + backfill detail
@@ -50,15 +50,15 @@ Last Updated: 2025-08-30T22:30:00Z (sprint started; request metrics instrumentat
 - Architecture diagram documentation page
 
 ## 6. Recently Completed (chronological, last 8)
-0. Sprint kickoff & request metrics instrumentation (req.total/status/error) — 2025-08-30
-1. Extract anomalies routes to `routes/anomalies.ts`
-2. Extract backfill routes to `routes/backfill.ts`
-3. Extract portfolio NAV & PnL routes + move helpers to `lib/portfolio_nav.ts`
-4. Deduplicate integrity & retention helpers (moved to lib)
-5. Factor endpoints moved earlier to `routes/factors.ts`
-6. Restored missing `/admin/portfolio-pnl` after earlier refactor
-7. Added dynamic route module imports in `index.ts`
-8. General test suite stabilization after modularization
+0. Dual admin token + hashed ingest token support (goal #2) — 2025-08-30
+1. Sprint kickoff & request metrics instrumentation (req.total/status/error) — 2025-08-30
+2. Extract anomalies routes to `routes/anomalies.ts`
+3. Extract backfill routes to `routes/backfill.ts`
+4. Extract portfolio NAV & PnL routes + move helpers to `lib/portfolio_nav.ts`
+5. Deduplicate integrity & retention helpers (moved to lib)
+6. Factor endpoints moved earlier to `routes/factors.ts`
+7. Restored missing `/admin/portfolio-pnl` after earlier refactor
+8. Added dynamic route module imports in `index.ts`
 
 ## 7. Quality Gates Snapshot
 - Tests: 64 passing (vitest)

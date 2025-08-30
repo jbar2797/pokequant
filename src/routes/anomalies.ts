@@ -3,7 +3,7 @@ import { json } from '../lib/http';
 import type { Env } from '../lib/types';
 import { audit } from '../lib/audit';
 
-function admin(env: Env, req: Request) { return req.headers.get('x-admin-token') === env.ADMIN_TOKEN; }
+function admin(env: Env, req: Request) { const t=req.headers.get('x-admin-token'); return !!(t && (t===env.ADMIN_TOKEN || (env.ADMIN_TOKEN_NEXT && t===env.ADMIN_TOKEN_NEXT))); }
 
 export function registerAnomaliesRoutes() {
   router

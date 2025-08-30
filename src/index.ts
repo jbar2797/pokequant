@@ -481,12 +481,12 @@ export default {
       return resp;
     }
     if (url.pathname === '/admin/backfill' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const rs = await env.DB.prepare(`SELECT id, created_at, dataset, from_date, to_date, days, status, processed, total, error FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
     if (url.pathname === '/admin/ingestion/provenance' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
   const dataset = (url.searchParams.get('dataset')||'').trim();
   const source = (url.searchParams.get('source')||'').trim();
   const status = (url.searchParams.get('status')||'').trim();
@@ -503,14 +503,14 @@ export default {
   return json({ ok:true, rows: rs.results||[], filtered: { dataset: dataset||undefined, source: source||undefined, status: status||undefined, limit } });
     }
     if (url.pathname === '/admin/ingestion/config' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       try {
         const rs = await env.DB.prepare(`SELECT dataset, source, cursor, enabled, last_run_at, meta FROM ingestion_config ORDER BY dataset, source`).all();
         return json({ ok:true, rows: rs.results||[] });
       } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     }
     if (url.pathname === '/admin/ingestion/config' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body:any = await req.json().catch(()=>({}));
       const dataset = (body.dataset||'').toString().trim();
       const source = (body.source||'').toString().trim();
@@ -527,13 +527,13 @@ export default {
       } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     }
     if (url.pathname === '/admin/ingestion/run' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body:any = await req.json().catch(()=>({}));
   const results = await runIncrementalIngestion(env, { maxDays: Number(body.maxDays)||1 });
   return json({ ok:true, runs: results });
     }
     if (url.pathname === '/admin/ingest/prices' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body = await req.json().catch(()=>({})) as any;
       const days = Math.min(30, Math.max(1, Number(body.days)||3));
       const to = new Date();
@@ -737,7 +737,7 @@ export default {
 
   // --- Portfolio endpoints moved to routes/portfolio.ts ---
     if (url.pathname === '/admin/alert-queue/send' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT, attempt_count INTEGER DEFAULT 0, last_error TEXT);`).run(); } catch {}
       // Select queued items that either have never been attempted or are below max attempts.
       const rs = await env.DB.prepare(`SELECT id FROM alert_email_queue WHERE status='queued' ORDER BY created_at ASC LIMIT 50`).all();
@@ -808,7 +808,7 @@ export default {
 
     // ---- Admin: diagnostics & runs ----
     if (url.pathname === '/admin/diag' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       const [svi14, pr1, pr7, sigLast, lp, ls, lsv] = await Promise.all([
         env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM svi_daily GROUP BY card_id HAVING COUNT(*) >= 14)`).all(),
         env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM prices_daily GROUP BY card_id HAVING COUNT(*) >= 1)`).all(),
@@ -832,7 +832,7 @@ export default {
 
     // Metrics (recent 3 days)
     if (url.pathname === '/admin/metrics' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       try {
         const rs = await env.DB.prepare(`SELECT d, metric, count FROM metrics_daily WHERE d >= date('now','-3 day') ORDER BY d DESC, metric ASC`).all();
         // Latency summary (if view exists)
@@ -869,7 +869,7 @@ export default {
     }
 
     if (url.pathname === '/admin/latency' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       try {
         const rs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d = date('now') ORDER BY base_metric ASC`).all();
         return json({ ok:true, rows: rs.results || [] });
@@ -880,7 +880,7 @@ export default {
 
     // Admin test utility: force legacy portfolio auth by nulling secret_hash for a portfolio id
     if (url.pathname === '/admin/portfolio/force-legacy' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const pid = (body.id||'').toString();
       if (!pid) return json({ ok:false, error:'id_required' },400);
@@ -903,7 +903,7 @@ export default {
 
     // Data integrity snapshot (coverage + staleness + gap heuristic)
     if (url.pathname === '/admin/integrity' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       try {
   const integrity = await computeIntegritySnapshot(env);
   return json(integrity);
@@ -914,7 +914,7 @@ export default {
 
     // Retention (on-demand purge) - returns number of deleted rows per table
     if (url.pathname === '/admin/retention' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       let overrides: Record<string, number>|undefined;
       try {
         const body: any = await req.json().catch(()=> ({}));
@@ -941,13 +941,13 @@ export default {
 
     // Migrations list
     if (url.pathname === '/admin/migrations' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const rows = await listMigrations(env.DB);
       return json({ ok:true, rows });
     }
 
     if (url.pathname === '/admin/version' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       // Spec version duplicated in openapi.yaml (info.version). Keeping a single source via APP_VERSION.
       return json({ ok:true, version: APP_VERSION });
     }
@@ -956,7 +956,7 @@ export default {
 
     // Run alerts only (for tests / manual)
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       try {
         const out = await runAlerts(env);
         log('admin_run_alerts', out);
@@ -996,14 +996,14 @@ export default {
 
     // Factor config CRUD
     if (url.pathname === '/admin/factors' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
   // Defensive: ensure table exists (tests may hit before migrations finalized per worker instance)
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_config (factor TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, display_name TEXT, created_at TEXT);`).run();
       const rs = await env.DB.prepare(`SELECT factor, enabled, display_name, created_at FROM factor_config ORDER BY factor ASC`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
     if (url.pathname === '/admin/factors' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const factor = (body.factor||'').toString().trim();
       const enabled = body.enabled === undefined ? 1 : (body.enabled ? 1 : 0);
@@ -1015,7 +1015,7 @@ export default {
   return json({ ok:true, factor, enabled, display_name: display });
     }
     if (url.pathname === '/admin/factors/toggle' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const factor = (body.factor||'').toString().trim();
       const enabled = body.enabled ? 1 : 0;
@@ -1026,7 +1026,7 @@ export default {
   return json({ ok:true, factor, enabled });
     }
     if (url.pathname === '/admin/factors/delete' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const factor = (body.factor||'').toString().trim();
       if (!factor) return json({ ok:false, error:'factor_required' },400);
@@ -1038,13 +1038,13 @@ export default {
 
     // Ingestion schedule config
     if (url.pathname === '/admin/ingestion-schedule' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ingestion_schedule (dataset TEXT PRIMARY KEY, frequency_minutes INTEGER, last_run_at TEXT);`).run();
       const rs = await env.DB.prepare(`SELECT dataset, frequency_minutes, last_run_at FROM ingestion_schedule ORDER BY dataset`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
     if (url.pathname === '/admin/ingestion-schedule' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const dataset = (body.dataset||'').toString();
       const freq = Number(body.frequency_minutes);
@@ -1054,7 +1054,7 @@ export default {
       return json({ ok:true, dataset, frequency_minutes: freq });
     }
     if (url.pathname === '/admin/ingestion-schedule/run-due' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS ingestion_schedule (dataset TEXT PRIMARY KEY, frequency_minutes INTEGER, last_run_at TEXT);`).run();
       const nowIso = new Date().toISOString();
       const dueRs = await env.DB.prepare(`SELECT dataset, frequency_minutes, last_run_at FROM ingestion_schedule`).all();
@@ -1080,7 +1080,7 @@ export default {
     }
     // Admin: list alerts with filters
     if (url.pathname === '/admin/alerts' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       await ensureAlertsTable(env);
       const email = (url.searchParams.get('email')||'').trim();
       const active = url.searchParams.get('active'); // '1' | '0'
@@ -1097,7 +1097,7 @@ export default {
     }
     // Admin: alert stats summary
     if (url.pathname === '/admin/alerts/stats' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       await ensureAlertsTable(env);
       const rs = await env.DB.prepare(`SELECT active, suppressed_until, fired_count FROM alerts_watch`).all();
       let total=0, activeCount=0, suppressed=0; let ge5=0, ge10=0, ge25=0;
@@ -1113,7 +1113,7 @@ export default {
 
     // Run backtest
     if (url.pathname === '/admin/backtests' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const lookbackDays = Number(body.lookbackDays)||90;
   const txCostBps = Number(body.txCostBps)||0;
@@ -1123,12 +1123,12 @@ export default {
   return json(out);
     }
     if (url.pathname === '/admin/backtests' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const rs = await env.DB.prepare(`SELECT id, created_at, params, metrics FROM backtests ORDER BY created_at DESC LIMIT 50`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
     if (url.pathname.startsWith('/admin/backtests/') && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const id = url.pathname.split('/').pop() || '';
       const rs = await env.DB.prepare(`SELECT id, created_at, params, metrics, equity_curve FROM backtests WHERE id=?`).bind(id).all();
       return json({ ok:true, row: rs.results?.[0]||null });
@@ -1136,7 +1136,7 @@ export default {
 
     // Snapshot endpoint (metadata bundle)
     if (url.pathname === '/admin/snapshot' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const [integrity, ic, weights] = await Promise.all([
   computeIntegritySnapshot(env),
         env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 30`).all(),
@@ -1148,7 +1148,7 @@ export default {
 
     // Test seed utility (not documented) to insert cards & prices
     if (url.pathname === '/admin/test-seed' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body: any = await req.json().catch(()=>({}));
       const cards = Array.isArray(body.cards) ? body.cards : [];
       const batch: D1PreparedStatement[] = [];
@@ -1169,7 +1169,7 @@ export default {
 
     // NEW: fast, bulk compute only (safe warm)
     if (url.pathname === '/admin/run-fast' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       try {
   // Ensure minimal seed data exists to allow IC/backtest tests to proceed quickly
   const cardCount = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all();
@@ -1198,7 +1198,7 @@ export default {
 
     // Full pipeline (may hit subrequest caps if upstream is slow)
     if (url.pathname === '/admin/run-now' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' }, 403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       try {
         const out = await pipelineRun(env);
         log('admin_run_pipeline', out.timingsMs);
@@ -1212,7 +1212,7 @@ export default {
 
     // Audit log listing endpoint
     if (url.pathname === '/admin/audit' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const resource = (url.searchParams.get('resource')||'').trim();
       const action = (url.searchParams.get('action')||'').trim();
       const actorType = (url.searchParams.get('actor_type')||'').trim();
@@ -1237,7 +1237,7 @@ export default {
       }
     }
     if (url.pathname === '/admin/audit/stats' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const hours = Math.min(168, Math.max(1, parseInt(url.searchParams.get('hours')||'24',10)));
       try {
         const cutoff = new Date(Date.now() - hours*3600*1000).toISOString();
@@ -1248,7 +1248,7 @@ export default {
     }
     // Test-only helper to emit audit entries (not documented) - guarded by admin token
     if (url.pathname === '/admin/test-audit' && req.method === 'POST') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const body:any = await req.json().catch(()=>({}));
       audit(env, { actor_type: body.actor_type||'test', action: body.action||'emit', resource: body.resource||'test_event', resource_id: body.resource_id||null, details: body.details });
       return json({ ok:true });
@@ -1256,7 +1256,7 @@ export default {
 
     // Factor correlations (admin) based on factor_returns rolling window
     if (url.pathname === '/admin/factor-correlations' && req.method === 'GET') {
-      if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       const look = Math.min(180, Math.max(5, parseInt(url.searchParams.get('days')||'60',10)));
       try {
         const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${look-1} day`).all();

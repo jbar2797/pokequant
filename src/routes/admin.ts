@@ -9,7 +9,8 @@ import { incMetric, incMetricBy, recordLatency } from '../lib/metrics';
 
 // Helper to enforce admin auth
 function adminAuth(env: Env, req: Request) {
-  return req.headers.get('x-admin-token') === env.ADMIN_TOKEN;
+  const t = req.headers.get('x-admin-token');
+  return !!(t && (t === env.ADMIN_TOKEN || (env.ADMIN_TOKEN_NEXT && t === env.ADMIN_TOKEN_NEXT)));
 }
 
 export function registerAdminRoutes() {

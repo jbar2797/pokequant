@@ -6,6 +6,7 @@ export interface Env {
 	RESEND_API_KEY: string;
 	INGEST_TOKEN: string;
 	ADMIN_TOKEN: string;
+	ADMIN_TOKEN_NEXT?: string; // optional rotating next token
 	PUBLIC_BASE_URL: string;
 	LOG_ENABLED?: string; // '0' disables structured logging
 	// Rate limit override knobs (stringified ints)
