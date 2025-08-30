@@ -18,7 +18,7 @@ function announce(msg, kind){
 }
 
 // Simple state
-const state = { cards: [], view: 'overview', filtered: [], page:1, pageSize:50 };
+const state = { cards: [], view: 'overview', filtered: [], page:1, pageSize:50, sort:{ key:null, dir:1 } };
 
 // Generic pager state for large admin datasets (alerts, anomalies, backtests, audit)
 const pagers = {
@@ -79,6 +79,8 @@ document.addEventListener('click', e=> {
 // Cards load
 async function loadCards(){
   const host = document.getElementById('cardsTableBody');
+  const panel = document.getElementById('cardsPager')?.closest('.panel');
+  if(panel) panel.setAttribute('aria-busy','true');
   if(host) host.innerHTML = '<tr><td colspan="6">Loading…</td></tr>';
   try {
     let data = await fetchJSON('/api/cards');
@@ -88,17 +90,30 @@ async function loadCards(){
     renderCards();
   announce('Cards loaded','success');
   } catch(e){ if(host) host.innerHTML = '<tr><td colspan="6">Error loading cards</td></tr>'; announce('Cards load failed','error'); }
+  finally { if(panel) panel.removeAttribute('aria-busy'); }
 }
 
 function renderCards(){
   const host = document.getElementById('cardsTableBody');
   if(!host) return;
   const list = state.filtered;
+  // apply sort if active
+  if(state.sort.key){
+    const k = state.sort.key; const dir = state.sort.dir;
+    state.filtered = [...list].sort((a,b)=> {
+      const av = a[k]; const bv = b[k];
+      if(av==null && bv==null) return 0; if(av==null) return 1; if(bv==null) return -1;
+      if(typeof av === 'number' && typeof bv === 'number') return (av-bv)*dir;
+      return (''+av).localeCompare(''+bv)*dir;
+    });
+  }
+  const list2 = state.filtered;
   if(!list.length){ host.innerHTML = '<tr><td colspan="6">No data</td></tr>'; return; }
   const start = (state.page-1)*state.pageSize;
-  const slice = list.slice(start, start+state.pageSize);
+  const slice = list2.slice(start, start+state.pageSize);
   host.innerHTML = slice.map(c=> row(c)).join('');
   renderPager();
+  updateCardsHeaderSortState();
 }
 function renderPager(){
   const pager = document.getElementById('cardsPager');
@@ -120,6 +135,34 @@ function renderPager(){
   pager.querySelector('[data-page="prev"]').onclick = ()=> { if(state.page>1){ state.page--; renderCards(); announce(`cards page ${state.page} of ${pages}`,'info'); } };
   pager.querySelector('[data-page="next"]').onclick = ()=> { const pages2=Math.ceil(state.filtered.length/state.pageSize); if(state.page<pages2){ state.page++; renderCards(); announce(`cards page ${state.page} of ${pages2}`,'info'); } };
   pager.querySelector('#cardsPageSize').onchange = (e)=> { state.pageSize=Number(e.target.value)||50; state.page=1; renderCards(); announce(`cards page size ${state.pageSize}`,'info'); };
+}
+
+// Sort header wiring for cards
+function initCardsSorting(){
+  const head = document.getElementById('cardsHeader');
+  if(!head) return;
+  head.querySelectorAll('th[data-sort]').forEach(th=> {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', ()=> {
+      const key = th.getAttribute('data-sort');
+      if(state.sort.key === key){ state.sort.dir *= -1; } else { state.sort.key = key; state.sort.dir = 1; }
+      state.page = 1;
+      renderCards();
+    });
+  });
+  updateCardsHeaderSortState();
+}
+function updateCardsHeaderSortState(){
+  const head = document.getElementById('cardsHeader');
+  if(!head) return;
+  head.querySelectorAll('th[data-sort]').forEach(th=> {
+    const key = th.getAttribute('data-sort');
+    if(key === state.sort.key){
+      th.setAttribute('aria-sort', state.sort.dir===1? 'ascending':'descending');
+    } else {
+      th.setAttribute('aria-sort','none');
+    }
+  });
 }
 function row(c){
   const price = (c.price_usd!=null)?fmtUSD(c.price_usd):(c.price_eur!=null?'€'+Number(c.price_eur).toFixed(2):'—');
@@ -699,6 +742,7 @@ const anomaliesBody = document.getElementById('anomaliesBody');
 async function loadAnomalies(ev){
   if(ev) ev.preventDefault();
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  const panel = document.getElementById('anomaliesPanel'); if(panel) panel.setAttribute('aria-busy','true');
   if(anomaliesBody) anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;opacity:.6">Loading…</td></tr>';
   const fd = new FormData(anomaliesFilter);
   const status = fd.get('status');
@@ -710,6 +754,7 @@ async function loadAnomalies(ev){
     pagers.anomalies.page = 1;
     renderAnomaliesPaged();
   } catch(e){ anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;color:#f87171">Load failed</td></tr>'; announce('Anomalies load failed','error'); }
+  finally { const p = document.getElementById('anomaliesPanel'); if(p) p.removeAttribute('aria-busy'); }
 }
 function renderAnomaliesPaged(){
   if(!anomaliesBody){ return; }
@@ -952,6 +997,7 @@ const backtestsHost = document.getElementById('backtestsHost');
 const backtestDetailHost = document.getElementById('backtestDetailHost');
 async function loadBacktests(){
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  const panel = document.getElementById('backtestsPanel'); if(panel) panel.setAttribute('aria-busy','true');
   backtestsHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading…</div>';
   try {
     const r = await fetchJSON('/admin/backtests',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
@@ -960,6 +1006,7 @@ async function loadBacktests(){
     pagers.backtests.page = 1;
     renderBacktestsPaged();
   } catch(e){ backtestsHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Backtests load failed</div>'; }
+  finally { const p = document.getElementById('backtestsPanel'); if(p) p.removeAttribute('aria-busy'); }
 }
 function renderBacktestsPaged(){
   const cfg = pagers.backtests;
@@ -1000,6 +1047,7 @@ const auditStats = document.getElementById('auditStats');
 async function loadAudit(ev){
   if(ev) ev.preventDefault();
   if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  const panel = document.getElementById('auditPanel'); if(panel) panel.setAttribute('aria-busy','true');
   auditHost.innerHTML = '<div style="padding:8px;font-size:11px;opacity:.6">Loading…</div>';
   const fd = new FormData(auditFilter);
   const params = new URLSearchParams();
@@ -1011,6 +1059,7 @@ async function loadAudit(ev){
     pagers.audit.page = 1;
     renderAuditPaged();
   } catch(e){ auditHost.innerHTML = '<div style="color:#f87171;font-size:11px;padding:8px">Audit load failed</div>'; }
+  finally { const p = document.getElementById('auditPanel'); if(p) p.removeAttribute('aria-busy'); }
 }
 function renderAuditPaged(){
   const cfg = pagers.audit; const rows = cfg.rows;
@@ -1081,6 +1130,7 @@ const alertAdminStats = document.getElementById('alertAdminStats');
 async function loadAdminAlerts(e){
   if(e) e.preventDefault();
   if(!ADMIN_TOKEN){ announce('Set admin token first','error'); return; }
+  const panel = document.getElementById('alertAdminPanel'); if(panel) panel.setAttribute('aria-busy','true');
   if(alertAdminBody) alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;opacity:.6">Loading…</td></tr>';
   const fd = new FormData(alertAdminFilters);
   const params = new URLSearchParams();
@@ -1093,6 +1143,7 @@ async function loadAdminAlerts(e){
     pagers.alerts.page = 1;
     renderAlertsPaged();
   } catch(err){ if(alertAdminBody) alertAdminBody.innerHTML = '<tr><td colspan="9" style="padding:12px;text-align:center;color:#f87171">Load failed</td></tr>'; announce('Alerts load failed','error'); }
+  finally { const p = document.getElementById('alertAdminPanel'); if(p) p.removeAttribute('aria-busy'); }
 }
 function renderAlertsPaged(){
   if(!alertAdminBody) return;
@@ -1179,6 +1230,9 @@ function openCard(id){ /* modal disabled */ }
 // Movers wiring
 wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
+
+// Initialize sorting after DOM definitions
+initCardsSorting();
 
 // Expose basic debug
 window.PQv2 = { state, pagers, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion, loadFactorIC, loadBacktests, loadAudit, loadPortfolioPerformance, loadFactorWeights, rebuildFactorIcChart, rebuildPortfolioPnlChart };

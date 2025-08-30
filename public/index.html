@@ -285,14 +285,14 @@
               <h2 style="display:flex;align-items:center;gap:10px">Cards (sample) <button id="cardsExportCsv" type="button" class="btn btn-sm btn-outline" style="margin-left:auto">Export CSV</button></h2>
               <div style="overflow:auto;border:1px solid #253349;border-radius:12px;max-height:520px">
                 <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:880px">
-                  <thead style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
+                  <thead id="cardsHeader" style="position:sticky;top:0;background:#101726;box-shadow:0 2px 0 0 #253349">
                     <tr>
-                      <th style="text-align:left;padding:8px 10px;font-weight:600">Card</th>
-                      <th style="text-align:left;padding:8px 10px;font-weight:600">Set</th>
-                      <th style="text-align:left;padding:8px 10px;font-weight:600">Rarity</th>
-                      <th style="text-align:left;padding:8px 10px;font-weight:600">Price</th>
-                      <th style="text-align:left;padding:8px 10px;font-weight:600">Signal</th>
-                      <th style="text-align:left;padding:8px 10px;font-weight:600">ID</th>
+                      <th data-sort="name" aria-sort="none" style="text-align:left;padding:8px 10px;font-weight:600">Card</th>
+                      <th data-sort="set_name" aria-sort="none" style="text-align:left;padding:8px 10px;font-weight:600">Set</th>
+                      <th data-sort="rarity" aria-sort="none" style="text-align:left;padding:8px 10px;font-weight:600">Rarity</th>
+                      <th data-sort="price_usd" aria-sort="none" style="text-align:left;padding:8px 10px;font-weight:600">Price</th>
+                      <th data-sort="signal" aria-sort="none" style="text-align:left;padding:8px 10px;font-weight:600">Signal</th>
+                      <th data-sort="id" aria-sort="none" style="text-align:left;padding:8px 10px;font-weight:600">ID</th>
                     </tr>
                   </thead>
                   <tbody id="cardsTableBody"></tbody>
