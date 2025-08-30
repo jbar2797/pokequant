@@ -305,6 +305,13 @@ ALTER TABLE anomalies ADD COLUMN resolved_at TEXT;`
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON mutation_audit(ts);
 CREATE INDEX IF NOT EXISTS idx_audit_resource ON mutation_audit(resource);`
   }
+  ,
+  {
+    id: '0021_audit_indexes_actor_action',
+    description: 'Add indexes on mutation_audit(actor_type) and action for faster filtered queries',
+    sql: `CREATE INDEX IF NOT EXISTS idx_audit_actor_type ON mutation_audit(actor_type);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON mutation_audit(action);`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

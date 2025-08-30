@@ -2030,15 +2030,19 @@ export default {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
       const resource = (url.searchParams.get('resource')||'').trim();
       const action = (url.searchParams.get('action')||'').trim();
+      const actorType = (url.searchParams.get('actor_type')||'').trim();
+      const resourceId = (url.searchParams.get('resource_id')||'').trim();
       let limit = parseInt(url.searchParams.get('limit')||'200',10); if (!Number.isFinite(limit)||limit<1) limit=100; if (limit>500) limit=500;
       const where: string[] = []; const binds: any[] = [];
       if (resource) { where.push('resource=?'); binds.push(resource); }
       if (action) { where.push('action=?'); binds.push(action); }
+      if (actorType) { where.push('actor_type=?'); binds.push(actorType); }
+      if (resourceId) { where.push('resource_id=?'); binds.push(resourceId); }
       const sql = `SELECT id, ts, actor_type, actor_id, action, resource, resource_id, details FROM mutation_audit ${where.length? 'WHERE '+where.join(' AND '):''} ORDER BY ts DESC LIMIT ?`;
       binds.push(limit);
       try {
         const rs = await env.DB.prepare(sql).bind(...binds).all();
-        return json({ ok:true, rows: rs.results||[], filtered:{ resource:resource||undefined, action:action||undefined, limit } });
+        return json({ ok:true, rows: rs.results||[], filtered:{ resource:resource||undefined, action:action||undefined, actor_type: actorType||undefined, resource_id: resourceId||undefined, limit } });
       } catch (e:any) {
         return json({ ok:false, error:String(e) },500);
       }

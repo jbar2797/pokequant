@@ -111,6 +111,13 @@ All notable changes to this project will be documented here.
 ### Changed
 - Version bump to 0.5.14 (spec, package, version.ts)
 
+## [0.5.15] - 2025-08-30
+### Added
+- Extended /admin/audit filters: actor_type, resource_id (in addition to resource, action, limit)
+- Migration 0021 adds indexes on mutation_audit(actor_type) and action for faster filtered queries
+### Changed
+- Version bump to 0.5.15 (spec, package, version.ts)
+
 ## [0.4.3] - 2025-08-29
 ### Added
 - Backfill jobs engine: POST /admin/backfill now creates a tracked job (backfill_jobs table) ingesting synthetic historical rows for prices_daily (idempotent fill) over requested day window.
