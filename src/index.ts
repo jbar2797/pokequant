@@ -1508,8 +1508,42 @@ export default {
     }
     if (url.pathname === '/admin/factor-returns' && req.method === 'GET') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);
-      const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns ORDER BY as_of DESC, factor ASC LIMIT 400`).all();
-      return json({ ok:true, rows: rs.results||[] });
+      const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now','-120 day') ORDER BY factor ASC, as_of ASC`).all();
+      const rows = (rs.results||[]) as any[];
+      // Build per-factor arrays sorted asc (already sorted)
+      const byFactor: Record<string, { d:string; r:number }[]> = {};
+      for (const r of rows) {
+        const f = String(r.factor); const d = String(r.as_of); const ret = Number(r.ret);
+        if (!Number.isFinite(ret)) continue;
+        (byFactor[f] ||= []).push({ d, r: ret });
+      }
+      const aggregates: Record<string, any> = {};
+      const nowFactors = Object.keys(byFactor);
+      for (const f of nowFactors) {
+        const arr = byFactor[f];
+        // last 7 & 30 windows (using last elements)
+        const last7 = arr.slice(-7).map(o=> o.r);
+        const last30 = arr.slice(-30).map(o=> o.r);
+        const compound = (rets:number[]) => rets.length ? rets.reduce((p,x)=> p*(1+x),1)-1 : null;
+        const avg = (rets:number[]) => rets.length ? rets.reduce((a,b)=>a+b,0)/rets.length : null;
+        const std = (rets:number[]) => {
+          if (rets.length<2) return null; const m = avg(rets)!; let s=0; for (const v of rets) s+=(v-m)*(v-m); return Math.sqrt(s/(rets.length-1)); };
+        const c7 = compound(last7); const c30 = compound(last30);
+        const a7 = avg(last7); const a30 = avg(last30);
+        const vol30 = std(last30);
+        const sharpe30 = (a30!=null && vol30 && vol30>0) ? (a30/vol30)*Math.sqrt(252) : null;
+        aggregates[f] = {
+          win7_compound: c7!=null? +c7.toFixed(6): null,
+          win30_compound: c30!=null? +c30.toFixed(6): null,
+          avg7: a7!=null? +a7.toFixed(6): null,
+            avg30: a30!=null? +a30.toFixed(6): null,
+          sharpe30: sharpe30!=null? +sharpe30.toFixed(4): null,
+          points: arr.length
+        };
+      }
+      // Return recent rows (descending like before) separate from aggregates
+      const recent = rows.slice().sort((a,b)=> (a.as_of===b.as_of ? (a.factor<b.factor?-1:1) : (a.as_of>b.as_of?-1:1))).slice(0,400);
+      return json({ ok:true, rows: recent, aggregates });
     }
     if (url.pathname === '/admin/factor-returns/run' && req.method === 'POST') {
       if (req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ ok:false, error:'forbidden' },403);

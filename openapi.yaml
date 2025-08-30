@@ -78,7 +78,7 @@ paths:
   /research/card-csv:
               /admin/factor-returns:
                 get:
-                  summary: Latest stored factor daily top-bottom quintile returns
+              summary: Latest stored factor daily top-bottom quintile returns (with rolling aggregates)
                   security:
                     - AdminToken: []
                   responses:
