@@ -32,6 +32,7 @@ const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 let dark = localStorage.getItem('pq_dark') ? localStorage.getItem('pq_dark') === '1' : prefersDark;
 function applyTheme(){ if(dark){ document.documentElement.classList.add('dark'); document.body.classList.remove('light'); $('#themeToggle').textContent='🌙'; } else { document.documentElement.classList.remove('dark'); document.body.classList.add('light'); $('#themeToggle').textContent='☀️'; } }
 $('#themeToggle')?.addEventListener('click', ()=>{ dark=!dark; localStorage.setItem('pq_dark', dark?'1':'0'); applyTheme(); });
+$$('.theme-toggle').forEach(btn=> btn.addEventListener('click', ()=>{ dark=!dark; localStorage.setItem('pq_dark', dark?'1':'0'); applyTheme(); }));
 applyTheme();
 
 // ---------- Navigation ----------
@@ -86,9 +87,10 @@ function renderCards(data){ const tb=$('#rows'); if(!tb) return; if(!data.length
   <td class="p-2 text-xs"><button class="underline" data-alert="${c.id}">Alert</button></td>
   <td class="p-2 text-[10px] text-slate-500 font-mono">${c.id}</td>
 </tr>`; }).join(''); tb.querySelectorAll('button[data-alert]').forEach(b=> b.addEventListener('click',()=> { $('#alertCardQuick').value = b.getAttribute('data-alert'); switchView('overview'); toast('Card ID prefilled','success'); })); }
-function filterCards(){ const q=$('#q')?.value.toLowerCase()||''; const set=$('#set')?.value||''; const rarity=$('#rarity')?.value.toLowerCase()||''; let list=UNIVERSE; if(q) list=list.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q))); if(set) list=list.filter(c=> c.set_name===set); if(rarity) list=list.filter(c=> (c.rarity||'').toLowerCase()===rarity); renderCards(list); }
+function filterCards(){ const q=$('#q')?.value.toLowerCase()||''; const set=$('#set')?.value||''; const rarity=$('#rarity')?.value.toLowerCase()||''; let list=UNIVERSE; if(q) list=list.filter(c=> [c.name,c.set_name,c.id].some(v=> (v||'').toLowerCase().includes(q))); if(set) list=list.filter(c=> c.set_name===set); if(rarity) list=list.filter(c=> (c.rarity||'').toLowerCase()===rarity); FILTERED=list; CARDS_PAGE=1; applyCardsPagination(); }
 async function loadUniverse(){ setStatus('Loading cards…'); try { let data = await fetchJSON(WORKER_BASE+'/api/cards'); if(!data.length) data = await fetchJSON(WORKER_BASE+'/api/universe'); UNIVERSE=data; buildSetOptions(); filterCards(); setStatus('Cards loaded','success'); } catch(e){ setStatus('Cards load failed','error'); } }
 ['q','set','rarity'].forEach(id=> $('#'+id)?.addEventListener('input', filterCards)); $('#btnReload')?.addEventListener('click', loadUniverse);
+$('#cardsPageSize')?.addEventListener('change',()=> { CARDS_PAGE_SIZE = Number($('#cardsPageSize').value)||50; CARDS_PAGE=1; applyCardsPagination(); });
 
 // ---------- Subscribe ----------
 $('#sub')?.addEventListener('submit', async e=> { e.preventDefault(); const email=$('#email').value.trim(); if(!email) return; try { await fetchJSON(WORKER_BASE+'/api/subscribe',{ method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({email}) }); setStatus('Subscribed','success'); $('#email').value=''; } catch(e2){ setStatus('Subscription failed','error'); } });
@@ -113,8 +115,10 @@ async function loadTargets(){ try { const r = await fetchJSON(WORKER_BASE+'/port
 async function createOrder(){ try { await fetchJSON(WORKER_BASE+'/portfolio/orders',{ method:'POST', headers: pfHeaders(), body: JSON.stringify({}) }); setStatus('Order created','success'); listOrders(); } catch(e){ setStatus('Create order failed','error'); } }
 async function listOrders(){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/orders',{ headers: pfHeaders() }); const rows=r.rows||[]; $('#pfOrders').innerHTML = rows.map(o=> `<div><button class="underline" data-order="${o.id}">${o.id.slice(0,8)}</button> • ${o.status} • ${o.objective}</div>`).join(''); $('#pfOrders').querySelectorAll('button[data-order]').forEach(b=> b.addEventListener('click',()=> orderDetail(b.getAttribute('data-order')))); } catch(e){ setStatus('List orders failed','error'); } }
 async function orderDetail(id){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/orders/detail?id='+encodeURIComponent(id),{ headers: pfHeaders() }); $('#pfOrderDetail').textContent = JSON.stringify(r,null,2); } catch(e){ setStatus('Order detail failed','error'); } }
-async function loadPnl(){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/pnl',{ headers: pfHeaders() }); $('#pfPnl').textContent = JSON.stringify(r.rows||[],null,0); } catch{} }
-$('#pfLoadTargets')?.addEventListener('click', loadTargets); $('#pfCreateOrder')?.addEventListener('click', createOrder); $('#pfListOrders')?.addEventListener('click', listOrders);
+let pnlSparkChart;
+async function loadPnl(){ try { const r= await fetchJSON(WORKER_BASE+'/portfolio/pnl',{ headers: pfHeaders() }); const rows=(r.rows||[]).slice(-30); $('#pfPnl')?.textContent = JSON.stringify(rows,null,0); // sparkline
+  const ctx=$('#pnlSpark'); if(ctx){ const labels=rows.map(x=> x.as_of || '').slice(-30); const data=rows.map(x=> x.market_value || 0); if(pnlSparkChart) pnlSparkChart.destroy(); pnlSparkChart = new Chart(ctx,{ type:'line', data:{ labels, datasets:[{ label:'MV', data, tension:0.3, borderColor:'#6366f1', borderWidth:1, pointRadius:0, fill: { target:'origin', above:'rgba(99,102,241,0.15)' } }]}, options:{ responsive:true, plugins:{ legend:{ display:false }}, scales:{ x:{ display:false }, y:{ display:false }}, elements:{ line:{ borderJoinStyle:'round' }}}}); }
+} catch{} }
 
 // ---------- Analytics ----------
 let factorChart; async function loadFactorPerformance(){ try { const perf = await fetchJSON(WORKER_BASE+'/admin/factor-performance',{ headers: admHeaders() }); const factors=(perf.factors||[]).slice(0,10); const ctx=$('#factorChart'); const labels=factors.map(f=> f.factor); const data=factors.map(f=> f.ret_30d||0); if(factorChart) factorChart.destroy(); factorChart=new Chart(ctx,{ type:'bar', data:{ labels, datasets:[{ label:'30d Return', data, backgroundColor: data.map(v=> v>0?'rgba(16,185,129,0.6)':'rgba(239,68,68,0.6)') }]}, options:{ scales:{ y:{ ticks:{ callback: v=> (v*100).toFixed(1)+'%' } }}}}); $('#factorChartLegend').textContent='Showing top 10 factors by presence; green positive.'; } catch(e){ $('#factorChartLegend').textContent='Factor performance unavailable (admin token required).'; } }
