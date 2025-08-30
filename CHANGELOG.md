@@ -19,6 +19,12 @@ All notable changes to this project will be documented here.
 - /portfolio/delete-lot endpoint (audited) with test and OpenAPI documentation.
 ### Changed
 - portfolioAuth now returns legacy flag; version bump to 0.5.26.
+## [0.5.27] - 2025-08-29
+### Added
+- /portfolio/update-lot endpoint with validation & audit; tests added.
+### Changed
+- Refactored portfolio endpoints (exposure, history, attribution, pnl) to reuse portfolioAuth helper.
+- Version bump to 0.5.27; OpenAPI paths added for update-lot.
 ## [0.5.24] - 2025-08-29
 ### Added
 - Portfolio secret hashing (SHA-256) with backward compatibility and new /portfolio/rotate-secret endpoint.

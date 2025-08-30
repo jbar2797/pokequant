@@ -1594,6 +1594,28 @@ export default {
       if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'delete_lot', resource:'lot', resource_id:lotId });
       return json({ ok:true, deleted: changes });
     }
+    if (url.pathname === '/portfolio/update-lot' && req.method === 'POST') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+      const body: any = await req.json().catch(()=>({}));
+      const lotId = typeof body.lot_id === 'string' ? body.lot_id : '';
+      const qty = body.qty == null ? undefined : Number(body.qty);
+      const cost = body.cost_usd == null ? undefined : Number(body.cost_usd);
+      if (!lotId) return json({ ok:false, error:'lot_id_required' },400);
+      if (qty !== undefined && (!Number.isFinite(qty) || qty <= 0)) return json({ ok:false, error:'invalid_qty' },400);
+      if (cost !== undefined && (!Number.isFinite(cost) || cost < 0)) return json({ ok:false, error:'invalid_cost' },400);
+      const sets: string[] = []; const binds: any[] = [];
+      if (qty !== undefined) { sets.push('qty=?'); binds.push(qty); }
+      if (cost !== undefined) { sets.push('cost_usd=?'); binds.push(cost); }
+      if (!sets.length) return json({ ok:false, error:'no_changes' },400);
+      binds.push(lotId, pid);
+      const res = await env.DB.prepare(`UPDATE lots SET ${sets.join(', ')} WHERE id=? AND portfolio_id=?`).bind(...binds).run();
+      const changes = (res as any).meta?.changes ?? 0;
+      if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'update_lot', resource:'lot', resource_id:lotId, details:{ qty, cost_usd: cost } });
+      return json({ ok:true, updated: changes });
+    }
     if (url.pathname === '/alerts/deactivate' && (req.method === 'GET' || req.method === 'POST')) {
       const body: any = req.method === 'POST' ? await req.json().catch(()=>({})) : {};
       const id = req.method === 'GET' ? (url.searchParams.get('id') || '').trim() : (body.id ? String(body.id).trim() : '');
@@ -2161,10 +2183,8 @@ export default {
     if (url.pathname === '/portfolio/exposure' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-  const providedHash = await sha256Hex(psec);
-  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
-      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
       const d = (latest.results?.[0] as any)?.d;
       if (!d) return json({ ok:true, as_of:null, exposures:{} });
@@ -2181,20 +2201,16 @@ export default {
     if (url.pathname === '/portfolio/exposure/history' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-  const providedHash = await sha256Hex(psec);
-  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
-      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const rs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? ORDER BY as_of DESC, factor ASC LIMIT 700`).bind(pid).all();
       return json({ ok:true, rows: rs.results||[] });
     }
     if (url.pathname === '/portfolio/attribution' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-  const providedHash = await sha256Hex(psec);
-  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
-      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
       const rows = await computePortfolioAttribution(env, pid, days);
       return json({ ok:true, rows });
@@ -2202,10 +2218,8 @@ export default {
     if (url.pathname === '/portfolio/pnl' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
-  const providedHash = await sha256Hex(psec);
-  const okRow = await env.DB.prepare(`SELECT 1 FROM portfolios WHERE id=? AND (secret_hash=? OR secret=?)`).bind(pid, providedHash, psec).all();
-      if (!(okRow.results||[]).length) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const days = Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10)));
       const rs = await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all();
       return json({ ok:true, rows: rs.results||[] });
