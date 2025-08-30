@@ -13,6 +13,9 @@ All notable changes to this project will be documented here.
  - CI workflow: contract + version check, lint, typecheck, tests
  - Stronger ETag invalidation signature (include latest svi & component dates)
 
+## [0.2.5] - 2025-08-29
+- Add /admin/integrity endpoint summarizing latest dates, coverage counts, gap heuristic, and stale datasets
+
 ## [0.2.4] - 2025-08-29
 - Add lightweight ETag support on public read endpoints (conditional GETs)
 - Add standard X-RateLimit-* headers + Retry-After
