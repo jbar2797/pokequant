@@ -59,6 +59,10 @@ function switchView(v){
   state.view = v;
   document.querySelectorAll('[data-view]').forEach(el=> el.classList.toggle('active', el.dataset.view===v));
   document.querySelectorAll('[data-panel]').forEach(p=> { p.hidden = p.dataset.panel !== v; });
+  // Update aria-current for nav buttons
+  document.querySelectorAll('[data-view]').forEach(el=> {
+    if(el.dataset.view === v) el.setAttribute('aria-current','page'); else el.removeAttribute('aria-current');
+  });
   if(v==='cards' && !state.cards.length) loadCards();
 }
 
