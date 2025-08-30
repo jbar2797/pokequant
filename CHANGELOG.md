@@ -10,6 +10,9 @@ All notable changes to this project will be documented here.
 - Add examples to OpenAPI for key endpoints (in progress)
 ### Added
 - Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
+- Front-end refactor: extracted inline script into `public/app.js` module; added toast notifications, loading skeletons for movers, slow-request warning toasts (>1500ms), light polling (60s) for movers, safer null guards, and improved error surfacing.
+### Changed
+- OpenAPI (Unreleased): documenting enriched `/alerts/create` response fields (suppressed_until, fired_count) & optional `run` flag note for `/admin/ingestion-schedule/run-due`.
 ### Planned
 - Retry & backoff for alert email sending with failure metrics aggregation
 - Drop legacy plaintext portfolio_secret column after observation window
