@@ -82,6 +82,7 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 .gap-10 { gap:10px; }
 .gap-12 { gap:12px; }
 .gap-14 { gap:14px; }
+.mb-2 { margin-bottom:8px; }
 .p-4 { padding:4px; }
 .p-6 { padding:6px; }
 .p-8 { padding:8px; }
@@ -114,6 +115,8 @@ body { margin:0; font-family: var(--pq-font-stack); background: radial-gradient(
 .max-h-360 { max-height:360px; }
 .max-h-520 { max-height:520px; }
 .skel-cell { height:12px; }
+.h-40 { height:40px; }
+.mla { margin-left:auto; }
 
 /* Common vertical label/input stack */
 .vcol { display:flex; flex-direction:column; gap:4px; }

@@ -164,34 +164,34 @@
               <div id="factorCorrelationsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
             </div>
             <div class="panel" id="anomaliesPanel">
-              <h2 style="display:flex;align-items:center;gap:10px">Anomalies <div style="margin-left:auto;display:flex;gap:6px"><button id="anomaliesRefresh" type="button" class="btn btn-sm">Refresh</button><button id="anomaliesExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
-              <form id="anomaliesFilter" style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;margin-bottom:8px">
-                <label style="display:flex;flex-direction:column;gap:4px">Status
-                  <select name="status" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px">
+              <h2 class="flex items-center gap-10">Anomalies <div class="flex gap-6 mla"><button id="anomaliesRefresh" type="button" class="btn btn-sm">Refresh</button><button id="anomaliesExportCsv" type="button" class="btn btn-sm btn-outline">CSV</button></div></h2>
+              <form id="anomaliesFilter" class="form-inline f11 mb-2">
+                <label class="vcol">Status
+                  <select name="status" class="field field-sm">
                     <option value="">(any)</option>
                     <option value="open">Open</option>
                     <option value="resolved">Resolved</option>
                   </select>
                 </label>
-                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
+                <button type="submit" class="btn btn-ghost btn-lg h-40">Load</button>
               </form>
-              <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px">
-                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:780px">
-                  <thead style="position:sticky;top:0;background:#101726"><tr>
-                    <th style="text-align:left;padding:6px 8px">ID</th>
-                    <th style="text-align:left;padding:6px 8px">Metric</th>
-                    <th style="text-align:left;padding:6px 8px">Observed</th>
-                    <th style="text-align:left;padding:6px 8px">Expected</th>
-                    <th style="text-align:left;padding:6px 8px">Status</th>
-                    <th style="text-align:left;padding:6px 8px">Created</th>
-                    <th style="text-align:left;padding:6px 8px">Note</th>
-                    <th style="text-align:left;padding:6px 8px">Actions</th>
+              <div class="scroll-wrap max-h-260">
+                <table class="pq-table f11 min-w-780">
+                  <thead class="table-head-sticky"><tr>
+                    <th>ID</th>
+                    <th>Metric</th>
+                    <th>Observed</th>
+                    <th>Expected</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Note</th>
+                    <th>Actions</th>
                   </tr></thead>
                   <tbody id="anomaliesBody"></tbody>
                 </table>
               </div>
-              <div id="anomaliesPager" style="margin-top:8px;font-size:10px;display:flex;align-items:center;gap:8px"></div>
-              <div style="font-size:10px;opacity:.55;margin-top:6px">Actions: ack (acknowledge), dismiss (resolved legit), ignore (noise).</div>
+              <div id="anomaliesPager" class="pager-bar"></div>
+              <div class="note mt-2">Actions: ack (acknowledge), dismiss (resolved legit), ignore (noise).</div>
             </div>
             <div class="panel" id="integrityPanel">
               <h2 style="display:flex;align-items:center;gap:10px">Data Integrity <button id="integrityRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
