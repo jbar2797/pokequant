@@ -53,38 +53,8 @@ function row(c){
   </tr>`;
 }
 
-// Card modal (minimal for now)
-const modal = document.getElementById('cardModalNew');
-const modalBody = document.getElementById('cardModalBodyNew');
-function openCard(id){
-  if(!modal) return;
-  modal.hidden=false;
-  modalBody.innerHTML = '<div style="padding:30px;text-align:center">Loading card…</div>';
-  loadCardDetail(id);
-}
-async function loadCardDetail(id){
-  try {
-    const j = await fetchJSON(`/api/card?id=${encodeURIComponent(id)}&days=90`);
-    const c = j.card || { id };
-    const img = (c.image_url || PLACEHOLDER);
-    modalBody.innerHTML = `<div style="display:flex;gap:24px;align-items:flex-start">
-      <div style="width:140px;height:200px;background:#1e293b;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center"><img src="${img}" alt="${c.name||id}" style="max-height:190px" onerror="this.src='${PLACEHOLDER}'"/></div>
-      <div style="flex:1;min-width:0">
-        <h3 style="margin:0 0 6px;font-size:20px;font-weight:600;letter-spacing:-.5px">${c.name||id}</h3>
-        <div style="font-size:12px;opacity:.7;margin-bottom:12px">${c.set_name||''}${c.number? ' · #'+c.number:''}</div>
-        <div style="display:flex;gap:14px;font-size:12px;flex-wrap:wrap" id="cardMetaInline"></div>
-      </div>
-    </div>`;
-  } catch(e){ modalBody.innerHTML = '<div style="padding:40px;text-align:center;color:#f87171">Failed to load card</div>'; }
-}
-
-document.addEventListener('click', e=> {
-  const tile = e.target.closest('.tile[data-card-id]');
-  if(tile) openCard(tile.dataset.cardId);
-  const row = e.target.closest('tr[data-card-id]');
-  if(row) openCard(row.dataset.cardId);
-  if(e.target.id==='cardModalCloseNew'){ modal.hidden=true; }
-});
+// Card modal removed (temporary) to resolve persistent rectangle issue.
+function openCard(id){ /* modal disabled */ }
 
 // Movers wiring
 wireMoversClicks(openCard);
