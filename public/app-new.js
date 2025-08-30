@@ -568,6 +568,157 @@ if(factorAnalyticsRefresh){
   factorAnalyticsRefresh.addEventListener('click', loadFactorAnalytics);
 }
 
+// --- Anomalies ---
+const anomaliesRefresh = document.getElementById('anomaliesRefresh');
+const anomaliesFilter = document.getElementById('anomaliesFilter');
+const anomaliesBody = document.getElementById('anomaliesBody');
+async function loadAnomalies(ev){
+  if(ev) ev.preventDefault();
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  if(anomaliesBody) anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;opacity:.6">Loading…</td></tr>';
+  const fd = new FormData(anomaliesFilter);
+  const status = fd.get('status');
+  const qs = status? ('?status='+encodeURIComponent(status)) : '';
+  try {
+    const r = await fetchJSON('/admin/anomalies'+qs,{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    const rows = r.rows || r.anomalies || [];
+    if(!rows.length){ anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;opacity:.6">No anomalies</td></tr>'; return; }
+    anomaliesBody.innerHTML = rows.slice(0,300).map(a=> anomalyRow(a)).join('');
+    wireAnomalyActions();
+  } catch(e){ anomaliesBody.innerHTML = '<tr><td colspan="8" style="padding:10px;text-align:center;color:#f87171">Load failed</td></tr>'; announce('Anomalies load failed','error'); }
+}
+function anomalyRow(a){
+  return `<tr data-anomaly-id='${a.id}'>
+    <td style='padding:4px 6px;font-family:monospace;font-size:10px'>${(a.id||'').toString().slice(0,8)}</td>
+    <td style='padding:4px 6px'>${a.metric||''}</td>
+    <td style='padding:4px 6px'>${a.observed!=null? a.observed:''}</td>
+    <td style='padding:4px 6px'>${a.expected!=null? a.expected:''}</td>
+    <td style='padding:4px 6px'>${a.status||''}</td>
+    <td style='padding:4px 6px;font-size:10px;opacity:.75'>${(a.created_at||'').replace('T',' ').slice(0,16)}</td>
+    <td style='padding:4px 6px;font-size:10px;max-width:160px;overflow:hidden;text-overflow:ellipsis'>${a.note||''}</td>
+    <td style='padding:4px 6px;display:flex;gap:4px;flex-wrap:wrap'>
+      <button data-anomaly-action='ack' style='background:#2563eb;border:1px solid #2563eb;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Ack</button>
+      <button data-anomaly-action='dismiss' style='background:#16a34a;border:1px solid #16a34a;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Dismiss</button>
+      <button data-anomaly-action='ignore' style='background:#b91c1c;border:1px solid #b91c1c;color:#fff;font-size:10px;padding:4px 6px;border-radius:5px;cursor:pointer'>Ignore</button>
+    </td>
+  </tr>`;
+}
+function wireAnomalyActions(){
+  anomaliesBody?.querySelectorAll('tr').forEach(tr=> {
+    tr.querySelectorAll('button[data-anomaly-action]').forEach(btn=> {
+      btn.addEventListener('click', ()=> resolveAnomaly(tr.getAttribute('data-anomaly-id'), btn.getAttribute('data-anomaly-action')));
+    });
+  });
+}
+async function resolveAnomaly(id, action){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  try {
+    await fetchJSON('/admin/anomalies/resolve',{ method:'POST', headers:{ 'content-type':'application/json','x-admin-token': ADMIN_TOKEN }, body: JSON.stringify({ id, action }) });
+    announce('Anomaly '+action,'success');
+    loadAnomalies();
+  } catch(e){ announce('Resolve failed','error'); }
+}
+if(anomaliesRefresh) anomaliesRefresh.addEventListener('click', loadAnomalies);
+if(anomaliesFilter) anomaliesFilter.addEventListener('submit', loadAnomalies);
+
+// --- Data Integrity ---
+const integrityRefresh = document.getElementById('integrityRefresh');
+const integrityFlags = document.getElementById('integrityFlags');
+const integrityCoverage = document.getElementById('integrityCoverage');
+const integrityLatest = document.getElementById('integrityLatest');
+const integrityStatus = document.getElementById('integrityStatus');
+async function loadIntegrity(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  if(integrityStatus) integrityStatus.textContent='Loading integrity…';
+  try {
+    const r = await fetchJSON('/admin/integrity',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    if(integrityFlags){
+      integrityFlags.innerHTML = Object.entries(r.flags||{}).map(([k,v])=> `<span style='border:1px solid ${v?'#b91c1c':'#253349'};background:${v?'#7f1d1d':'#162132'};color:#e5ecf5;padding:4px 6px;border-radius:6px'>${k}: ${v? 'FAIL':'OK'}</span>`).join('') || '<span style="opacity:.6">No flags</span>';
+    }
+    if(integrityCoverage){
+      integrityCoverage.innerHTML = Object.entries(r.coverage||{}).map(([k,v])=> `<div style='border:1px solid #253349;background:#162132;padding:6px 8px;border-radius:8px'><div style='font-size:10px;opacity:.6'>${k}</div><div style='font-size:12px;font-weight:600'>${v}</div></div>`).join('');
+    }
+    if(integrityLatest){
+      integrityLatest.innerHTML = Object.entries(r.latest||{}).map(([k,v])=> `<div style='border:1px solid #253349;background:#162132;padding:6px 8px;border-radius:8px'><div style='font-size:10px;opacity:.6'>${k}</div><div style='font-size:12px;font-weight:600'>${v}</div></div>`).join('');
+    }
+    if(integrityStatus) integrityStatus.textContent='Integrity loaded';
+    announce('Integrity loaded','success');
+  } catch(e){ if(integrityStatus) integrityStatus.textContent='Integrity load failed'; announce('Integrity load failed','error'); }
+}
+if(integrityRefresh) integrityRefresh.addEventListener('click', loadIntegrity);
+
+// --- Ingestion ---
+const ingestionRefresh = document.getElementById('ingestionRefresh');
+const ingestionStatus = document.getElementById('ingestionStatus');
+const ingestionRunDue = document.getElementById('ingestionRunDue');
+const ingestionRunFast = document.getElementById('ingestionRunFast');
+const ingestionRunFull = document.getElementById('ingestionRunFull');
+const ingestionMockPrices = document.getElementById('ingestionMockPrices');
+const ingestionSchedules = document.getElementById('ingestionSchedules');
+const ingestionConfigHost = document.getElementById('ingestionConfigHost');
+const ingestionProvenanceHost = document.getElementById('ingestionProvenanceHost');
+const ingestionConfigForm = document.getElementById('ingestionConfigForm');
+
+async function loadIngestion(){
+  if(!ADMIN_TOKEN) return announce('Admin token required','error');
+  if(ingestionStatus) ingestionStatus.textContent='Loading ingestion…';
+  await Promise.all([loadIngestionSchedules(), loadIngestionConfig(), loadIngestionProvenance()]);
+  if(ingestionStatus) ingestionStatus.textContent='Ingestion loaded';
+  announce('Ingestion loaded','success');
+}
+async function loadIngestionSchedules(){
+  try { const r = await fetchJSON('/admin/ingestion-schedule',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    if(ingestionSchedules){
+      ingestionSchedules.innerHTML = (r.rows||[]).map(s=> `<div style='border:1px solid #253349;background:#162132;padding:8px 10px;border-radius:8px;font-size:11px'>
+        <div style='font-weight:600'>${s.dataset}</div>
+        <div style='opacity:.7'>Freq ${s.frequency_minutes}m</div>
+        <div style='opacity:.6;font-size:10px'>Last ${s.last_run_at? s.last_run_at.replace('T',' ').slice(0,16):'—'}</div>
+      </div>`).join('') || '<div style="opacity:.6">No schedules</div>';
+    }
+  } catch(e){ if(ingestionSchedules) ingestionSchedules.innerHTML='<div style="color:#f87171">Schedules failed</div>'; }
+}
+async function loadIngestionConfig(){
+  try { const r = await fetchJSON('/admin/ingestion/config',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    if(ingestionConfigHost){
+      ingestionConfigHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:11px;min-width:600px'>
+        <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:6px 8px'>Dataset</th><th style='text-align:left;padding:6px 8px'>Source</th><th style='text-align:left;padding:6px 8px'>Cursor</th><th style='text-align:left;padding:6px 8px'>Enabled</th></tr></thead>
+        <tbody>${(r.rows||[]).map(c=> `<tr><td style='padding:4px 6px'>${c.dataset}</td><td style='padding:4px 6px'>${c.source}</td><td style='padding:4px 6px;font-size:10px'>${c.cursor||''}</td><td style='padding:4px 6px'>${c.enabled? '✅':'❌'}</td></tr>`).join('')||'<tr><td colspan="4" style="padding:6px 8px;opacity:.6">No config</td></tr>'}</tbody></table>`;
+    }
+  } catch(e){ if(ingestionConfigHost) ingestionConfigHost.innerHTML='<div style="color:#f87171;font-size:11px">Config failed</div>'; }
+}
+async function loadIngestionProvenance(){
+  try { const r = await fetchJSON('/admin/ingestion/provenance?limit=100',{ headers:{ 'x-admin-token': ADMIN_TOKEN } });
+    if(ingestionProvenanceHost){
+      ingestionProvenanceHost.innerHTML = `<table style='width:100%;border-collapse:collapse;font-size:10px;min-width:680px'>
+        <thead style='position:sticky;top:0;background:#101726'><tr><th style='text-align:left;padding:6px 8px'>Dataset</th><th style='text-align:left;padding:6px 8px'>Source</th><th style='text-align:left;padding:6px 8px'>From</th><th style='text-align:left;padding:6px 8px'>To</th><th style='text-align:left;padding:6px 8px'>Rows</th><th style='text-align:left;padding:6px 8px'>Status</th><th style='text-align:left;padding:6px 8px'>At</th></tr></thead>
+        <tbody>${(r.rows||[]).map(p=> `<tr><td style='padding:4px 6px'>${p.dataset}</td><td style='padding:4px 6px'>${p.source}</td><td style='padding:4px 6px'>${p.range_from||''}</td><td style='padding:4px 6px'>${p.range_to||''}</td><td style='padding:4px 6px'>${p.row_count||''}</td><td style='padding:4px 6px'>${p.status||''}</td><td style='padding:4px 6px'>${(p.created_at||'').replace('T',' ').slice(0,16)}</td></tr>`).join('')||'<tr><td colspan="7" style="padding:6px 8px;opacity:.6">No provenance</td></tr>'}</tbody></table>`;
+    }
+  } catch(e){ if(ingestionProvenanceHost) ingestionProvenanceHost.innerHTML='<div style="color:#f87171;font-size:11px">Provenance failed</div>'; }
+}
+async function runIngestionDue(){ if(!ADMIN_TOKEN) return announce('Admin token required','error'); try { await fetchJSON('/admin/ingestion-schedule/run-due?run=1',{ method:'POST', headers:{ 'x-admin-token': ADMIN_TOKEN } }); announce('Due ingestion run','success'); loadIngestion(); } catch(e){ announce('Run due failed','error'); } }
+async function runIngestionFast(){ if(!ADMIN_TOKEN) return announce('Admin token required','error'); try { await fetchJSON('/admin/run-fast',{ method:'POST', headers:{ 'x-admin-token': ADMIN_TOKEN } }); announce('Fast run started','success'); } catch(e){ announce('Fast run failed','error'); } }
+async function runIngestionFull(){ if(!ADMIN_TOKEN) return announce('Admin token required','error'); try { await fetchJSON('/admin/run-now',{ method:'POST', headers:{ 'x-admin-token': ADMIN_TOKEN } }); announce('Full run started','success'); } catch(e){ announce('Full run failed','error'); } }
+async function mockPrices(){ if(!ADMIN_TOKEN) return announce('Admin token required','error'); try { await fetchJSON('/admin/ingest/prices',{ method:'POST', headers:{ 'x-admin-token': ADMIN_TOKEN } }); announce('Mock prices ingested','success'); } catch(e){ announce('Mock prices failed','error'); } }
+if(ingestionRefresh) ingestionRefresh.addEventListener('click', loadIngestion);
+if(ingestionRunDue) ingestionRunDue.addEventListener('click', runIngestionDue);
+if(ingestionRunFast) ingestionRunFast.addEventListener('click', runIngestionFast);
+if(ingestionRunFull) ingestionRunFull.addEventListener('click', runIngestionFull);
+if(ingestionMockPrices) ingestionMockPrices.addEventListener('click', mockPrices);
+if(ingestionConfigForm){
+  ingestionConfigForm.addEventListener('submit', async ev=> {
+    ev.preventDefault(); if(!ADMIN_TOKEN) return announce('Admin token required','error');
+    const fd = new FormData(ingestionConfigForm);
+    const body = { dataset: fd.get('dataset')?.toString().trim(), source: fd.get('source')?.toString().trim() };
+    if(fd.get('cursor')) body.cursor = fd.get('cursor').toString().trim();
+    if(fd.get('enabled')) body.enabled = fd.get('enabled').toString()==='1';
+    try {
+      await fetchJSON('/admin/ingestion/config',{ method:'POST', headers:{ 'content-type':'application/json','x-admin-token': ADMIN_TOKEN }, body: JSON.stringify(body) });
+      announce('Config upserted','success');
+      loadIngestionConfig();
+    } catch(e){ announce('Config upsert failed','error'); }
+  });
+}
+
 // --- Alerts Admin Panel ---
 const alertAdminBody = document.getElementById('alertAdminBody');
 const alertAdminFilters = document.getElementById('alertAdminFilters');
@@ -667,6 +818,6 @@ wireMoversClicks(openCard);
 loadMovers().catch(()=> announce('Movers load failed','error'));
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, loadPortfolio, addLot, updateLot, deleteLot, loadPortfolioTargetsAndExposures, saveTargetsFromUI, createPortfolioOrder, loadPortfolioOrders, loadAdminAlerts, loadAlertStats, loadFactorAnalytics, loadAnomalies, loadIntegrity, loadIngestion };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');

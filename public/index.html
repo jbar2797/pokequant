@@ -162,6 +162,68 @@
               <div id="factorPerformanceHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:300px;margin-bottom:14px"></div>
               <div id="factorCorrelationsHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px"></div>
             </div>
+            <div class="panel" id="anomaliesPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Anomalies <button id="anomaliesRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <form id="anomaliesFilter" style="display:flex;gap:8px;flex-wrap:wrap;font-size:11px;margin-bottom:8px">
+                <label style="display:flex;flex-direction:column;gap:4px">Status
+                  <select name="status" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px">
+                    <option value="">(any)</option>
+                    <option value="open">Open</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </label>
+                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Load</button>
+              </form>
+              <div style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:260px">
+                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:780px">
+                  <thead style="position:sticky;top:0;background:#101726"><tr>
+                    <th style="text-align:left;padding:6px 8px">ID</th>
+                    <th style="text-align:left;padding:6px 8px">Metric</th>
+                    <th style="text-align:left;padding:6px 8px">Observed</th>
+                    <th style="text-align:left;padding:6px 8px">Expected</th>
+                    <th style="text-align:left;padding:6px 8px">Status</th>
+                    <th style="text-align:left;padding:6px 8px">Created</th>
+                    <th style="text-align:left;padding:6px 8px">Note</th>
+                    <th style="text-align:left;padding:6px 8px">Actions</th>
+                  </tr></thead>
+                  <tbody id="anomaliesBody"></tbody>
+                </table>
+              </div>
+              <div style="font-size:10px;opacity:.55;margin-top:6px">Actions: ack (acknowledge), dismiss (resolved legit), ignore (noise).</div>
+            </div>
+            <div class="panel" id="integrityPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Data Integrity <button id="integrityRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <div id="integrityStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh.</div>
+              <div id="integrityFlags" style="display:flex;flex-wrap:wrap;gap:6px;font-size:10px;margin-bottom:10px"></div>
+              <div id="integrityCoverage" style="font-size:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px;margin-bottom:10px"></div>
+              <div id="integrityLatest" style="font-size:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px"></div>
+            </div>
+            <div class="panel" id="ingestionPanel">
+              <h2 style="display:flex;align-items:center;gap:10px">Ingestion <button id="ingestionRefresh" type="button" style="margin-left:auto;background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px">Refresh</button></h2>
+              <div id="ingestionStatus" style="font-size:11px;opacity:.65;margin-bottom:8px">Set admin token & refresh / run.</div>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;font-size:11px">
+                <button id="ingestionRunDue" type="button" style="background:#2563eb;border:1px solid #2563eb;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Run Due</button>
+                <button id="ingestionRunFast" type="button" style="background:#6366f1;border:1px solid #6366f1;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Fast Signals</button>
+                <button id="ingestionRunFull" type="button" style="background:#16a34a;border:1px solid #16a34a;color:#fff;padding:6px 12px;border-radius:8px;cursor:pointer">Full Pipeline</button>
+                <button id="ingestionMockPrices" type="button" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:6px 12px;border-radius:8px;cursor:pointer">Mock Prices</button>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-bottom:14px" id="ingestionSchedules"></div>
+              <div id="ingestionConfigHost" style="margin-bottom:16px"></div>
+              <div id="ingestionProvenanceHost" style="overflow:auto;border:1px solid #253349;border-radius:10px;max-height:220px"></div>
+              <form id="ingestionConfigForm" style="margin-top:12px;display:flex;flex-wrap:wrap;gap:8px;font-size:11px;align-items:flex-end">
+                <label style="display:flex;flex-direction:column;gap:4px">Dataset <input name="dataset" required placeholder="prices_daily" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px"/></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Source <input name="source" required placeholder="external-mock" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:140px"/></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Cursor <input name="cursor" placeholder="2025-08-01" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:120px"/></label>
+                <label style="display:flex;flex-direction:column;gap:4px">Enabled
+                  <select name="enabled" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:5px 6px;border-radius:6px;width:90px">
+                    <option value="">(skip)</option>
+                    <option value="1">Yes</option>
+                    <option value="0">No</option>
+                  </select>
+                </label>
+                <button type="submit" style="background:#162132;border:1px solid #253349;color:#e5ecf5;padding:7px 12px;border-radius:8px;cursor:pointer;height:40px">Upsert Config</button>
+              </form>
+            </div>
           </section>
           <section data-panel="cards" hidden>
             <div class="panel" style="overflow:auto">
