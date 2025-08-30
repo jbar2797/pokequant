@@ -2,12 +2,7 @@ import { json, err } from '../lib/http';
 import { audit } from '../lib/audit';
 import type { Env } from '../lib/types';
 import { router } from '../router';
-
-// Helpers expected to exist in index.ts; we re-declare minimal types to satisfy TS when imported.
-// They will be resolved at runtime because index.ts still defines them and this module is imported before use.
-// If needed later, move implementations into lib/.*
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-declare function runIncrementalIngestion(env: Env, opts: { maxDays: number }): Promise<any[]>;
+import { runIncrementalIngestion } from '../lib/ingestion';
 
 export function registerAdminRoutes() {
   router

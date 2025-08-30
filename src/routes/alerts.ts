@@ -4,11 +4,13 @@ import { audit } from '../lib/audit';
 import { incMetric } from '../lib/metrics';
 import { getRateLimits, rateLimit } from '../lib/rate_limit';
 import type { Env } from '../lib/types';
-import { ensureAlertsTable, getAlertThresholdCol } from '../lib/data';
+import { ensureAlertsTable, getAlertThresholdCol, ensureTestSeed } from '../lib/data';
 
 export function registerAlertRoutes(){
   router
     .add('POST','/alerts/create', async ({ env, req, url }) => {
+      // Ensure core + audit tables so audit(create) doesn't fail silently
+      await ensureTestSeed(env);
       await ensureAlertsTable(env);
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const body: any = await req.json().catch(()=>({}));
@@ -38,6 +40,7 @@ export function registerAlertRoutes(){
       return json({ ok: true, id, manage_token, manage_url, suppressed_until: row.suppressed_until || null, fired_count: row.fired_count || 0 });
     })
     .add('POST','/alerts/snooze', async ({ env, req, url }) => {
+      await ensureTestSeed(env);
       await ensureAlertsTable(env);
       const id = url.searchParams.get('id') || '';
       const body: any = await req.json().catch(()=>({}));

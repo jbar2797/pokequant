@@ -18,6 +18,7 @@ import { audit } from './lib/audit';
 import { portfolioAuth } from './lib/portfolio_auth';
 import { getFactorUniverse, computeFactorReturns, computeFactorRiskModel, smoothFactorReturns, computeSignalQuality, computeFactorIC } from './lib/factors';
 import { ensureTestSeed, ensureAlertsTable, getAlertThresholdCol } from './lib/data';
+import { runIncrementalIngestion } from './lib/ingestion';
 import { baseDataSignature } from './lib/base_data';
 
 
@@ -260,67 +261,6 @@ async function runAlerts(env: Env) {
   return { checked: (rs.results ?? []).length, fired };
 }
 
-// Reusable incremental ingestion logic (extracted from /admin/ingestion/run) so scheduling can invoke it for a subset of datasets.
-async function runIncrementalIngestion(env: Env, options?: { datasets?: string[]; maxDays?: number }) {
-  const maxDays = Math.min(7, Math.max(1, Number(options?.maxDays)||1));
-  const filter = options?.datasets ? new Set(options.datasets) : null;
-  const cfgRs = await env.DB.prepare(`SELECT dataset, source, cursor FROM ingestion_config WHERE enabled=1`).all();
-  const configs = (cfgRs.results||[]) as any[];
-  const today = new Date().toISOString().slice(0,10);
-  const results: any[] = [];
-  for (const c of configs) {
-    const dataset = String(c.dataset||'');
-    if (filter && !filter.has(dataset)) continue;
-    const source = String(c.source||'');
-    let cursor: string|null = c.cursor ? String(c.cursor) : null;
-    let inserted = 0; let fromDate: string|null = null; let toDate: string|null = null; let status: string = 'skipped';
-    if (dataset === 'prices_daily') {
-      const startDate = cursor ? new Date(Date.parse(cursor) + 86400000) : new Date(Date.now() - (maxDays-1)*86400000);
-      const dates: string[] = [];
-      for (let i=0;i<maxDays;i++) {
-        const d = new Date(startDate.getTime() + i*86400000).toISOString().slice(0,10);
-        if (Date.parse(d) > Date.parse(today)) break;
-        dates.push(d);
-      }
-      if (!dates.length || (cursor && cursor >= today)) {
-        results.push({ dataset, source, skipped:true });
-        continue;
-      }
-      fromDate = dates[0]; toDate = dates[dates.length-1];
-      const provId = crypto.randomUUID();
-      try { await env.DB.prepare(`INSERT INTO ingestion_provenance (id,dataset,source,from_date,to_date,started_at,status,rows) VALUES (?,?,?,?,?,datetime('now'),'running',0)`).bind(provId,dataset,source,fromDate,toDate).run(); } catch {/* ignore */}
-      try {
-        const haveCards = await env.DB.prepare(`SELECT id FROM cards LIMIT 20`).all();
-        let cards = (haveCards.results||[]) as any[];
-        if (!cards.length) {
-          const cid = 'INGEST-SEED-1';
-            await env.DB.prepare(`INSERT OR IGNORE INTO cards (id,name,set_name,rarity) VALUES (?,?,?,?)`).bind(cid,'Ingest Seed Card','Ingest','Promo').run();
-            cards = [{ id: cid }];
-        }
-        for (const d of dates) {
-          for (const card of cards) {
-            const exist = await env.DB.prepare(`SELECT 1 FROM prices_daily WHERE card_id=? AND as_of=?`).bind(card.id,d).all();
-            if (exist.results?.length) continue;
-            const seed = [...(card.id+d+source)].reduce((a,ch)=> a + ch.charCodeAt(0),0);
-            const base = (seed % 120) + 3;
-            await env.DB.prepare(`INSERT INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind(card.id,d,base,base*0.9).run();
-            inserted++;
-          }
-        }
-        cursor = toDate; status = 'completed';
-        try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='completed', rows=?, completed_at=datetime('now') WHERE id=?`).bind(inserted, provId).run(); } catch {/* ignore */}
-        await env.DB.prepare(`UPDATE ingestion_config SET cursor=?, last_run_at=datetime('now') WHERE dataset=? AND source=?`).bind(cursor,dataset,source).run();
-        await audit(env, { actor_type:'admin', action:'ingest_incremental', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ fromDate, toDate, inserted, scheduled: !!filter } });
-      } catch (e:any) {
-        status = 'error';
-        try { await env.DB.prepare(`UPDATE ingestion_provenance SET status='error', error=?, completed_at=datetime('now') WHERE id=?`).bind(String(e), provId).run(); } catch {/* ignore */}
-        await audit(env, { actor_type:'admin', action:'ingest_error', resource:'ingestion_run', resource_id:`${dataset}:${source}`, details:{ error:String(e), scheduled: !!filter } });
-      }
-    }
-    results.push({ dataset, source, inserted, from_date: fromDate, to_date: toDate, status, cursor });
-  }
-  return results;
-}
 
 // ---------- Admin: fetch+upsert+compute (may hit limits if upstream is slow) ----------
 async function pipelineRun(env: Env) {
@@ -634,32 +574,25 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
     const t0 = Date.now();
-    // --- Router early dispatch (incremental migration) ---
+    // Ensure migrations at very start so routed endpoints have schema.
+    await runMigrations(env.DB);
+    // Router dispatch first (modularized endpoints)
     try {
-      // Dynamic imports register routes as side effects. Keep list small; add more modules as extracted.
       await Promise.all([
         import('./routes/admin'),
         import('./routes/public'),
-  import('./routes/alerts'),
-  import('./routes/metadata'),
-  import('./routes/search'),
-  import('./routes/subscribe'),
-  import('./routes/portfolio'),
+        import('./routes/alerts'),
+        import('./routes/metadata'),
+        import('./routes/search'),
+        import('./routes/subscribe'),
+        import('./routes/portfolio'),
       ]);
       const { router } = await import('./router');
       const routed = await router.handle(req, env);
-      if (routed) {
-        await recordLatency(env, 'http.latency', Date.now() - t0);
-        return routed;
-      }
-    } catch (e) {
-      // Non-fatal; fall back to legacy chain.
-      try { console.warn('router dispatch failed', e); } catch {}
-    }
-  // Per-request evaluation (env differs by environment / binding)
-  (globalThis as any).__LOG_DISABLED = (env.LOG_ENABLED === '0');
-  // Ensure migrations early so early-return endpoints have tables.
-  await runMigrations(env.DB);
+      if (routed) return routed;
+    } catch (e) { try { console.warn('router dispatch failed', e); } catch {} }
+    // Per-request evaluation (env differs by environment / binding)
+    (globalThis as any).__LOG_DISABLED = (env.LOG_ENABLED === '0');
   function done(resp: Response, tag: string) {
       try { log('req_timing', { path: url.pathname, tag, ms: Date.now() - t0, status: resp.status }); } catch {}
   recordLatency(env, `lat.${tag}`, Date.now() - t0); // fire & forget

@@ -1,5 +1,7 @@
 // Lightweight router abstraction for Cloudflare Worker
 import type { Env } from './lib/types';
+import { recordLatency } from './lib/metrics';
+import { log } from './lib/log';
 
 export interface RouteContext {
   req: Request;
@@ -19,7 +21,18 @@ export class Router {
     const url = new URL(req.url);
     const r = this.match(req.method, url.pathname);
     if (!r) return undefined;
-    return r.handler({ req, env, url });
+    const t0 = Date.now();
+    try {
+      const resp = await r.handler({ req, env, url });
+      const tagBase = 'lat' + url.pathname.replace(/\//g, '.');
+      await recordLatency(env, tagBase, Date.now() - t0); // ensure DB write completes before returning
+      return resp;
+    } catch (e:any) {
+      log('route_error', { path: url.pathname, error:String(e) });
+      const tagBase = 'lat' + url.pathname.replace(/\//g, '.');
+      await recordLatency(env, tagBase, Date.now() - t0);
+      return new Response('Internal Error', { status:500 });
+    }
   }
 }
 
