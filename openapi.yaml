@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.5.25
+  version: 0.5.26
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -393,6 +393,21 @@ paths:
     get:
       summary: Portfolio factor exposure (latest components)
       responses: { '200': { description: OK } }
+  /portfolio/delete-lot:
+    post:
+      summary: Delete a portfolio lot
+      description: Remove a previously added lot by lot_id.
+      security: [ { PortfolioAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            examples:
+              sample:
+                value: { lot_id: 123e4567-e89b-12d3-a456-426614174000 }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden }
   /portfolio/rotate-secret:
     post:
       summary: Rotate portfolio secret

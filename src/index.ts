@@ -38,15 +38,16 @@ async function sha256Hex(input: string): Promise<string> {
 
 // Portfolio auth helper with automatic legacy hash backfill.
 // Returns true if auth ok; performs best-effort hash backfill when secret_hash missing but legacy secret matches.
-async function portfolioAuth(env: Env, id: string, secret: string): Promise<boolean> {
-  if (!id || !secret) return false;
+// Returns { ok, legacy } where legacy indicates plaintext column used & hash just backfilled
+async function portfolioAuth(env: Env, id: string, secret: string): Promise<{ ok: boolean; legacy: boolean; }> {
+  if (!id || !secret) return { ok:false, legacy:false };
   try {
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
     // Attempt to ensure secret_hash column exists (migration normally adds it; tolerate errors silently)
     try { await env.DB.prepare(`ALTER TABLE portfolios ADD COLUMN secret_hash TEXT`).run(); } catch { /* ignore */ }
     const rowRes = await env.DB.prepare(`SELECT secret, secret_hash FROM portfolios WHERE id=?`).bind(id).all();
     const row: any = rowRes.results?.[0];
-    if (!row) return false;
+    if (!row) return { ok:false, legacy:false };
     const providedHash = await sha256Hex(secret);
     const legacyOk = row.secret === secret;
     const hashOk = !!row.secret_hash && row.secret_hash === providedHash;
@@ -55,10 +56,10 @@ async function portfolioAuth(env: Env, id: string, secret: string): Promise<bool
       if (!row.secret_hash && legacyOk) {
         try { await env.DB.prepare(`UPDATE portfolios SET secret_hash=? WHERE id=?`).bind(providedHash, id).run(); } catch {/* ignore */}
       }
-      return true;
+      return { ok:true, legacy: legacyOk && !hashOk };
     }
-    return false;
-  } catch { return false; }
+    return { ok:false, legacy:false };
+  } catch { return { ok:false, legacy:false }; }
 }
 
 // ---------- utils ----------
@@ -1537,8 +1538,8 @@ export default {
       const LotSchema = z.object({ card_id: z.string().min(1), qty: z.number().positive(), cost_usd: z.number().min(0), acquired_at: z.string().optional() });
       const parsed = LotSchema.safeParse(body);
       if (!parsed.success) return json({ ok:false, error:'invalid_body', issues: parsed.error.issues },400);
-  const authOk = await portfolioAuth(env, pid, psec);
-  if (!authOk) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
       const lotId = crypto.randomUUID();
   await env.DB.prepare(`INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at) VALUES (?,?,?,?,?,?)`).bind(lotId, pid, parsed.data.card_id, parsed.data.qty, parsed.data.cost_usd, parsed.data.acquired_at || null).run();
@@ -1551,8 +1552,8 @@ export default {
     if (url.pathname === '/portfolio/rotate-secret' && req.method === 'POST') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-  const authOk = await portfolioAuth(env, pid, psec);
-  if (!authOk) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const newBytes = new Uint8Array(16); crypto.getRandomValues(newBytes);
       const newSecret = Array.from(newBytes).map(b=> b.toString(16).padStart(2,'0')).join('');
       const newHash = await sha256Hex(newSecret);
@@ -1564,8 +1565,8 @@ export default {
     if (url.pathname === '/portfolio' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-  const authOk = await portfolioAuth(env, pid, psec);
-  if (!authOk) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const lots = await env.DB.prepare(`SELECT l.id AS lot_id,l.card_id,l.qty,l.cost_usd,l.acquired_at,
         (SELECT price_usd FROM prices_daily p WHERE p.card_id=l.card_id ORDER BY as_of DESC LIMIT 1) AS price_usd
         FROM lots l WHERE l.portfolio_id=?`).bind(pid).all();
@@ -1575,10 +1576,23 @@ export default {
     if (url.pathname === '/portfolio/export' && req.method === 'GET') {
       const pid = req.headers.get('x-portfolio-id')||'';
       const psec = req.headers.get('x-portfolio-secret')||'';
-  const authOk = await portfolioAuth(env, pid, psec);
-  if (!authOk) return json({ ok:false, error:'forbidden' },403);
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
       const lots = await env.DB.prepare(`SELECT * FROM lots WHERE portfolio_id=?`).bind(pid).all();
       return json({ ok:true, portfolio_id: pid, lots: lots.results||[] });
+    }
+    if (url.pathname === '/portfolio/delete-lot' && req.method === 'POST') {
+      const pid = req.headers.get('x-portfolio-id')||'';
+      const psec = req.headers.get('x-portfolio-secret')||'';
+      const auth = await portfolioAuth(env, pid, psec);
+      if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const body: any = await req.json().catch(()=>({}));
+  const lotId = body && typeof body.lot_id === 'string' ? body.lot_id : '';
+      if (!lotId) return json({ ok:false, error:'lot_id_required' },400);
+      const del = await env.DB.prepare(`DELETE FROM lots WHERE id=? AND portfolio_id=?`).bind(lotId, pid).run();
+      const changes = (del as any).meta?.changes ?? 0;
+      if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'delete_lot', resource:'lot', resource_id:lotId });
+      return json({ ok:true, deleted: changes });
     }
     if (url.pathname === '/alerts/deactivate' && (req.method === 'GET' || req.method === 'POST')) {
       const body: any = req.method === 'POST' ? await req.json().catch(()=>({})) : {};

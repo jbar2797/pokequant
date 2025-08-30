@@ -14,6 +14,11 @@ All notable changes to this project will be documented here.
 - Lazy secret hash backfill helper (portfolioAuth) + rotation test.
 ### Changed
 - Version bump to 0.5.25; README and SECURITY updated for hashing & rotation procedure.
+## [0.5.26] - 2025-08-29
+### Added
+- /portfolio/delete-lot endpoint (audited) with test and OpenAPI documentation.
+### Changed
+- portfolioAuth now returns legacy flag; version bump to 0.5.26.
 ## [0.5.24] - 2025-08-29
 ### Added
 - Portfolio secret hashing (SHA-256) with backward compatibility and new /portfolio/rotate-secret endpoint.
