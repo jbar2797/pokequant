@@ -10,11 +10,13 @@ permissions:
   deployments: write
 jobs:
   deploy:
+    # Skip this entire job cleanly if required secrets are not present (e.g. in forks or local clones)
+    if: ${{ secrets.CF_API_TOKEN != '' && secrets.CF_ACCOUNT_ID != '' && secrets.PAGES_PROJECT_NAME != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Pre-flight Cloudflare Pages API check
+  - name: Pre-flight Cloudflare Pages API check
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
