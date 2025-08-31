@@ -353,6 +353,41 @@ paths:
       description: Returns per-day portfolio returns (ret) and realized components for authenticated portfolio (headers x-portfolio-id/secret). Optional days query (<=180).
   security: [ { PortfolioAuth: [] } ]
       responses: { '200': { description: OK } }
+  /portfolio/scenario:
+    post:
+      summary: Portfolio scenario what-if factor exposures
+      description: Computes hypothetical factor exposures if lots were adjusted (does not persist). Provide body with lots array and optional mode ('absolute' or 'delta').
+      security: [ { PortfolioAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, enum: [absolute, delta] }
+                lots:
+                  type: array
+                  items:
+                    type: object
+                    required: [ card_id, qty ]
+                    properties:
+                      card_id: { type: string }
+                      qty: { type: number }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    mode: absolute
+                    as_of: 2025-08-30
+                    current: { ts7: 0.12, ts30: 0.25, z_svi: 0.9, vol: 0.31, liquidity: 2.8, scarcity: 0.55, mom90: 0.04 }
+                    scenario: { ts7: 0.20, ts30: 0.33, z_svi: 0.8, vol: 0.34, liquidity: 2.6, scarcity: 0.60, mom90: 0.06 }
+                    deltas: { ts7: 0.08, ts30: 0.08, z_svi: -0.1, vol: 0.03 }
   /api/subscribe:
     post:
       summary: Subscribe email
@@ -861,6 +896,24 @@ paths:
                       - { id: d1, webhook_id: wh1, event: alert.fired, ok: 0, status: 0, error: sim_fail, attempt: 1, duration_ms: null, created_at: 2025-08-29T12:00:00Z }
                       - { id: d2, webhook_id: wh1, event: alert.fired, ok: 0, status: 0, error: sim_fail, attempt: 2, duration_ms: null, created_at: 2025-08-29T12:00:00Z }
                       - { id: d3, webhook_id: wh1, event: alert.fired, ok: 1, status: 200, error: null, attempt: 3, duration_ms: 5, created_at: 2025-08-29T12:00:00Z }
+  /admin/webhooks/verify:
+    get:
+      summary: Verify webhook nonce replay (admin)
+      description: Returns seen=true if provided nonce already exists in webhook_deliveries table. Useful for validating idempotency and detecting replays.
+      security: [ { AdminToken: [] } ]
+      parameters:
+        - in: query
+          name: nonce
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              examples:
+                sample:
+                  value: { ok: true, nonce: 'uuid', seen: true }
   /admin/migrations:
     get:
       summary: List applied migrations (admin)

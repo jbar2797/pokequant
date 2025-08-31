@@ -134,6 +134,62 @@ export function registerPortfolioRoutes(){
     const out:Record<string,number|null>={}; for (const f of factors){ const a=agg[f]; out[f]=a&&a.w>0? +(a.sum/a.w).toFixed(6): null; }
     return json({ ok:true, as_of:d, exposures: out });
   })
+  // Scenario what-if exposures (does not persist) body: { lots:[{card_id, qty}], mode:'absolute'|'delta' }
+  .add('POST','/portfolio/scenario', async ({ env, req }) => {
+    await ensureTestSeed(env);
+    const pid = req.headers.get('x-portfolio-id')||'';
+    const psec = req.headers.get('x-portfolio-secret')||'';
+    const auth = await portfolioAuth(env, pid, psec);
+    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+    const body:any = await req.json().catch(()=>({}));
+    const mode = body && typeof body.mode === 'string' && (body.mode === 'delta' || body.mode === 'absolute') ? body.mode : 'absolute';
+    const inputLots: any[] = Array.isArray(body?.lots) ? body.lots : [];
+    // Load current lots
+    const lotsRes = await env.DB.prepare(`SELECT card_id, qty FROM lots WHERE portfolio_id=?`).bind(pid).all();
+    const currentLots = new Map<string, number>();
+    for (const r of (lotsRes.results||[]) as any[]) currentLots.set(String(r.card_id), Number(r.qty)||0);
+    const simulatedLots = new Map(currentLots);
+    for (const l of inputLots) {
+      if (!l || typeof l !== 'object') continue;
+      const card_id = typeof l.card_id === 'string' ? l.card_id : '';
+      const qty = Number(l.qty);
+      if (!card_id || !Number.isFinite(qty) || qty < 0) continue;
+      if (mode === 'delta') {
+        const cur = simulatedLots.get(card_id)||0;
+        const next = cur + qty;
+        if (next <= 0) simulatedLots.delete(card_id); else simulatedLots.set(card_id, next);
+      } else { // absolute
+        if (qty === 0) simulatedLots.delete(card_id); else simulatedLots.set(card_id, qty);
+      }
+    }
+    const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
+    const d = (latest.results?.[0] as any)?.d;
+    // helper to compute exposures for a given lots map
+    async function compute(map: Map<string,number>): Promise<Record<string,number|null>> {
+      if (!d) return { ts7:null, ts30:null, z_svi:null, vol:null, liquidity:null, scarcity:null, mom90:null };
+      if (!map.size) return { ts7:0, ts30:0, z_svi:0, vol:0, liquidity:0, scarcity:0, mom90:0 };
+      const ids = Array.from(map.keys());
+      const placeholders = ids.map(()=>'?').join(',');
+      const rs = await env.DB.prepare(`SELECT card_id, ts7, ts30, z_svi, vol, liquidity, scarcity, mom90 FROM signal_components_daily WHERE as_of=? AND card_id IN (${placeholders})`).bind(d, ...ids).all();
+      const factors=['ts7','ts30','z_svi','vol','liquidity','scarcity','mom90'];
+      const agg:Record<string,{w:number;sum:number}>={};
+      for (const r of (rs.results||[]) as any[]) {
+        const q = map.get(String(r.card_id))||0; if (q<=0) continue;
+        for (const f of factors) { const v = Number((r as any)[f]); if(!Number.isFinite(v)) continue; const slot=agg[f]||(agg[f]={w:0,sum:0}); slot.w+=q; slot.sum+=v*q; }
+      }
+      const out:Record<string,number|null>={};
+      for (const f of factors) { const a=agg[f]; out[f]=a&&a.w>0? +(a.sum/a.w).toFixed(6): null; }
+      return out;
+    }
+    const current_exposures = await compute(currentLots);
+    const scenario_exposures = await compute(simulatedLots);
+    const deltas:Record<string,number|null>={};
+    for (const f of Object.keys(scenario_exposures)) {
+      const a = scenario_exposures[f]; const b = current_exposures[f];
+      if (a==null || b==null) deltas[f]= null; else deltas[f]= +((a as number)-(b as number)).toFixed(6);
+    }
+    return json({ ok:true, mode, as_of: d||null, current: current_exposures, scenario: scenario_exposures, deltas });
+  })
   .add('GET','/portfolio/exposure/history', async ({ env, req }) => {
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';

@@ -23,10 +23,6 @@ import { snapshotPortfolioNAV, computePortfolioPnL } from './lib/portfolio_nav';
 import { ensureTestSeed, ensureAlertsTable, getAlertThresholdCol } from './lib/data';
 import { runIncrementalIngestion } from './lib/ingestion';
 import { baseDataSignature } from './lib/base_data';
-
-
-
-// ---------- performance indices (lazy, one-time per isolate) ----------
 let INDICES_DONE = false;
 async function ensureIndices(env: Env) {
   if (INDICES_DONE) return;
@@ -44,9 +40,8 @@ async function ensureIndices(env: Env) {
     if (stmts.length) await env.DB.batch(stmts);
   } catch (e) {
     log('ensure_indices_error', { error: String(e) });
-  } finally {
-    INDICES_DONE = true; // avoid repeated attempts even if some failed
   }
+  INDICES_DONE = true; // set regardless; safe if partial
 }
 
 // ---------- rate limiting (D1-backed fixed window) ----------
@@ -250,7 +245,7 @@ async function runAlerts(env: Env) {
     try {
       const escRow = await env.DB.prepare(`SELECT fired_count FROM alerts_watch WHERE id=?`).bind(a.id).all();
       const fc = Number((escRow.results||[])[0]?.fired_count)||0;
-      if (fc===5||fc===10||fc===25) incMetric(env, 'alert.escalation');
+  if (fc===5||fc===10||fc===25) await incMetric(env, 'alert.escalation');
     } catch {/* ignore */}
     // Queue mock email
     try {
@@ -258,7 +253,7 @@ async function runAlerts(env: Env) {
       const qid = crypto.randomUUID();
       await env.DB.prepare(`INSERT INTO alert_email_queue (id, created_at, email, card_id, kind, threshold_usd, status) VALUES (?,?,?,?,?,?,?)`).bind(qid, new Date().toISOString(), a.email, a.card_id, kind, th, 'queued').run();
   // Metric for queued alert notifications
-  incMetric(env, 'alert.queued'); // fire & forget
+  await incMetric(env, 'alert.queued');
     } catch {/* ignore queue errors */}
     fired++;
     firedAlerts.push({ id:a.id, email:a.email, card_id:a.card_id, kind, threshold:th, price:px });
@@ -329,16 +324,16 @@ async function runAlerts(env: Env) {
             await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms, nonce, planned_backoff_ms) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null, nonce, plannedBackoff).run();
             if (ok) {
               if (env.WEBHOOK_REAL_SEND === '1') {
-                if (attempt === 1) incMetric(env, 'webhook.sent.real'); else incMetric(env, 'webhook.retry_success.real');
+                if (attempt === 1) await incMetric(env, 'webhook.sent.real'); else await incMetric(env, 'webhook.retry_success.real');
               } else {
-                if (attempt === 1) incMetric(env, 'webhook.sent'); else incMetric(env, 'webhook.retry_success');
+                if (attempt === 1) await incMetric(env, 'webhook.sent'); else await incMetric(env, 'webhook.retry_success');
               }
               finalOutcomeRecorded = true;
               break; // stop retries
             } else {
               // Failure path: if this was last attempt record error metric once
               if (attempt === MAX_ATTEMPTS) {
-                incMetric(env, env.WEBHOOK_REAL_SEND === '1' ? 'webhook.error.real' : 'webhook.error');
+                await incMetric(env, env.WEBHOOK_REAL_SEND === '1' ? 'webhook.error.real' : 'webhook.error');
                 finalOutcomeRecorded = true;
               }
             }
@@ -567,8 +562,8 @@ export default {
         await incMetric(env, `latbucket.${tag}.${bucket}`);
         await incMetric(env, 'req.total');
         await incMetric(env, `req.status.${Math.floor(resp.status/100)}xx`);
-        if (resp.status >= 500) await incMetric(env, 'request.error.5xx');
-        else if (resp.status >= 400) await incMetric(env, 'request.error.4xx');
+  if (resp.status >= 500) await incMetric(env, 'request.error.5xx');
+  else if (resp.status >= 400) await incMetric(env, 'request.error.4xx');
       } catch { /* swallow metrics errors */ }
       try { resp.headers.set('x-request-id', corrId); } catch {}
       return resp;
@@ -1007,6 +1002,19 @@ export default {
   try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN nonce TEXT`).run(); } catch {}
   const rs = await env.DB.prepare(`SELECT id, webhook_id, event, ok, status, error, created_at, attempt, duration_ms, nonce FROM webhook_deliveries ORDER BY created_at DESC LIMIT 200`).all();
       return json({ ok:true, rows: rs.results||[] });
+    }
+    // Webhook replay / nonce verification endpoint (admin)
+    if (url.pathname === '/admin/webhooks/verify' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      const nonce = (url.searchParams.get('nonce')||'').trim();
+      if (!nonce) return json({ ok:false, error:'nonce_required' },400);
+      try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER, nonce TEXT);`).run(); } catch {}
+      let seen = false;
+      try {
+        const rs = await env.DB.prepare(`SELECT 1 FROM webhook_deliveries WHERE nonce=? LIMIT 1`).bind(nonce).all();
+        seen = !!(rs.results && rs.results.length);
+      } catch {}
+      return json({ ok:true, nonce, seen });
     }
 
     if (url.pathname === '/admin/latency' && req.method === 'GET') {
