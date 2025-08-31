@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-  - name: Pre-flight Cloudflare Pages API check
+      - name: Pre-flight Cloudflare Pages API check
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
