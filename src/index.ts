@@ -579,6 +579,26 @@ export default {
       try { await initializeOnce(); } catch { return new Response('Initialization failed', { status: 500, headers: CORS }); }
     }
     // Removed unconditional per-request runMigrations to reduce contention & CI timeouts. Admin endpoint /admin/migrations still verifies.
+    // Lightweight safeguard: if this specific D1 instance hasn't run migrations yet (rotated between tests), run them now (singleflight inside runMigrations).
+    try {
+      const anyDb: any = env.DB as any;
+      if (!anyDb.__MIGRATIONS_DONE) {
+        await runMigrations(env.DB);
+      }
+      else {
+        // Integrity re-check: underlying storage may rotate while keeping same DB object; verify core tables exist.
+        try {
+          const core = ['cards','signals_daily','factor_returns'];
+          const rs = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name IN ('cards','signals_daily','factor_returns')`).all();
+          const present = new Set((rs.results||[]).map((r:any)=> String(r.name)));
+          let missing = false; for (const t of core) if (!present.has(t)) { missing = true; break; }
+          if (missing) {
+            (anyDb.__MIGRATIONS_DONE = false); // force rerun
+            await runMigrations(env.DB);
+          }
+        } catch {/* ignore */}
+      }
+    } catch { /* swallow */ }
     // Router dispatch first (modularized endpoints)
     try {
       await Promise.all([
