@@ -2,6 +2,7 @@
 // Pluggable email sending abstraction. Uses Resend if RESEND_API_KEY present.
 
 import type { Env } from './lib/types';
+import { incMetric } from './lib/metrics';
 export const EMAIL_RETRY_MAX = 3;
 
 export interface EmailSendResult {
@@ -12,15 +13,8 @@ export interface EmailSendResult {
   provider_error_code?: string;
 }
 
-// Increment metric via dynamic import avoidance (avoid cyclic import of incMetric)
-async function inc(env: Env, metric: string) {
-  try {
-    // Local lightweight duplicate of incMetric to prevent cycle
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
-    const today = new Date().toISOString().slice(0,10);
-    await env.DB.prepare(`INSERT INTO metrics_daily (d, metric, count) VALUES (?,?,1) ON CONFLICT(d,metric) DO UPDATE SET count = count + 1`).bind(today, metric).run();
-  } catch {/* ignore */}
-}
+// Re-exported wrapper (kept name inc to minimize diff if referenced elsewhere)
+const inc = incMetric;
 
 export async function sendEmail(env: Env, to: string, subject: string, html: string): Promise<EmailSendResult> {
   // If no provider key configured, treat as noop (success) but count metric for observability.
