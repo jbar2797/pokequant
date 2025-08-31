@@ -16,6 +16,7 @@ All notable changes to this project will be documented here.
 - Webhook retry/backoff (up to 3 attempts) with metrics: webhook.sent (first-attempt success), webhook.retry_success, webhook.error.
 - Simulation controls for tests: endpoint URL query ?fail=N or ?always_fail=1 to force failures.
 - Webhook deliveries endpoint now returns attempt & duration_ms fields.
+- Webhook signing inputs (timestamp.nonce.payload) with nonce column persisted for replay protection; signature headers documented (x-signature, x-signature-ts, x-signature-nonce).
 ### Changed
 - OpenAPI 0.7.8: added webhook metrics to /admin/metrics example and webhook deliveries example rows; documented simulation controls.
 - Version bump (package.json, version.ts, openapi.yaml).

@@ -472,6 +472,91 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
     description: 'Add fired_count column to alerts_watch for escalation logic',
     sql: `ALTER TABLE alerts_watch ADD COLUMN fired_count INTEGER DEFAULT 0;`
   }
+  ,
+  {
+    id: '0038_retention_config',
+    description: 'Add retention_config table for configurable per-table retention windows',
+    sql: `CREATE TABLE IF NOT EXISTS retention_config (
+  table_name TEXT PRIMARY KEY,
+  days INTEGER NOT NULL,
+  updated_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0039_email_deliveries',
+    description: 'Add email_deliveries table to log each outbound email attempt',
+    sql: `CREATE TABLE IF NOT EXISTS email_deliveries (
+  id TEXT PRIMARY KEY,
+  queued_id TEXT,
+  email TEXT,
+  subject TEXT,
+  provider TEXT,
+  ok INTEGER,
+  error TEXT,
+  attempt INTEGER,
+  created_at TEXT,
+  sent_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0040_portfolio_pnl_alpha',
+    description: 'Add benchmark_ret and alpha columns to portfolio_pnl',
+    sql: `ALTER TABLE portfolio_pnl ADD COLUMN benchmark_ret REAL;\nALTER TABLE portfolio_pnl ADD COLUMN alpha REAL;`
+  }
+  ,
+  {
+    id: '0041_webhooks',
+    description: 'Add webhook endpoints and deliveries tables',
+    sql: `CREATE TABLE IF NOT EXISTS webhook_endpoints (
+  id TEXT PRIMARY KEY,
+  url TEXT NOT NULL,
+  secret TEXT,
+  active INTEGER DEFAULT 1,
+  created_at TEXT
+);\nCREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  webhook_id TEXT,
+  event TEXT,
+  payload TEXT,
+  ok INTEGER,
+  status INTEGER,
+  error TEXT,
+  created_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0042_pipeline_runs',
+    description: 'Add pipeline_runs table for tracking and avoiding overlapping cron executions',
+    sql: `CREATE TABLE IF NOT EXISTS pipeline_runs (
+  id TEXT PRIMARY KEY,
+  started_at TEXT,
+  completed_at TEXT,
+  status TEXT,
+  error TEXT,
+  metrics JSON
+);`
+  }
+  ,
+  {
+    id: '0043_email_provider_message_id',
+    description: 'Add provider_message_id column to email_deliveries for storing upstream provider id',
+    sql: `ALTER TABLE email_deliveries ADD COLUMN provider_message_id TEXT;`
+  }
+  ,
+  {
+    id: '0044_webhook_deliveries_extend',
+    description: 'Add attempt and duration_ms columns to webhook_deliveries for retry/backoff tracking',
+    sql: `ALTER TABLE webhook_deliveries ADD COLUMN attempt INTEGER;\nALTER TABLE webhook_deliveries ADD COLUMN duration_ms INTEGER;`
+  }
+  ,
+  {
+    id: '0045_webhook_nonce',
+    description: 'Add nonce column to webhook_deliveries for replay protection of signed webhooks',
+    sql: `ALTER TABLE webhook_deliveries ADD COLUMN nonce TEXT;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

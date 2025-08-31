@@ -803,7 +803,9 @@ paths:
   /admin/webhooks:
     get:
       summary: List webhook endpoints (admin)
-      description: Returns registered webhook endpoints for alert firing. Optional query params: active (0|1).
+      description: |
+        Returns registered webhook endpoints for alert firing. Optional query params: active (0|1).
+        Webhook signing: when secret set, requests include headers x-signature (hex HMAC SHA256), x-signature-ts (unix seconds), x-signature-nonce (uuid). Signature input format: `${ts}.${nonce}.${JSON payload}`.
       security: [ { AdminToken: [] } ]
       responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/WebhookEndpointsResponse' } } } } }
     post:
@@ -1792,6 +1794,7 @@ components:
         attempt: { type: integer, nullable: true }
         duration_ms: { type: integer, nullable: true }
         created_at: { type: string }
+  nonce: { type: string, nullable: true, description: 'Per-attempt unique nonce included in signature inputs for replay protection' }
       required: [id, webhook_id, event, created_at]
     WebhookEndpointsResponse:
       type: object

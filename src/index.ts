@@ -275,13 +275,17 @@ async function runAlerts(env: Env) {
       for (const w of (wrs.results||[]) as any[]) {
         for (const alert of firedAlerts) {
           const payload = { type:'alert.fired', alert };
+          const nonce = crypto.randomUUID();
+          const ts = Math.floor(Date.now()/1000);
           // Pre-compute signature if needed
           let signature: string | undefined;
           if (w.secret) {
             try {
+              // Signature input: timestamp + '.' + nonce + '.' + JSON payload
               const enc = new TextEncoder();
+              const toSign = `${ts}.${nonce}.${JSON.stringify(payload)}`;
               const key = await crypto.subtle.importKey('raw', enc.encode(w.secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-              const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(JSON.stringify(payload)));
+              const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(toSign));
               signature = Array.from(new Uint8Array(sigBuf)).map(b=> b.toString(16).padStart(2,'0')).join('');
             } catch {/* ignore signing */}
           }
@@ -303,7 +307,9 @@ async function runAlerts(env: Env) {
             if (env.WEBHOOK_REAL_SEND === '1') {
               const tSend = Date.now();
               try {
-                const resp = await fetch(w.url, { method: 'POST', headers: { 'content-type':'application/json', ...(signature? { 'x-signature': signature }: {}) }, body: JSON.stringify(payload) });
+                const headers: Record<string,string> = { 'content-type':'application/json' };
+                if (signature) { headers['x-signature'] = signature; headers['x-signature-ts'] = String(ts); headers['x-signature-nonce'] = nonce; }
+                const resp = await fetch(w.url, { method: 'POST', headers, body: JSON.stringify(payload) });
                 status = resp.status; ok = resp.ok ? 1 : 0;
                 if (!resp.ok) error = `status_${resp.status}`;
               } catch (e:any) { ok=0; status=0; error=String(e); }
@@ -313,7 +319,8 @@ async function runAlerts(env: Env) {
               if (alwaysFail || (failN && attempt <= failN)) { ok = 0; status = 0; error = 'sim_fail'; }
             }
             const did = crypto.randomUUID();
-            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null).run();
+            try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN nonce TEXT`).run(); } catch {}
+            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms, nonce) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null, nonce).run();
             if (ok) {
               if (attempt === 1) incMetric(env, 'webhook.sent'); else incMetric(env, 'webhook.retry_success');
               finalOutcomeRecorded = true;
@@ -985,8 +992,9 @@ export default {
     }
     if (url.pathname === '/admin/webhooks/deliveries' && req.method === 'GET') {
       { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
-      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER);`).run();
-      const rs = await env.DB.prepare(`SELECT id, webhook_id, event, ok, status, error, created_at, attempt, duration_ms FROM webhook_deliveries ORDER BY created_at DESC LIMIT 200`).all();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER, nonce TEXT);`).run();
+  try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN nonce TEXT`).run(); } catch {}
+  const rs = await env.DB.prepare(`SELECT id, webhook_id, event, ok, status, error, created_at, attempt, duration_ms, nonce FROM webhook_deliveries ORDER BY created_at DESC LIMIT 200`).all();
       return json({ ok:true, rows: rs.results||[] });
     }
 
