@@ -27,7 +27,21 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Tests
-        run: npm test
+        run: npm run test:coverage
+      - name: Generate coverage badge
+        run: npm run coverage:badge
+      - name: Coverage summary
+        run: |
+          node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync('coverage/coverage-summary.json','utf8'));const fmt=k=>s.total[k].pct.toFixed(2)+'%';const out=`## Coverage Summary\\nLines: ${fmt('lines')}\\nStatements: ${fmt('statements')}\\nFunctions: ${fmt('functions')}\\nBranches: ${fmt('branches')}\\n` ; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,out); console.log(out);"
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/lcov.info
+            coverage/coverage-summary.json
+            public/coverage-badge.svg
       - name: Validate OpenAPI file exists
         run: |
           test -f openapi.yaml || (echo 'openapi.yaml missing' && exit 1)
@@ -63,6 +77,12 @@ jobs:
         run: |
           chmod +x scripts/smoke.sh
           ./scripts/smoke.sh
+      - name: Performance smoke
+        env:
+          BASE: http://127.0.0.1:8787
+          P95_BUDGET_MS: 500
+        run: |
+          node scripts/perf-smoke.js
       - name: Shutdown
         if: always()
         run: |

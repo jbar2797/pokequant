@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
 // Modularized helpers
 import { Env } from './lib/types';
-import { log } from './lib/log';
+import { log, setRequestContext } from './lib/log';
 import { json, err, CORS } from './lib/http';
 import { isoDaysAgo } from './lib/date';
 import { sha256Hex } from './lib/crypto';
@@ -525,8 +525,9 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
     const t0 = Date.now();
-  // Correlation ID (reuse incoming or generate). Expose in response header later via done().
+  // Correlation ID (reuse incoming or generate) and set request context for structured logs.
   const corrId = req.headers.get('x-request-id') || crypto.randomUUID();
+  setRequestContext(corrId, env);
     // Ensure migrations at very start so routed endpoints have schema.
     await runMigrations(env.DB);
     // Router dispatch first (modularized endpoints)
@@ -565,7 +566,6 @@ export default {
   if (resp.status >= 500) await incMetric(env, 'request.error.5xx');
   else if (resp.status >= 400) await incMetric(env, 'request.error.4xx');
       } catch { /* swallow metrics errors */ }
-      try { resp.headers.set('x-request-id', corrId); } catch {}
       return resp;
     }
     if (url.pathname === '/admin/backfill' && req.method === 'GET') {
@@ -956,6 +956,21 @@ export default {
   return json({ ok:true, rows: rs.results || [], latency, cache_hits: cacheHits, cache_hit_ratios: ratios });
       } catch {
         return json({ ok:true, rows: [] });
+      }
+    }
+
+    // Metrics export (Prometheus-style) – current day only (counters reset daily). Admin token required.
+    if (url.pathname === '/admin/metrics-export' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return new Response('forbidden', { status: 403, headers: CORS }); }
+      try {
+        const today = new Date().toISOString().slice(0,10);
+        const rs = await env.DB.prepare(`SELECT metric, count FROM metrics_daily WHERE d=?`).bind(today).all();
+        const rows = (rs.results||[]) as any[];
+        const { buildPrometheusMetricsExport } = await import('./lib/metrics_export');
+        const body = buildPrometheusMetricsExport(rows.map(r=> ({ metric: String(r.metric||''), count: Number(r.count)||0 })));
+        return new Response(body, { status: 200, headers: { ...CORS, 'content-type':'text/plain; version=0.0.4' } });
+      } catch (e) {
+        return new Response('# error exporting metrics', { status: 500, headers: { ...CORS, 'content-type':'text/plain' } });
       }
     }
 
@@ -1476,7 +1491,9 @@ export default {
       return new Response('PokeQuant API is running. See /api/cards', { headers: CORS });
     }
 
-    return new Response('Not found', { status: 404, headers: CORS });
+  // Fallback 404
+  log('http_404', { path: url.pathname, method: req.method });
+  return new Response('Not found', { status: 404, headers: CORS });
   },
 
   async scheduled(_ev: ScheduledEvent, env: Env) {

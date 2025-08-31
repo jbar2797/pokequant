@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.7.8
+  version: 0.7.9
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -726,7 +726,7 @@ paths:
                 sample:
                   value:
                     ok: true
-                    rows: [ { d: 2025-08-29, metric: req.total, count: 123 }, { d: 2025-08-29, metric: webhook.sent, count: 5 }, { d: 2025-08-29, metric: webhook.retry_success, count: 2 }, { d: 2025-08-29, metric: webhook.error, count: 1 } ]
+                    rows: [ { d: 2025-08-29, metric: req.total, count: 123 }, { d: 2025-08-29, metric: error.alerts.invalid_threshold, count: 4 }, { d: 2025-08-29, metric: error_status.400, count: 6 }, { d: 2025-08-29, metric: webhook.sent, count: 5 }, { d: 2025-08-29, metric: webhook.retry_success, count: 2 }, { d: 2025-08-29, metric: webhook.error, count: 1 } ]
                     latency: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
                     cache_hits: [ { d: 2025-08-29, metric: cache.hit.universe, count: 15 } ]
                     cache_hit_ratios: { universe: 0.65 }

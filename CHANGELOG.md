@@ -10,6 +10,14 @@ All notable changes to this project will be documented here.
 - Add examples to OpenAPI for key endpoints (in progress)
 ### Planned
 - Further webhook delivery observability (aggregate success rate metric) 
+### Added
+- Structured logging correlation IDs (`x-request-id`) propagation across responses & logs.
+- Centralized error metrics: per-error code (`error.<code>`) and HTTP status (`error_status.<status>`) counters emitted via HTTP helper.
+
+## [0.7.9] - 2025-08-30
+### Changed
+- OpenAPI: add error metrics (`error.*`, `error_status.*`) example rows to /admin/metrics; version bump.
+- Version bump (package.json, version.ts, openapi.yaml).
  
 ## [0.7.8] - 2025-08-30
 ### Added

@@ -1,0 +1,62 @@
+
+ ⛅️ wrangler 4.33.0 (update available 4.33.1)
+─────────────────────────────────────────────
+Your Worker has access to the following bindings:
+Binding                                                               Resource                  Mode
+env.DB (pokequant-db)                                                 D1 Database               local
+env.PUBLIC_BASE_URL ("https://pokequant.jonathanbarreneche....")      Environment Variable      local
+env.ADMIN_TOKEN ("test-admin")                                        Environment Variable      local
+env.INGEST_TOKEN ("test-ingest")                                      Environment Variable      local
+env.RESEND_API_KEY ("test")                                           Environment Variable      local
+
+❓ Your types might be out of date. Re-run `wrangler types` to ensure your types are correct.
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mMiniflare does not currently trigger scheduled Workers automatically.[0m
+
+  Refer to [4mhttps://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers[0m for more details 
+
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8787
+[wrangler:info] GET /health 200 OK (272ms)
+[wrangler:info] GET /health 200 OK (32ms)
+[wrangler:info] GET /health 200 OK (33ms)
+[wrangler:info] GET /health 200 OK (33ms)
+[wrangler:info] GET /health 200 OK (33ms)
+{"t":"2025-08-31T04:11:56.016Z","event":"ensure_test_seed_error","request_id":"8edf6afc-a789-4e8e-b645-e08a3db8779a","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.027Z","event":"route_error","request_id":"8edf6afc-a789-4e8e-b645-e08a3db8779a","path":"/api/universe","error":"Error: D1_ERROR: no such column: c.types at offset 56: SQLITE_ERROR"}
+[wrangler:info] GET /api/universe 500 Internal Server Error (55ms)
+{"t":"2025-08-31T04:11:56.072Z","event":"ensure_test_seed_error","request_id":"90e12062-5cbe-4395-86e8-588cbf20277e","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.078Z","event":"route_error","request_id":"90e12062-5cbe-4395-86e8-588cbf20277e","path":"/api/universe","error":"Error: D1_ERROR: no such column: c.types at offset 56: SQLITE_ERROR"}
+[wrangler:info] GET /api/universe 500 Internal Server Error (48ms)
+{"t":"2025-08-31T04:11:56.122Z","event":"ensure_test_seed_error","request_id":"949379e9-bec3-4c8d-accc-376fd73dfbf9","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.127Z","event":"route_error","request_id":"949379e9-bec3-4c8d-accc-376fd73dfbf9","path":"/api/universe","error":"Error: D1_ERROR: no such column: c.types at offset 56: SQLITE_ERROR"}
+[wrangler:info] GET /api/universe 500 Internal Server Error (48ms)
+{"t":"2025-08-31T04:11:56.171Z","event":"ensure_test_seed_error","request_id":"43046a5a-ba88-49b3-acb8-2422e299e308","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.177Z","event":"route_error","request_id":"43046a5a-ba88-49b3-acb8-2422e299e308","path":"/api/universe","error":"Error: D1_ERROR: no such column: c.types at offset 56: SQLITE_ERROR"}
+[wrangler:info] GET /api/universe 500 Internal Server Error (49ms)
+{"t":"2025-08-31T04:11:56.225Z","event":"ensure_test_seed_error","request_id":"37834bca-986c-4baf-baea-86fe56c86de7","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.231Z","event":"route_error","request_id":"37834bca-986c-4baf-baea-86fe56c86de7","path":"/api/cards","error":"Error: D1_ERROR: no such column: c.types at offset 115: SQLITE_ERROR"}
+[wrangler:info] GET /api/cards 500 Internal Server Error (55ms)
+{"t":"2025-08-31T04:11:56.280Z","event":"ensure_test_seed_error","request_id":"d3bc2cb6-d81a-4dda-ac83-1838cfd4033b","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.286Z","event":"route_error","request_id":"d3bc2cb6-d81a-4dda-ac83-1838cfd4033b","path":"/api/cards","error":"Error: D1_ERROR: no such column: c.types at offset 115: SQLITE_ERROR"}
+[wrangler:info] GET /api/cards 500 Internal Server Error (50ms)
+{"t":"2025-08-31T04:11:56.330Z","event":"ensure_test_seed_error","request_id":"d9e7a3d0-e3b8-4ccd-8b50-34705421d862","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.336Z","event":"route_error","request_id":"d9e7a3d0-e3b8-4ccd-8b50-34705421d862","path":"/api/cards","error":"Error: D1_ERROR: no such column: c.types at offset 115: SQLITE_ERROR"}
+[wrangler:info] GET /api/cards 500 Internal Server Error (49ms)
+{"t":"2025-08-31T04:11:56.382Z","event":"ensure_test_seed_error","request_id":"af2caafc-1abb-4975-a72f-039c6dc53895","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+{"t":"2025-08-31T04:11:56.388Z","event":"route_error","request_id":"af2caafc-1abb-4975-a72f-039c6dc53895","path":"/api/cards","error":"Error: D1_ERROR: no such column: c.types at offset 115: SQLITE_ERROR"}
+[wrangler:info] GET /api/cards 500 Internal Server Error (51ms)
+{"t":"2025-08-31T04:11:56.433Z","event":"ensure_test_seed_error","request_id":"9f664e97-c208-4917-8c64-ad293a6190c2","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+[wrangler:info] GET /api/movers 200 OK (50ms)
+{"t":"2025-08-31T04:11:56.485Z","event":"ensure_test_seed_error","request_id":"911e5296-2267-4242-a2b4-82da66836318","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+[wrangler:info] GET /api/movers 200 OK (47ms)
+{"t":"2025-08-31T04:11:56.533Z","event":"ensure_test_seed_error","request_id":"ffba5db7-cc92-4ec0-9d14-a3e38d264dc8","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+[wrangler:info] GET /api/movers 200 OK (48ms)
+{"t":"2025-08-31T04:11:56.581Z","event":"ensure_test_seed_error","request_id":"3a81b3d6-5541-422c-af7e-a930eb56ffc4","error":"Error: D1_ERROR: table cards has no column named types: SQLITE_ERROR"}
+[wrangler:info] GET /api/movers 200 OK (47ms)
+⎔ Reloading local server...
+⎔ Reloading local server...
+⎔ Reloading local server...
+⎔ Reloading local server...
+⎔ Reloading local server...
+⎔ Reloading local server...

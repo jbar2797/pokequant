@@ -1,4 +1,4 @@
-# PokeQuant
+# PokeQuant ![Coverage](public/coverage-badge.svg)
 
 Edge analytics & factor / signal intelligence for premium Pokémon TCG cards.
 
@@ -65,15 +65,18 @@ Frontend UX overhaul
 Real email provider integration & bounce webhook
 Webhook real delivery + HMAC signature + replay guard hardening
 Structured logging & per-route error/latency dashboards
-Granular error metrics (4xx vs 5xx) and alerting thresholds
-Coverage badge & ratchet (CI gate)
+Granular error dashboards (aggregation & alert thresholds) – base error/status metrics implemented (`error.*`, `error_status.*`)
+Coverage badge & ratchet (CI gate) ✔
 Architecture + Runbook docs finalization
 Security review (headers, secrets rotation automation)
+
+### Coverage Ratchet
+`npm run coverage:ratchet` will auto-bump coverage thresholds by +1 (lines/functions/statements/branches) when the current coverage exceeds the existing threshold by >=2 percentage points. This should run after meaningful test additions (can be integrated as an optional CI step that only commits when bumps occur).
 
 ## 5. Roadmap (Alpha → Beta → GA)
 See `docs/ROADMAP.md` for dated milestones.
 
-Immediate (Week 1): email provider, webhook signature, error metrics, coverage badge
+Immediate (Week 1): email provider, webhook signature, coverage badge (error metrics done)
 Short (Weeks 2–3): frontend rewrite, structured logging, rate limit expansion
 Beta Gate: production pipeline stability (30d), user feedback loops, onboarding docs
 GA: performance benchmarks, SLA metrics, billing / access tiering (if pursued)
@@ -82,13 +85,13 @@ GA: performance benchmarks, SLA metrics, billing / access tiering (if pursued)
 Canonical: `openapi.yaml` + `docs/API_CONTRACT.md`. All public/admin changes MUST pass contract check (`npm run contract`).
 
 ## 7. CI & Quality Gates
-`ci.yml` → install, contract check, version check, lint, typecheck, tests, smoke preview
+`ci.yml` → install, contract check, version check, lint, typecheck, tests (with coverage), badge generation, smoke preview, performance smoke (latency p95 budget)
 `smoke.yml` (prod smoke) conditional on public base URL
-Planned additions: coverage upload + badge, performance smoke (latency budget) gate
+Implemented: performance smoke gate, Prometheus export (`/admin/metrics-export`) with counters, errors, status families, latency gauges.
 
 ## 8. Operations (Preview)
 Runbook: `docs/OPERATIONS_RUNBOOK.md` (cron failures, backlog recovery, retention tuning)
-Metrics: `/admin/metrics` (counters + latency EMAs). Expand soon with error classes.
+Metrics: `/admin/metrics` (counters + latency EMAs, error code & status counters).
 Retention: configurable table policies (see retention config endpoints) – review weekly.
 
 ## 9. Security & Secrets

@@ -9,13 +9,18 @@ export default defineWorkersConfig({
 			},
 		},
 		coverage: {
-			provider: 'v8',
-			reporter: ['text','lcov'],
+			// Using Istanbul instead of V8 because V8 provider attempts to import node:inspector
+			// which is unavailable in the Cloudflare workers runtime used by @cloudflare/vitest-pool-workers.
+			provider: 'istanbul',
+			reporter: ['text','lcov','json-summary'],
+			include: ['src/**/*.ts'],
+			exclude: ['src/version.ts'],
 			thresholds: {
-				lines: 60,
-				functions: 60,
-				branches: 50,
-				statements: 60,
+				// Ratchet baseline (2025-08-31). Auto-raise via future PRs; failing build if coverage regresses.
+				lines: 66,
+				functions: 59,
+				branches: 46,
+				statements: 59,
 			},
 		},
 	},

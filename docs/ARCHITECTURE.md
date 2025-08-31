@@ -46,7 +46,13 @@ graph LR
 - Idempotent migrations; on-demand integrity probe triggers replay for fresh test DBs.
 - Alerts + ingestion operations inside try/catch with metrics on failures.
 
-## Planned Improvements
-- Structured logging (JSON) with request_id
-- Per-route error counters / dashboards
-- Multi-region read replicas (post-GA)
+## Observability
+Already implemented:
+- Structured JSON logging with correlation IDs (`x-request-id`) automatically propagated (see `src/lib/log.ts`).
+- Request metrics: total, status class buckets, latency EMAs (p50/p95), histogram buckets.
+- Alert/email/webhook metrics (queued, sent, retry, error, escalation).
+ - Per-error code & HTTP status counters (`error.<code>`, `error_status.<status>`) emitted centrally in `err()` helper.
+Planned next:
+- Route-level error taxonomy grouping / aggregation dashboards.
+- Metrics export adapter (Prometheus scrape via push or log-based shipping).
+- Multi-region read replicas (post-GA) with eventual consistency strategy.
