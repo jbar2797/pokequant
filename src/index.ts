@@ -304,6 +304,11 @@ async function runAlerts(env: Env) {
           let finalOutcomeRecorded = false;
           for (let attempt=1; attempt<=MAX_ATTEMPTS; attempt++) {
             let ok = 1, status = 200, error: string|undefined; let duration = 0;
+            // Exponential backoff with jitter metadata (not actually delaying in worker test path)
+            const base = 250; // ms
+            const exp = Math.pow(2, attempt-1);
+            const jitter = Math.floor(Math.random()*50);
+            const plannedBackoff = attempt === 1 ? 0 : (base * exp + jitter);
             if (env.WEBHOOK_REAL_SEND === '1') {
               const tSend = Date.now();
               try {
@@ -320,15 +325,20 @@ async function runAlerts(env: Env) {
             }
             const did = crypto.randomUUID();
             try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN nonce TEXT`).run(); } catch {}
-            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms, nonce) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null, nonce).run();
+            try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN planned_backoff_ms INTEGER`).run(); } catch {}
+            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms, nonce, planned_backoff_ms) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null, nonce, plannedBackoff).run();
             if (ok) {
-              if (attempt === 1) incMetric(env, 'webhook.sent'); else incMetric(env, 'webhook.retry_success');
+              if (env.WEBHOOK_REAL_SEND === '1') {
+                if (attempt === 1) incMetric(env, 'webhook.sent.real'); else incMetric(env, 'webhook.retry_success.real');
+              } else {
+                if (attempt === 1) incMetric(env, 'webhook.sent'); else incMetric(env, 'webhook.retry_success');
+              }
               finalOutcomeRecorded = true;
               break; // stop retries
             } else {
               // Failure path: if this was last attempt record error metric once
               if (attempt === MAX_ATTEMPTS) {
-                incMetric(env, 'webhook.error');
+                incMetric(env, env.WEBHOOK_REAL_SEND === '1' ? 'webhook.error.real' : 'webhook.error');
                 finalOutcomeRecorded = true;
               }
             }
@@ -846,7 +856,8 @@ export default {
           await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_deliveries (id TEXT PRIMARY KEY, queued_id TEXT, email TEXT, subject TEXT, provider TEXT, ok INTEGER, error TEXT, attempt INTEGER, created_at TEXT, sent_at TEXT, provider_message_id TEXT);`).run();
           const attemptNum = Number(row.attempt_count)+1;
           const did = crypto.randomUUID();
-          await env.DB.prepare(`INSERT INTO email_deliveries (id, queued_id, email, subject, provider, ok, error, attempt, created_at, sent_at, provider_message_id) VALUES (?,?,?,?,?,?,?,?,datetime('now'), CASE WHEN ? THEN datetime('now') ELSE NULL END, ?)`).bind(did, id, row.email, subj, sendRes.provider||'none', sendRes.ok?1:0, sendRes.error||null, attemptNum, sendRes.ok?1:0, sendRes.id||null).run();
+          try { await env.DB.prepare(`ALTER TABLE email_deliveries ADD COLUMN provider_error_code TEXT`).run(); } catch {}
+          await env.DB.prepare(`INSERT INTO email_deliveries (id, queued_id, email, subject, provider, ok, error, attempt, created_at, sent_at, provider_message_id, provider_error_code) VALUES (?,?,?,?,?,?,?,?,datetime('now'), CASE WHEN ? THEN datetime('now') ELSE NULL END, ?, ?)`).bind(did, id, row.email, subj, sendRes.provider||'none', sendRes.ok?1:0, sendRes.error||null, attemptNum, sendRes.ok?1:0, sendRes.id||null, sendRes.provider_error_code||null).run();
         } catch {/* ignore logging errors */}
       }
       if (sentCount) incMetricBy(env, 'alert.sent', sentCount);

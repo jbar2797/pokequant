@@ -806,6 +806,7 @@ paths:
       description: |
         Returns registered webhook endpoints for alert firing. Optional query params: active (0|1).
         Webhook signing: when secret set, requests include headers x-signature (hex HMAC SHA256), x-signature-ts (unix seconds), x-signature-nonce (uuid). Signature input format: `${ts}.${nonce}.${JSON payload}`.
+  Backoff: exponential (base 250ms) with jitter recorded per attempt in planned_backoff_ms (metadata only in current worker runtime; attempts occur synchronously for test determinism).
       security: [ { AdminToken: [] } ]
       responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/WebhookEndpointsResponse' } } } } }
     post:
@@ -1766,6 +1767,7 @@ components:
         created_at: { type: string }
         sent_at: { type: string, nullable: true }
         provider_message_id: { type: string, nullable: true }
+  provider_error_code: { type: string, nullable: true, description: 'Provider-classified error/bounce code if available' }
       required: [id, email, queued_id, ok, attempt, created_at]
     EmailDeliveriesResponse:
       type: object
@@ -1795,6 +1797,7 @@ components:
         duration_ms: { type: integer, nullable: true }
         created_at: { type: string }
   nonce: { type: string, nullable: true, description: 'Per-attempt unique nonce included in signature inputs for replay protection' }
+  planned_backoff_ms: { type: integer, nullable: true, description: 'Recorded (not waited) exponential jitter backoff for this attempt' }
       required: [id, webhook_id, event, created_at]
     WebhookEndpointsResponse:
       type: object

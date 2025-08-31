@@ -50,10 +50,18 @@ export function registerBackfillRoutes() {
       const job = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
       return json({ ok:true, job: job.results?.[0] });
     })
-    .add('GET','/admin/backfill', async ({ env, req }) => {
+    .add('GET','/admin/backfill', async ({ env, req, url }) => {
       if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
-      const rows = await env.DB.prepare(`SELECT id, created_at, dataset, from_date, to_date, days, status, processed, total, error FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
-      return json({ ok:true, rows: rows.results||[] });
+      let limit = parseInt(url.searchParams.get('limit')||'50',10); if (!Number.isFinite(limit)||limit<1) limit=25; if (limit>100) limit=100;
+      const before = url.searchParams.get('before_created_at') || '';
+      const where = before ? 'WHERE created_at < ?' : '';
+      const binds: any[] = []; if (before) binds.push(before);
+      const sql = `SELECT id, created_at, dataset, from_date, to_date, days, status, processed, total, error FROM backfill_jobs ${where} ORDER BY created_at DESC LIMIT ?`;
+      binds.push(limit);
+      const rs = await env.DB.prepare(sql).bind(...binds).all();
+      const rows = (rs.results||[]) as any[];
+      const next = rows.length === limit ? rows[rows.length-1].created_at : null;
+      return json({ ok:true, rows, page:{ next_before_created_at: next }, filtered:{ limit, before_created_at: before||undefined } });
     })
     .add('GET','/admin/backfill/:id', async ({ env, req, url }) => {
       if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);

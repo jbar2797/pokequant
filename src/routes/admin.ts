@@ -129,6 +129,28 @@ export function registerAdminRoutes() {
     return json({ ok:true, deleted, ms: dur, overrides: overrides && Object.keys(overrides).length ? overrides : undefined });
   });
 
+  // Retention configuration CRUD (list & upsert)
+  router.add('GET','/admin/retention/config', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS retention_config (table_name TEXT PRIMARY KEY, days INTEGER NOT NULL, updated_at TEXT);`).run();
+    const rs = await env.DB.prepare(`SELECT table_name, days, updated_at FROM retention_config ORDER BY table_name`).all();
+    return json({ ok:true, rows: rs.results||[] });
+  });
+  router.add('POST','/admin/retention/config', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+    const body: any = await req.json().catch(()=>({}));
+    const table = (body.table||body.table_name||'').toString().trim();
+    const days = Number(body.days);
+    const allowed = new Set(['backtests','mutation_audit','anomalies','metrics_daily','data_completeness']);
+    if (!table || !allowed.has(table)) return json({ ok:false, error:'invalid_table' },400);
+    if (!Number.isFinite(days) || days < 0 || days > 365) return json({ ok:false, error:'invalid_days' },400);
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS retention_config (table_name TEXT PRIMARY KEY, days INTEGER NOT NULL, updated_at TEXT);`).run();
+    await env.DB.prepare(`INSERT OR REPLACE INTO retention_config (table_name, days, updated_at) VALUES (?,?,datetime('now'))`).bind(table, Math.floor(days)).run();
+    await audit(env, { actor_type:'admin', action:'upsert', resource:'retention_config', resource_id:table, details:{ days: Math.floor(days) } });
+    const row = await env.DB.prepare(`SELECT table_name, days, updated_at FROM retention_config WHERE table_name=?`).bind(table).all();
+    return json({ ok:true, row: row.results?.[0]||null });
+  });
+
   // Metrics & latency endpoints moved
   router.add('GET','/admin/metrics', async ({ env, req }) => {
     if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);

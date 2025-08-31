@@ -9,6 +9,7 @@ export interface EmailSendResult {
   id?: string;
   error?: string;
   provider?: string;
+  provider_error_code?: string;
 }
 
 // Increment metric via dynamic import avoidance (avoid cyclic import of incMetric)
@@ -27,10 +28,20 @@ export async function sendEmail(env: Env, to: string, subject: string, html: str
     await inc(env, 'email.no_provider');
     return { ok: true, provider: 'none' };
   }
+  // Test shortcut: if key is literal 'test' return deterministic fake id without external call
+  if (env.RESEND_API_KEY === 'test') {
+    await inc(env, 'email.sent');
+    return { ok: true, id: `test-${crypto.randomUUID()}`, provider: 'resend' };
+  }
   // Simulate provider failure for test emails containing 'fail'
   if (/fail/i.test(to)) {
     await inc(env, 'email.send_error');
-    return { ok: false, error: 'Simulated failure' };
+    return { ok: false, error: 'Simulated failure', provider_error_code: 'sim_fail' };
+  }
+  // Simulate bounce classification when address contains 'bounce'
+  if (/bounce/i.test(to)) {
+    await inc(env, 'email.bounce');
+    return { ok: false, error: 'Simulated bounce', provider_error_code: 'bounce' };
   }
   try {
     const resp = await fetch('https://api.resend.com/emails', {
@@ -41,16 +52,21 @@ export async function sendEmail(env: Env, to: string, subject: string, html: str
       },
       body: JSON.stringify({ from: 'alerts@pokequant.io', to: [to], subject, html })
     });
+    let provider_error_code: string | undefined;
     if (!resp.ok) {
-      const text = await resp.text();
+      let text: any;
+      try { text = await resp.json(); } catch { try { text = await resp.text(); } catch { text = ''; } }
+      if (text && typeof text === 'object') {
+        provider_error_code = (text.error && (text.error.code || text.error.type)) || undefined;
+      }
       await inc(env, 'email.send_error');
-      return { ok:false, error: `resend_status_${resp.status}`, provider:'resend', id: undefined };
+      return { ok:false, error: `resend_status_${resp.status}`, provider:'resend', id: undefined, provider_error_code };
     }
     const data: any = await resp.json().catch(()=>({}));
     await inc(env, 'email.sent');
-    return { ok:true, id: data?.id, provider:'resend' };
+    return { ok:true, id: data?.id, provider:'resend', provider_error_code };
   } catch (e:any) {
     await inc(env, 'email.send_error');
-    return { ok:false, error: String(e), provider:'resend' };
+    return { ok:false, error: String(e), provider:'resend', provider_error_code: 'exception' };
   }
 }

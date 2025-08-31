@@ -217,7 +217,7 @@ export function registerPortfolioRoutes(){
   .add('GET','/portfolio/pnl', async ({ env, req, url }) => {
     await ensureTestSeed(env);
     const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
-    const days=Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10))); const rs=await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all(); return json({ ok:true, rows: rs.results||[] });
+  const days=Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10))); const rs=await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl, benchmark_ret, alpha FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all(); return json({ ok:true, rows: rs.results||[] });
   });
 }
 

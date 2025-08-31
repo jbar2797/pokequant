@@ -557,6 +557,18 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
     description: 'Add nonce column to webhook_deliveries for replay protection of signed webhooks',
     sql: `ALTER TABLE webhook_deliveries ADD COLUMN nonce TEXT;`
   }
+  ,
+  {
+    id: '0046_webhook_backoff',
+    description: 'Add planned_backoff_ms column to webhook_deliveries for exponential jitter metadata',
+    sql: `ALTER TABLE webhook_deliveries ADD COLUMN planned_backoff_ms INTEGER;`
+  }
+  ,
+  {
+    id: '0047_email_provider_error_code',
+    description: 'Add provider_error_code column to email_deliveries for upstream classification',
+    sql: `ALTER TABLE email_deliveries ADD COLUMN provider_error_code TEXT;`
+  }
 ];
 
 let MIGRATIONS_RAN = false;

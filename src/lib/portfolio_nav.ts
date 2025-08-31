@@ -22,6 +22,13 @@ export async function computePortfolioPnL(env: Env) {
     const rows = (navs.results||[]) as any[];
     const byPortfolio: Record<string,{d:string; mv:number}[]> = {};
     for (const r of rows) { const pid=String(r.portfolio_id); const mv=Number(r.market_value)||0; const d=String(r.as_of||''); if (!d) continue; (byPortfolio[pid] ||= []).push({ d, mv }); }
+    // Simple benchmark: average return across all portfolios (using previous day aggregate MV)
+    // Build aggregate daily market value across portfolios to derive benchmark return sequence.
+    const byDayAgg: Record<string, number> = {};
+    for (const [pid, arr] of Object.entries(byPortfolio)) { for (const rec of arr) { byDayAgg[rec.d] = (byDayAgg[rec.d]||0) + rec.mv; } }
+    const allDays = Object.keys(byDayAgg).sort();
+    const benchmarkRet: Record<string, number> = {};
+    for (let i=1;i<allDays.length;i++) { const d0=allDays[i-1], d1=allDays[i]; const mv0=byDayAgg[d0]; const mv1=byDayAgg[d1]; if (mv0>0 && mv1>0) benchmarkRet[d1] = (mv1-mv0)/mv0; }
     for (const [pid, arr] of Object.entries(byPortfolio)) {
       if (arr.length < 2) continue;
       arr.sort((a,b)=> a.d.localeCompare(b.d));
@@ -29,8 +36,12 @@ export async function computePortfolioPnL(env: Env) {
         const prev = arr[i-1], cur = arr[i];
         if (prev.mv>0 && cur.mv>0) {
           const ret = (cur.mv - prev.mv)/prev.mv;
-          await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_pnl (portfolio_id, as_of, ret, turnover_cost, realized_pnl) VALUES (?,?,?,?,?)`)
-            .bind(pid, cur.d, ret, 0, (cur.mv-prev.mv)).run();
+          const bRet = benchmarkRet[cur.d];
+          const alpha = (bRet != null) ? (ret - bRet) : null;
+          try { await env.DB.prepare(`ALTER TABLE portfolio_pnl ADD COLUMN benchmark_ret REAL`).run(); } catch {/* ignore */}
+          try { await env.DB.prepare(`ALTER TABLE portfolio_pnl ADD COLUMN alpha REAL`).run(); } catch {/* ignore */}
+          await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_pnl (portfolio_id, as_of, ret, turnover_cost, realized_pnl, benchmark_ret, alpha) VALUES (?,?,?,?,?,?,?)`)
+            .bind(pid, cur.d, ret, 0, (cur.mv-prev.mv), bRet ?? null, alpha).run();
         }
       }
     }

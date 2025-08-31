@@ -10,9 +10,20 @@ export function registerAnomaliesRoutes() {
     .add('GET','/admin/anomalies', async ({ env, req, url }) => {
       if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
       const status = (url.searchParams.get('status')||'').toLowerCase();
-      const where = status === 'resolved' ? 'WHERE resolved=1' : status === 'open' ? 'WHERE COALESCE(resolved,0)=0' : '';
-      const rs = await env.DB.prepare(`SELECT id, as_of, card_id, kind, magnitude, created_at, resolved, resolution_kind, resolution_note, resolved_at FROM anomalies ${where} ORDER BY created_at DESC LIMIT 200`).all();
-      return json({ ok:true, rows: rs.results||[] });
+      let limit = parseInt(url.searchParams.get('limit')||'100',10); if (!Number.isFinite(limit) || limit<1) limit=50; if (limit>200) limit=200;
+      const before = url.searchParams.get('before_created_at') || '';
+      const whereParts: string[] = [];
+      if (status === 'resolved') whereParts.push('resolved=1');
+      else if (status === 'open') whereParts.push('COALESCE(resolved,0)=0');
+      if (before) whereParts.push('created_at < ?');
+      const whereSql = whereParts.length ? ('WHERE '+ whereParts.join(' AND ')) : '';
+      const binds: any[] = []; if (before) binds.push(before);
+      const sql = `SELECT id, as_of, card_id, kind, magnitude, created_at, resolved, resolution_kind, resolution_note, resolved_at FROM anomalies ${whereSql} ORDER BY created_at DESC LIMIT ?`;
+      binds.push(limit);
+      const rs = await env.DB.prepare(sql).bind(...binds).all();
+      const rows = (rs.results||[]) as any[];
+      const next = rows.length === limit ? rows[rows.length-1].created_at : null;
+      return json({ ok:true, rows, page: { next_before_created_at: next }, filtered: { status: status||undefined, limit, before_created_at: before||undefined } });
     })
     .add('POST','/admin/anomalies/resolve', async ({ env, req }) => {
       if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);

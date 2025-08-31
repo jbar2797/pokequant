@@ -11,6 +11,17 @@ export async function purgeOldData(env: Env, overrides?: Record<string, number>)
       metrics_daily: 14,
       data_completeness: 30
     };
+    // Load dynamic overrides from retention_config table if present
+    try {
+      const exists = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='retention_config'`).all();
+      if ((exists.results||[]).length) {
+        const rs = await env.DB.prepare(`SELECT table_name, days FROM retention_config`).all();
+        for (const r of (rs.results||[]) as any[]) {
+          const tn = r.table_name; const d = Number(r.days);
+          if (windows[tn] !== undefined && Number.isFinite(d) && d>=0 && d<=365) windows[tn] = d;
+        }
+      }
+    } catch { /* ignore */ }
     for (const k of Object.keys(windows)) {
       const envKey = `RETENTION_${k.toUpperCase()}_DAYS` as keyof Env;
       const raw = (env as any)[envKey];

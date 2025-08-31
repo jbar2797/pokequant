@@ -2,7 +2,7 @@
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
 
-Last Updated: 2025-08-30T23:57:30Z (webhook retry/backoff + provider id + metrics examples)
+Last Updated: 2025-08-31T00:45:00Z (webhook signing + nonce, planned backoff metadata, email error code classification, coverage thresholds)
 
 ## 1. High-Level Architecture
 - Cloudflare Worker (TypeScript) + D1 (SQLite) backing store
@@ -40,12 +40,12 @@ Last Updated: 2025-08-30T23:57:30Z (webhook retry/backoff + provider id + metric
 - [x] Webhook alert infrastructure (endpoints + simulated deliveries)
 
 ## 4. Ready / Next Up (post 0.7.8)
-- [ ] Real email provider integration productionization (configure provider domain, error taxonomy mapping)
-- [ ] Real outbound webhook dispatch enable (env flag default off) + exponential backoff jitter
-- [ ] Webhook replay protection (nonce column + signature inputs) & optional idempotency
-- [ ] Coverage gating (CI ratchet) + badge
+- [ ] Real email provider domain configuration (SPF/DKIM) & bounce webhook ingestion (future)
+- [ ] Webhook idempotency / replay verification endpoint (validate nonce uniqueness) & optional re-delivery
+- [ ] Coverage badge automation (current thresholds added to vitest config)
 - [ ] Scenario / what-if portfolio endpoint design doc
 - [ ] Architecture diagram & docs page (mermaid + explanation)
+- [ ] Provider selection decision (Resend vs Postmark) finalize & document
 
 ## 5. Parking Lot / Future Enhancements
 - What-if portfolio scenario endpoint
@@ -56,8 +56,9 @@ Last Updated: 2025-08-30T23:57:30Z (webhook retry/backoff + provider id + metric
 - Portfolio risk decomposition (factor vs residual volatility)
 
 ## 6. Recently Completed (chronological, newest first, trimmed)
-0. Webhook retry/backoff (attempt & duration_ms columns, metrics webhook.sent/retry_success/error) + tests (0.7.8) — 2025-08-30
-1. Email provider_message_id persistence + OpenAPI schema + test (0.7.7) — 2025-08-30
+0. Webhook signing + nonce replay metadata + planned_backoff_ms + real vs simulated metrics namespaces — 2025-08-31
+1. Webhook retry/backoff (attempt & duration_ms columns, metrics webhook.sent/retry_success/error) + tests (0.7.8) — 2025-08-30
+2. Email provider_message_id persistence + OpenAPI schema + test (0.7.7) — 2025-08-30
 2. Pipeline run tracking table + overlap guard + /admin/pipeline/runs endpoint (0.7.6) — 2025-08-30
 3. Correlation ID propagation (x-request-id) + latency bucket metrics (latbucket.*) — 2025-08-30
 4. Webhook alert infrastructure (tables, /admin/webhooks*, simulated deliveries) — 2025-08-30
@@ -68,8 +69,8 @@ Last Updated: 2025-08-30T23:57:30Z (webhook retry/backoff + provider id + metric
 9. Anomalies & backfill pagination + tests — 2025-08-30
 
 ## 7. Quality Gates Snapshot
-- Tests: 77 passing (vitest)
-- Coverage: lcov present (see `coverage/index.html`) – update % later
+- Tests: 77+ passing (additions pending)
+- Coverage: thresholds enforced (lines 60%, functions 60%, branches 50%, statements 60%) – badge automation pending
 - Contract Check: Passing (`scripts/contract-check.js`)
 - Version Sync: Passing (`scripts/version-check.js`)
 
