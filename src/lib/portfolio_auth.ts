@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 import { sha256Hex } from './crypto';
 import { incMetric } from './metrics';
 

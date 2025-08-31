@@ -28,25 +28,25 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Python
-  if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install deps
-  if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install pytrends requests
 
       - name: Run Trends backfill
-  if: steps.guard.outputs.proceed == 'true'
+        if: steps.guard.outputs.proceed == 'true'
         env:
-          INGEST_URL:   ${{ secrets.INGEST_URL }}     # e.g. https://pokequant.<you>.workers.dev/ingest/trends
+          INGEST_URL: ${{ secrets.INGEST_URL }}
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
-          MAX_CARDS: "250"
-          BATCH_SIZE: "5"
-          SLEEP_BASE_SEC: "3.5"
-          TIMEFRAME: "today 12-m"
+          MAX_CARDS: '250'
+          BATCH_SIZE: '5'
+          SLEEP_BASE_SEC: '3.5'
+          TIMEFRAME: 'today 12-m'
         run: |
           python trends/fetch_trends.py

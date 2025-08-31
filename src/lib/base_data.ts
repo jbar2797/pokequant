@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 
 // Shared signature for ETag generation across public endpoints.
 // Includes counts and latest dates across multiple tables so cache busts when any base dataset changes.

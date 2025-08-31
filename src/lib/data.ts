@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 import { log } from './log';
 
 export async function ensureTestSeed(env: Env) {

@@ -1,4 +1,4 @@
-import { JsonResponseOptions } from './types';
+import type { JsonResponseOptions } from './types';
 
 export const CORS = {
 	'Access-Control-Allow-Origin': '*',

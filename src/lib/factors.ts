@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 import { log } from './log';
 
 // Dynamic factor universe helper (persisted in factor_config). Falls back to default list.

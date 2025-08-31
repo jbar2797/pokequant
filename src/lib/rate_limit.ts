@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 import { log } from './log';
 
 export interface RateLimitResult { allowed: boolean; remaining: number; limit: number; reset: number; }

@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 
 // Portfolio performance attribution: prior-day factor exposures * factor_returns vs NAV return.
 export async function computePortfolioAttribution(env: Env, portfolioId: string, days: number) {

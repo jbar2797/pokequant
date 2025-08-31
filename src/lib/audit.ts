@@ -1,4 +1,4 @@
-import { Env } from './types';
+import type { Env } from './types';
 import { log } from './log';
 
 export interface AuditFields { actor_type: string; actor_id?: string|null; action: string; resource: string; resource_id?: string|null; details?: any }
