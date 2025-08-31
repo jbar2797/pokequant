@@ -10,13 +10,26 @@ permissions:
   deployments: write
 jobs:
   deploy:
-    # Skip this entire job cleanly if required secrets are not present (e.g. in forks or local clones)
-    if: ${{ secrets.CF_API_TOKEN != '' && secrets.CF_ACCOUNT_ID != '' && secrets.PAGES_PROJECT_NAME != '' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Guard (check required secrets)
+        id: guard
+        run: |
+          missing=0
+          [ -z "${{ secrets.CF_API_TOKEN }}" ] && echo "CF_API_TOKEN missing" && missing=1 || true
+          [ -z "${{ secrets.CF_ACCOUNT_ID }}" ] && echo "CF_ACCOUNT_ID missing" && missing=1 || true
+          [ -z "${{ secrets.PAGES_PROJECT_NAME }}" ] && echo "PAGES_PROJECT_NAME missing" && missing=1 || true
+          if [ "$missing" -eq 0 ]; then
+            echo "proceed=true" >> $GITHUB_OUTPUT
+          else
+            echo "proceed=false" >> $GITHUB_OUTPUT
+            echo "Required secrets missing; skipping deploy steps." >&2
+          fi
       - name: Checkout
+        if: steps.guard.outputs.proceed == 'true'
         uses: actions/checkout@v4
       - name: Pre-flight Cloudflare Pages API check
+        if: steps.guard.outputs.proceed == 'true'
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -42,6 +55,7 @@ jobs:
           fi
           echo "Confirmed target project '$PAGES_PROJECT_NAME' exists. Proceeding to deploy."
       - name: Deploy public/ to Cloudflare Pages
+        if: steps.guard.outputs.proceed == 'true'
         uses: cloudflare/pages-action@v1
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
