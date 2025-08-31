@@ -8,6 +8,8 @@ export default defineWorkersConfig({
 				wrangler: { configPath: './wrangler.jsonc' },
 			},
 		},
+		// Run tests sequentially to avoid D1 contention in CI; local dev can override with VITEST_MAX_THREADS.
+		sequence: { concurrent: false },
 		coverage: {
 			// Using Istanbul instead of V8 because V8 provider attempts to import node:inspector
 			// which is unavailable in the Cloudflare workers runtime used by @cloudflare/vitest-pool-workers.

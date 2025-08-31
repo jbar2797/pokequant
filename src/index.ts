@@ -565,8 +565,7 @@ export default {
     if (!state.done) {
       try { await initializeOnce(); } catch { return new Response('Initialization failed', { status: 500, headers: CORS }); }
     }
-    // Defensive: run per-request migrations (cheap if already applied) to catch any newly added migrations between warm requests
-    try { await runMigrations(env.DB); } catch {/* ignore */}
+    // Removed unconditional per-request runMigrations to reduce contention & CI timeouts. Admin endpoint /admin/migrations still verifies.
     // Router dispatch first (modularized endpoints)
     try {
       await Promise.all([
@@ -1183,7 +1182,21 @@ export default {
     if (url.pathname === '/admin/run-alerts' && req.method === 'POST') {
       { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       try {
-        const out = await runAlerts(env);
+        // Singleflight runAlerts to avoid concurrent heavy scans across parallel test workers
+        const gAny: any = globalThis as any;
+        if (!gAny.__RUN_ALERTS_STATE) gAny.__RUN_ALERTS_STATE = { promise: null as Promise<any>|null, last: 0 };
+        const ras = gAny.__RUN_ALERTS_STATE as { promise: Promise<any>|null; last:number };
+        const now = Date.now();
+        const STALE_MS = 250; // allow rapid re-run after short window
+        if (!ras.promise) {
+          ras.promise = (async () => {
+            try { return await runAlerts(env); } finally { ras.last = Date.now(); ras.promise = null; }
+          })();
+        } else if (now - ras.last > STALE_MS) {
+          // previous promise likely hung or stale; replace
+          ras.promise = (async () => { try { return await runAlerts(env); } finally { ras.last = Date.now(); ras.promise = null; } })();
+        }
+        const out = await ras.promise;
         log('admin_run_alerts', out);
         return json({ ok:true, ...out });
       } catch (e:any) {
