@@ -11,8 +11,8 @@ concurrency:
 
 jobs:
   fetch:
-  # Skip if ingest secrets not configured (e.g., forks)
-  if: ${{ secrets.INGEST_URL != '' && secrets.INGEST_TOKEN != '' }}
+    # Skip if ingest secrets not configured (e.g., forks)
+    if: ${{ secrets.INGEST_URL != '' && secrets.INGEST_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
