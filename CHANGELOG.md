@@ -8,6 +8,18 @@ All notable changes to this project will be documented here.
 ## [Unreleased]
 - …
 - Add examples to OpenAPI for key endpoints (in progress)
+### Planned
+- Further webhook delivery observability (aggregate success rate metric) 
+ 
+## [0.7.8] - 2025-08-30
+### Added
+- Webhook retry/backoff (up to 3 attempts) with metrics: webhook.sent (first-attempt success), webhook.retry_success, webhook.error.
+- Simulation controls for tests: endpoint URL query ?fail=N or ?always_fail=1 to force failures.
+- Webhook deliveries endpoint now returns attempt & duration_ms fields.
+### Changed
+- OpenAPI 0.7.8: added webhook metrics to /admin/metrics example and webhook deliveries example rows; documented simulation controls.
+- Version bump (package.json, version.ts, openapi.yaml).
+
 ### Added
 - Premium front-end redesign: multi-view navigation (Overview, Cards, Portfolio, Analytics, Admin), dark/light theming, portfolio lot & orders management UI, alert quick-create with snooze, admin alerts & ingestion controls, factor performance & IC summary charts, metrics mini-panel.
 - Front-end refactor: extracted inline script into `public/app.js` module; added toast notifications, loading skeletons for movers, slow-request warning toasts (>1500ms), light polling (60s) for movers, safer null guards, and improved error surfacing.

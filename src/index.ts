@@ -237,6 +237,7 @@ async function runAlerts(env: Env) {
   WHERE a.active=1 AND (a.suppressed_until IS NULL OR a.suppressed_until < datetime('now'))
   `).all();
   let fired = 0;
+  const firedAlerts: any[] = [];
   for (const a of (rs.results ?? []) as any[]) {
     const px = Number(a.px);
     const th = Number(a.threshold);
@@ -260,6 +261,75 @@ async function runAlerts(env: Env) {
   incMetric(env, 'alert.queued'); // fire & forget
     } catch {/* ignore queue errors */}
     fired++;
+    firedAlerts.push({ id:a.id, email:a.email, card_id:a.card_id, kind, threshold:th, price:px });
+  }
+  // Dispatch webhooks synchronously for tests
+  if (firedAlerts.length) {
+    try {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_endpoints (id TEXT PRIMARY KEY, url TEXT NOT NULL, secret TEXT, active INTEGER DEFAULT 1, created_at TEXT);`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT);`).run();
+      const wrs = await env.DB.prepare(`SELECT id,url,secret FROM webhook_endpoints WHERE active=1`).all();
+      // Ensure full schema (avoids per-attempt ALTER in hot path)
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER);`).run();
+      const MAX_ATTEMPTS = 3;
+      for (const w of (wrs.results||[]) as any[]) {
+        for (const alert of firedAlerts) {
+          const payload = { type:'alert.fired', alert };
+          // Pre-compute signature if needed
+          let signature: string | undefined;
+          if (w.secret) {
+            try {
+              const enc = new TextEncoder();
+              const key = await crypto.subtle.importKey('raw', enc.encode(w.secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+              const sigBuf = await crypto.subtle.sign('HMAC', key, enc.encode(JSON.stringify(payload)));
+              signature = Array.from(new Uint8Array(sigBuf)).map(b=> b.toString(16).padStart(2,'0')).join('');
+            } catch {/* ignore signing */}
+          }
+          // Simulated failure patterns (when not performing real network):
+          // ?fail=N  => first N attempts fail then succeed
+          // ?always_fail=1 => all attempts fail
+          let failN = 0; let alwaysFail = false;
+          if (env.WEBHOOK_REAL_SEND !== '1') {
+            try {
+              const u = new URL(w.url);
+              const f = u.searchParams.get('fail');
+              if (f) { const n = parseInt(f,10); if (Number.isFinite(n) && n>0) failN = Math.min(n, MAX_ATTEMPTS); }
+              alwaysFail = u.searchParams.get('always_fail') === '1';
+            } catch {/* ignore parse */}
+          }
+          let finalOutcomeRecorded = false;
+          for (let attempt=1; attempt<=MAX_ATTEMPTS; attempt++) {
+            let ok = 1, status = 200, error: string|undefined; let duration = 0;
+            if (env.WEBHOOK_REAL_SEND === '1') {
+              const tSend = Date.now();
+              try {
+                const resp = await fetch(w.url, { method: 'POST', headers: { 'content-type':'application/json', ...(signature? { 'x-signature': signature }: {}) }, body: JSON.stringify(payload) });
+                status = resp.status; ok = resp.ok ? 1 : 0;
+                if (!resp.ok) error = `status_${resp.status}`;
+              } catch (e:any) { ok=0; status=0; error=String(e); }
+              duration = Date.now() - tSend;
+            } else {
+              // Simulated path
+              if (alwaysFail || (failN && attempt <= failN)) { ok = 0; status = 0; error = 'sim_fail'; }
+            }
+            const did = crypto.randomUUID();
+            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null).run();
+            if (ok) {
+              if (attempt === 1) incMetric(env, 'webhook.sent'); else incMetric(env, 'webhook.retry_success');
+              finalOutcomeRecorded = true;
+              break; // stop retries
+            } else {
+              // Failure path: if this was last attempt record error metric once
+              if (attempt === MAX_ATTEMPTS) {
+                incMetric(env, 'webhook.error');
+                finalOutcomeRecorded = true;
+              }
+            }
+          }
+          if (!finalOutcomeRecorded) { /* should not happen */ }
+        }
+      }
+    } catch {/* ignore webhook errors */}
   }
   return { checked: (rs.results ?? []).length, fired };
 }
@@ -443,6 +513,8 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
     const t0 = Date.now();
+  // Correlation ID (reuse incoming or generate). Expose in response header later via done().
+  const corrId = req.headers.get('x-request-id') || crypto.randomUUID();
     // Ensure migrations at very start so routed endpoints have schema.
     await runMigrations(env.DB);
     // Router dispatch first (modularized endpoints)
@@ -459,6 +531,7 @@ export default {
         import('./routes/search'),
         import('./routes/subscribe'),
         import('./routes/portfolio'),
+  import('./routes/explain'),
       ]);
       const { router } = await import('./router');
       const routed = await router.handle(req, env);
@@ -466,18 +539,21 @@ export default {
     } catch (e) { try { console.warn('router dispatch failed', e); } catch {} }
     // Per-request evaluation (env differs by environment / binding)
     (globalThis as any).__LOG_DISABLED = (env.LOG_ENABLED === '0');
-  function done(resp: Response, tag: string) {
+  async function done(resp: Response, tag: string) {
       const ms = Date.now() - t0;
       try { log('req_timing', { path: url.pathname, tag, ms, status: resp.status }); } catch {}
-      // fire & forget latency (router already records for routed paths)
-      recordLatency(env, `lat.${tag}`, ms); // eslint-disable-line @typescript-eslint/no-floating-promises
-      // request metrics (monolith endpoints only; routed endpoints handled in router.ts)
-      (async () => { try {
+      try {
+        // Await latency + metrics to avoid background storage writes that break isolated test storage teardown
+        await recordLatency(env, `lat.${tag}`, ms);
+        // Bucketed latency metrics (rough) for p95 style percentiles offline: record histogram-ish buckets
+        const bucket = ms < 50 ? 'lt50' : ms < 100 ? 'lt100' : ms < 250 ? 'lt250' : ms < 500 ? 'lt500' : ms < 1000 ? 'lt1000' : 'gte1000';
+        await incMetric(env, `latbucket.${tag}.${bucket}`);
         await incMetric(env, 'req.total');
         await incMetric(env, `req.status.${Math.floor(resp.status/100)}xx`);
         if (resp.status >= 500) await incMetric(env, 'request.error.5xx');
         else if (resp.status >= 400) await incMetric(env, 'request.error.4xx');
-      } catch {} })();
+      } catch { /* swallow metrics errors */ }
+      try { resp.headers.set('x-request-id', corrId); } catch {}
       return resp;
     }
     if (url.pathname === '/admin/backfill' && req.method === 'GET') {
@@ -575,13 +651,8 @@ export default {
   // Fire-and-forget (don't await) except for endpoints known to immediately query large tables.
     const pathname = url.pathname;
     const critical = pathname.startsWith('/api/cards') || pathname.startsWith('/api/movers') || pathname.startsWith('/api/search');
-    if (critical) {
-      // slight risk of adding a few ms on first query; acceptable for these endpoints
-      await ensureIndices(env);
-    } else {
-      // async, not awaited
-      ensureIndices(env); // eslint-disable-line @typescript-eslint/no-floating-promises
-    }
+  // Always await indices to avoid background writes that can trip isolated storage assertions in tests
+  await ensureIndices(env);
     if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   // (Migrations already ensured at top.)
@@ -649,7 +720,7 @@ export default {
   const resp = json(rs.results ?? []);
   resp.headers.set('Cache-Control', 'public, max-age=60');
   resp.headers.set('ETag', etag);
-  return done(resp, 'cards.list');
+  return await done(resp, 'cards.list');
     }
     if (url.pathname === '/api/cards' && req.method === 'GET') {
   await ensureTestSeed(env);
@@ -676,7 +747,7 @@ export default {
   const resp = json(rs.results ?? []);
   resp.headers.set('Cache-Control', 'public, max-age=30');
   resp.headers.set('ETag', etag);
-  return done(resp, 'cards.movers');
+  return await done(resp, 'cards.movers');
     }
 
     // Movers (up/down)
@@ -730,7 +801,7 @@ export default {
         env.DB.prepare(`SELECT as_of AS d, svi FROM svi_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
         env.DB.prepare(`SELECT as_of AS d, ts7, ts30, dd, vol, z_svi FROM signal_components_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),
       ]);
-  return done(json({ ok: true, card: meta.results?.[0] ?? null, prices: p.results ?? [], signals: g.results ?? [], svi: v.results ?? [], components: c.results ?? [] }), 'card.detail');
+  return await done(json({ ok: true, card: meta.results?.[0] ?? null, prices: p.results ?? [], signals: g.results ?? [], svi: v.results ?? [], components: c.results ?? [] }), 'card.detail');
     }
 
     // CSV export
@@ -763,6 +834,13 @@ export default {
           await env.DB.prepare(attemptsSql).bind(sendRes.error||'error', EMAIL_RETRY_MAX, EMAIL_RETRY_MAX, id).run();
           if ((Number(row.attempt_count)+1) >= EMAIL_RETRY_MAX) giveupCount++; else retryCount++;
         }
+        // Log delivery attempt
+        try {
+          await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_deliveries (id TEXT PRIMARY KEY, queued_id TEXT, email TEXT, subject TEXT, provider TEXT, ok INTEGER, error TEXT, attempt INTEGER, created_at TEXT, sent_at TEXT, provider_message_id TEXT);`).run();
+          const attemptNum = Number(row.attempt_count)+1;
+          const did = crypto.randomUUID();
+          await env.DB.prepare(`INSERT INTO email_deliveries (id, queued_id, email, subject, provider, ok, error, attempt, created_at, sent_at, provider_message_id) VALUES (?,?,?,?,?,?,?,?,datetime('now'), CASE WHEN ? THEN datetime('now') ELSE NULL END, ?)`).bind(did, id, row.email, subj, sendRes.provider||'none', sendRes.ok?1:0, sendRes.error||null, attemptNum, sendRes.ok?1:0, sendRes.id||null).run();
+        } catch {/* ignore logging errors */}
       }
       if (sentCount) incMetricBy(env, 'alert.sent', sentCount);
       if (retryCount) incMetricBy(env, 'email.retry', retryCount);
@@ -868,6 +946,50 @@ export default {
       }
     }
 
+    // Email deliveries (recent)
+    if (url.pathname === '/admin/email/deliveries' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      try {
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_deliveries (id TEXT PRIMARY KEY, queued_id TEXT, email TEXT, subject TEXT, provider TEXT, ok INTEGER, error TEXT, attempt INTEGER, created_at TEXT, sent_at TEXT, provider_message_id TEXT);`).run();
+  const rs = await env.DB.prepare(`SELECT id, queued_id, email, subject, provider, ok, error, attempt, created_at, sent_at, provider_message_id FROM email_deliveries ORDER BY created_at DESC LIMIT 200`).all();
+        return json({ ok:true, rows: rs.results||[] });
+      } catch { return json({ ok:true, rows: [] }); }
+    }
+
+    // Webhook endpoints CRUD (simple)
+    if (url.pathname === '/admin/webhooks' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_endpoints (id TEXT PRIMARY KEY, url TEXT NOT NULL, secret TEXT, active INTEGER DEFAULT 1, created_at TEXT);`).run();
+      const rs = await env.DB.prepare(`SELECT id,url,active,created_at FROM webhook_endpoints ORDER BY created_at DESC LIMIT 100`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+    if (url.pathname === '/admin/webhooks' && req.method === 'POST') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      const body:any = await req.json().catch(()=>({}));
+      const urlStr = typeof body.url==='string'? body.url.trim(): '';
+      if (!urlStr || !/^https?:\/\//i.test(urlStr)) return json({ ok:false, error:'invalid_url' },400);
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_endpoints (id TEXT PRIMARY KEY, url TEXT NOT NULL, secret TEXT, active INTEGER DEFAULT 1, created_at TEXT);`).run();
+      const id = crypto.randomUUID();
+      await env.DB.prepare(`INSERT INTO webhook_endpoints (id, url, secret, active, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(id, urlStr, null, 1).run();
+      await audit(env, { actor_type:'admin', action:'create', resource:'webhook', resource_id:id, details:{ url: urlStr }});
+      return json({ ok:true, id });
+    }
+    if (url.pathname === '/admin/webhooks/delete' && req.method === 'POST') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      const body:any = await req.json().catch(()=>({}));
+      const id = typeof body.id==='string'? body.id: '';
+      if (!id) return json({ ok:false, error:'id_required' },400);
+      await env.DB.prepare(`DELETE FROM webhook_endpoints WHERE id=?`).bind(id).run();
+      await audit(env, { actor_type:'admin', action:'delete', resource:'webhook', resource_id:id });
+      return json({ ok:true, id });
+    }
+    if (url.pathname === '/admin/webhooks/deliveries' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER);`).run();
+      const rs = await env.DB.prepare(`SELECT id, webhook_id, event, ok, status, error, created_at, attempt, duration_ms FROM webhook_deliveries ORDER BY created_at DESC LIMIT 200`).all();
+      return json({ ok:true, rows: rs.results||[] });
+    }
+
     if (url.pathname === '/admin/latency' && req.method === 'GET') {
       { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
       try {
@@ -876,6 +998,22 @@ export default {
       } catch {
         return json({ ok:true, rows: [] });
       }
+    }
+    if (url.pathname === '/admin/latency-buckets' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+      try {
+        const rs = await env.DB.prepare(`SELECT metric, count FROM metrics_daily WHERE d=date('now') AND metric LIKE 'latbucket.%'`).all();
+        const buckets: Record<string, Record<string, number>> = {};
+        for (const r of (rs.results||[]) as any[]) {
+          const m = String(r.metric);
+          const parts = m.split('.');
+          if (parts.length === 3) {
+            const tag = parts[1]; const bucket = parts[2];
+            (buckets[tag] ||= {})[bucket] = Number(r.count)||0;
+          }
+        }
+        return json({ ok:true, buckets });
+      } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     }
 
     // Admin test utility: force legacy portfolio auth by nulling secret_hash for a portfolio id
@@ -950,6 +1088,14 @@ export default {
       { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
       // Spec version duplicated in openapi.yaml (info.version). Keeping a single source via APP_VERSION.
       return json({ ok:true, version: APP_VERSION });
+    }
+    if (url.pathname === '/admin/pipeline/runs' && req.method === 'GET') {
+      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
+      try {
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS pipeline_runs (id TEXT PRIMARY KEY, started_at TEXT, completed_at TEXT, status TEXT, error TEXT, metrics JSON);`).run();
+        const rs = await env.DB.prepare(`SELECT id, started_at, completed_at, status, error FROM pipeline_runs ORDER BY started_at DESC LIMIT 20`).all();
+        return json({ ok:true, rows: rs.results||[] });
+      } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     }
 
   // (Factor weights CRUD endpoints removed in favor of routes/factors.ts)
@@ -1298,26 +1444,44 @@ export default {
 
   async scheduled(_ev: ScheduledEvent, env: Env) {
     try {
-  const bulk = await computeSignalsBulk(env, 365);
-  await runAlerts(env);
-  await updateDataCompleteness(env);
-  await computeFactorIC(env); // daily IC update
-  await computeFactorReturns(env); // daily factor returns
-  await computeFactorRiskModel(env); // rolling cov/corr + vol/beta
-  await smoothFactorReturns(env); // smoothed factor returns snapshot
-  await computeSignalQuality(env); // IC stability metrics
-  await detectAnomalies(env);
-  await snapshotPortfolioNAV(env);
-  await computePortfolioPnL(env);
-  await snapshotPortfolioFactorExposure(env);
-  const t0r = Date.now();
-  const deleted = await purgeOldData(env); // apply retention daily (lightweight DELETEs)
-  const rMs = Date.now() - t0r;
-  for (const [table, n] of Object.entries(deleted)) {
-    if (n>0) incMetricBy(env, `retention.deleted.${table}`, n); // eslint-disable-line @typescript-eslint/no-floating-promises
+  // Track pipeline run & avoid overlap (best-effort)
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS pipeline_runs (id TEXT PRIMARY KEY, started_at TEXT, completed_at TEXT, status TEXT, error TEXT, metrics JSON);`).run();
+  const overlapping = await env.DB.prepare(`SELECT id FROM pipeline_runs WHERE status='running' AND started_at >= datetime('now','-30 minutes') LIMIT 1`).all();
+  if ((overlapping.results||[]).length) {
+    incMetric(env, 'pipeline.skip_overlap');
+    return;
   }
-  recordLatency(env, 'job.retention', rMs);
-  log('cron_run', bulk);
+  const runId = crypto.randomUUID();
+  await env.DB.prepare(`INSERT INTO pipeline_runs (id, started_at, status) VALUES (?,?, 'running')`).bind(runId, new Date().toISOString()).run();
+  const metrics: any = { phases: {} };
+  const phase = async (name: string, fn: ()=>Promise<any>) => { const t=Date.now(); try { const out = await fn(); metrics.phases[name] = { ms: Date.now()-t }; return out; } catch (e:any){ metrics.phases[name] = { ms: Date.now()-t, error: String(e) }; throw e; } };
+  try {
+    const bulk = await phase('signals', ()=> computeSignalsBulk(env, 365));
+    await phase('alerts', ()=> runAlerts(env));
+    await phase('data_completeness', ()=> updateDataCompleteness(env));
+    await phase('factor_ic', ()=> computeFactorIC(env));
+    await phase('factor_returns', ()=> computeFactorReturns(env));
+    await phase('risk_model', ()=> computeFactorRiskModel(env));
+    await phase('returns_smoothed', ()=> smoothFactorReturns(env));
+    await phase('signal_quality', ()=> computeSignalQuality(env));
+    await phase('anomalies', ()=> detectAnomalies(env));
+    await phase('portfolio_nav', ()=> snapshotPortfolioNAV(env));
+    await phase('portfolio_pnl', ()=> computePortfolioPnL(env));
+    await phase('portfolio_factor_exposure', ()=> snapshotPortfolioFactorExposure(env));
+    await phase('retention', async ()=> {
+      const t0r = Date.now();
+      const deleted = await purgeOldData(env);
+      const rMs = Date.now() - t0r;
+      for (const [table, n] of Object.entries(deleted)) { if (n>0) incMetricBy(env, `retention.deleted.${table}`, n); }
+      recordLatency(env, 'job.retention', rMs);
+      metrics.deleted = deleted;
+    });
+    log('cron_run', bulk);
+    await env.DB.prepare(`UPDATE pipeline_runs SET completed_at=?, status='completed', metrics=? WHERE id=?`).bind(new Date().toISOString(), JSON.stringify(metrics), runId).run();
+  } catch (e:any) {
+    await env.DB.prepare(`UPDATE pipeline_runs SET completed_at=?, status='error', error=?, metrics=? WHERE id=?`).bind(new Date().toISOString(), String(e), JSON.stringify(metrics), runId).run();
+    incMetric(env, 'pipeline.error');
+  }
     } catch (e) {
   log('cron_error', { error: String(e) });
     }

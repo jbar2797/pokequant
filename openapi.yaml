@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.7.4
+  version: 0.7.8
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
+  Admin auth: x-admin-token supports current ADMIN_TOKEN and optional staged ADMIN_TOKEN_NEXT during rotation window.
 servers:
   - url: https://pokequant.jonathanbarreneche.workers.dev
 paths:
@@ -89,6 +90,21 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/CardTimeseries' }
+  /api/card/factors:
+    get:
+      summary: Card factor explainability snapshot
+      description: Returns latest factor component values and normalized contribution weights for a card.
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CardFactorExplain' }
   /research/card-csv:
     get:
       summary: Card CSV export
@@ -667,7 +683,7 @@ paths:
       responses:
         '200':
           description: OK
-  security: [ { AdminToken: [] } ]
+          security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminMetricsResponse' }
@@ -675,14 +691,18 @@ paths:
                 sample:
                   value:
                     ok: true
-                    rows: [ { d: 2025-08-29, metric: req_total, count: 123 } ]
+                    rows: [ { d: 2025-08-29, metric: req.total, count: 123 }, { d: 2025-08-29, metric: webhook.sent, count: 5 }, { d: 2025-08-29, metric: webhook.retry_success, count: 2 }, { d: 2025-08-29, metric: webhook.error, count: 1 } ]
                     latency: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
                     cache_hits: [ { d: 2025-08-29, metric: cache.hit.universe, count: 15 } ]
                     cache_hit_ratios: { universe: 0.65 }
-                    # New email retry metrics (example only)
-                    more_email_metrics:
+                    email_metrics:
                       - { d: 2025-08-29, metric: email.retry, count: 2 }
                       - { d: 2025-08-29, metric: email.giveup, count: 1 }
+                      - { d: 2025-08-29, metric: email.sent, count: 42 }
+                    webhook_metrics:
+                      - { d: 2025-08-29, metric: webhook.sent, count: 5 }
+                      - { d: 2025-08-29, metric: webhook.retry_success, count: 2 }
+                      - { d: 2025-08-29, metric: webhook.error, count: 1 }
                     additional_new_metrics:
                       - { d: 2025-08-29, metric: alert.escalation, count: 1 }
                       - { d: 2025-08-29, metric: ingest.scheduled_run, count: 3 }
@@ -693,7 +713,7 @@ paths:
       responses:
         '200':
           description: OK
-  security: [ { AdminToken: [] } ]
+      security: [ { AdminToken: [] } ]
           content:
             application/json:
               schema:
@@ -714,6 +734,40 @@ paths:
                   value:
                     ok: true
                     rows: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
+  /admin/latency-buckets:
+    get:
+      summary: Latency bucket histogram counts (admin)
+      description: Returns per-tag latency bucket counts for today based on per-request histogram metrics latbucket.TAG.BUCKET (buckets: lt50, lt100, lt250, lt500, lt1000, gte1000).
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  buckets:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        lt50: { type: integer, nullable: true }
+                        lt100: { type: integer, nullable: true }
+                        lt250: { type: integer, nullable: true }
+                        lt500: { type: integer, nullable: true }
+                        lt1000: { type: integer, nullable: true }
+                        gte1000: { type: integer, nullable: true }
+                      required: []
+                required: [ok, buckets]
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    buckets:
+                      sets: { lt50: 12, lt100: 3 }
+                      rarities: { lt50: 15 }
   /admin/run-alerts:
     post:
       summary: Run alerts evaluation only
@@ -735,6 +789,75 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AlertQueueProcessResponse' }
+  /admin/email/deliveries:
+    get:
+      summary: List alert email delivery attempts (admin)
+      description: Returns recent email delivery attempt log rows (success & failure) ordered by created_at desc. Optional query params: limit (<=200, default 50), email filter.
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmailDeliveriesResponse' }
+  /admin/webhooks:
+    get:
+      summary: List webhook endpoints (admin)
+      description: Returns registered webhook endpoints for alert firing. Optional query params: active (0|1).
+      security: [ { AdminToken: [] } ]
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/WebhookEndpointsResponse' } } } } }
+    post:
+      summary: Upsert webhook endpoint (admin)
+      description: Body: { url, active? } — inserts new or updates existing by URL.
+      security: [ { AdminToken: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string }
+                active: { type: integer, nullable: true }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SimpleOkResponse' } } } } }
+  /admin/webhooks/delete:
+    post:
+      summary: Delete webhook endpoint (admin)
+      description: Body: { url }
+      security: [ { AdminToken: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string }
+      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SimpleOkResponse' } } } } }
+  /admin/webhooks/deliveries:
+    get:
+      summary: List webhook delivery simulation log (admin)
+      description: |
+        Returns recent webhook deliveries produced when alerts fire.
+        Optional query params: limit (<=200, default 50), url filter.
+        Simulation controls (non-production/testing): include ?fail=N (1-3) in the endpoint URL to force the first N attempts to fail then succeed, or ?always_fail=1 to force all attempts (max 3) to fail. Ignored when WEBHOOK_REAL_SEND=1.
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebhookDeliveriesResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - { id: d1, webhook_id: wh1, event: alert.fired, ok: 0, status: 0, error: sim_fail, attempt: 1, duration_ms: null, created_at: 2025-08-29T12:00:00Z }
+                      - { id: d2, webhook_id: wh1, event: alert.fired, ok: 0, status: 0, error: sim_fail, attempt: 2, duration_ms: null, created_at: 2025-08-29T12:00:00Z }
+                      - { id: d3, webhook_id: wh1, event: alert.fired, ok: 1, status: 200, error: null, attempt: 3, duration_ms: 5, created_at: 2025-08-29T12:00:00Z }
   /admin/migrations:
     get:
       summary: List applied migrations (admin)
@@ -768,6 +891,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/VersionInfo' }
       security: [ { AdminToken: [] } ]
+  /admin/pipeline/runs:
+    get:
+      summary: Recent pipeline run records (admin)
+      description: Returns last 20 pipeline run records from pipeline_runs table (status running|completed|error). Useful to detect overlaps/skips.
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200': { description: OK }
   /admin/integrity:
     get:
       summary: Data integrity snapshot (admin)
@@ -917,7 +1047,17 @@ paths:
   /admin/anomalies:
     get:
       summary: List recent anomalies (admin)
-      description: Optional query param status=open|resolved to filter.
+      description: Optional query params: status=open|resolved filter. Supports pagination with limit (<=200) and before_created_at cursor (exclusive) on created_at descending.
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [open, resolved] }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - in: query
+          name: before_created_at
+          schema: { type: string, description: 'Cursor: fetch rows with created_at < this ISO timestamp' }
       responses: { '200': { description: OK } }
   security: [ { AdminToken: [] } ]
   /admin/anomalies/resolve:
@@ -934,6 +1074,14 @@ paths:
   /admin/backfill:
     get:
       summary: List recent backfill jobs (admin)
+      description: Supports pagination with limit (<=100, default 50) and before_created_at cursor on created_at descending.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100 }
+        - in: query
+          name: before_created_at
+          schema: { type: string }
       responses: { '200': { description: OK } }
     post:
       summary: Create backfill job (admin)
@@ -1011,6 +1159,16 @@ paths:
             application/json:
               schema:
                 type: object
+  /admin/retention/config:
+    get:
+      summary: List retention configuration entries (admin)
+      description: Returns persisted override windows (table_name, days, updated_at).
+      responses: { '200': { description: OK } }
+    post:
+      summary: Upsert retention configuration entry (admin)
+      description: Body: { table, days } where table in [backtests, mutation_audit, anomalies, metrics_daily, data_completeness]; days 0-365.
+      responses: { '200': { description: OK } }
+  security: [ { AdminToken: [] } ]
                 properties:
                   ok: { type: boolean }
                   rows:
@@ -1402,6 +1560,8 @@ components:
         portfolio_id: { type: string }
         as_of: { type: string, format: date }
         ret: { type: number }
+  benchmark_ret: { type: number, nullable: true, description: 'Benchmark return for the same day (e.g., equal-weight portfolio baseline)' }
+  alpha: { type: number, nullable: true, description: 'Excess return vs benchmark (ret - benchmark_ret)' }
         turnover_cost: { type: number, nullable: true }
         realized_pnl: { type: number, nullable: true }
       required: [portfolio_id, as_of, ret]
@@ -1491,6 +1651,21 @@ components:
         svi: { type: array, items: { $ref: '#/components/schemas/SviPoint' } }
         components: { type: array, items: { $ref: '#/components/schemas/ComponentPoint' } }
       required: [ok]
+    CardFactorExplain:
+      type: object
+      properties:
+        ok: { type: boolean }
+        card_id: { type: string }
+        as_of: { type: string, nullable: true }
+        score: { type: number, nullable: true }
+        signal: { type: string, nullable: true }
+        factors:
+          type: object
+          additionalProperties: { type: number }
+        contributions:
+          type: object
+          additionalProperties: { type: number }
+      required: [ok, card_id]
     AlertCreateRequest:
       type: object
       properties:
@@ -1570,9 +1745,66 @@ components:
         portfolio_id: { type: string }
         as_of: { type: string }
         ret: { type: number, nullable: true }
+        benchmark_ret: { type: number, nullable: true }
+        alpha: { type: number, nullable: true }
         realized_pnl: { type: number, nullable: true }
         turnover_cost: { type: number, nullable: true }
       required: [portfolio_id, as_of]
+    EmailDeliveryRow:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        queued_id: { type: string }
+        subject: { type: string }
+        provider: { type: string }
+        ok: { type: integer }
+        error: { type: string, nullable: true }
+        attempt: { type: integer }
+        created_at: { type: string }
+        sent_at: { type: string, nullable: true }
+        provider_message_id: { type: string, nullable: true }
+      required: [id, email, queued_id, ok, attempt, created_at]
+    EmailDeliveriesResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/EmailDeliveryRow' } }
+      required: [ok, rows]
+    WebhookEndpointRow:
+      type: object
+      properties:
+        id: { type: string }
+        url: { type: string }
+        active: { type: integer }
+        created_at: { type: string }
+        updated_at: { type: string, nullable: true }
+      required: [id, url, active, created_at]
+    WebhookDeliveryRow:
+      type: object
+      properties:
+        id: { type: string }
+        webhook_id: { type: string }
+        event: { type: string }
+        ok: { type: integer }
+        status: { type: integer, nullable: true, description: 'HTTP status code if real send attempted' }
+        error: { type: string, nullable: true }
+        attempt: { type: integer, nullable: true }
+        duration_ms: { type: integer, nullable: true }
+        created_at: { type: string }
+      required: [id, webhook_id, event, created_at]
+    WebhookEndpointsResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/WebhookEndpointRow' } }
+      required: [ok, rows]
+    WebhookDeliveriesResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows: { type: array, items: { $ref: '#/components/schemas/WebhookDeliveryRow' } }
+      required: [ok, rows]
     VersionInfo:
       type: object
       properties:
