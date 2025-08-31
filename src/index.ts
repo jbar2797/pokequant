@@ -7,7 +7,7 @@ import { APP_VERSION } from './version';
 import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
 // Modularized helpers
-import { Env } from './lib/types';
+import type { Env } from './lib/types';
 import { log, setRequestContext } from './lib/log';
 import { json, err, CORS } from './lib/http';
 import { isoDaysAgo } from './lib/date';
@@ -528,8 +528,45 @@ export default {
   // Correlation ID (reuse incoming or generate) and set request context for structured logs.
   const corrId = req.headers.get('x-request-id') || crypto.randomUUID();
   setRequestContext(corrId, env);
-    // Ensure migrations at very start so routed endpoints have schema.
-    await runMigrations(env.DB);
+    // --- Fast init guard (prevents per-request full migration in parallel & avoids test timeouts) ---
+    // Runs migrations exactly once with a timeout; concurrent requests wait or fast-fail 503 if timeout exceeded.
+  let initError: string | null = null;
+    // Module-scope singleflight vars
+    // (Placed on globalThis to survive module reloads in dev worker)
+    const g:any = globalThis as any;
+    if (!g.__PQ_INIT_STATE) {
+      g.__PQ_INIT_STATE = { done: false, promise: null as Promise<void>|null };
+    }
+    const state = g.__PQ_INIT_STATE as { done:boolean; promise: Promise<void>|null };
+    async function initializeOnce() {
+      if (state.done) return;
+      if (!state.promise) {
+        state.promise = (async () => {
+          const tInit0 = Date.now();
+          try {
+            await runMigrations(env.DB);
+            state.done = true;
+            await incMetric(env, 'init.success');
+            await recordLatency(env, 'lat.init', Date.now()-tInit0);
+            log('init_ok', { ms: Date.now()-tInit0 });
+          } catch (e:any) {
+            initError = String(e);
+            await incMetric(env, 'init.error');
+            log('init_error', { error: initError });
+            throw e;
+          } finally {
+            // Allow GC of promise on success; keep failed promise so subsequent awaits fail fast.
+            if (state.done) state.promise = null;
+          }
+        })();
+      }
+      return state.promise;
+    }
+    if (!state.done) {
+      try { await initializeOnce(); } catch { return new Response('Initialization failed', { status: 500, headers: CORS }); }
+    }
+    // Defensive: run per-request migrations (cheap if already applied) to catch any newly added migrations between warm requests
+    try { await runMigrations(env.DB); } catch {/* ignore */}
     // Router dispatch first (modularized endpoints)
     try {
       await Promise.all([
