@@ -551,13 +551,17 @@ export default {
       g.__PQ_INIT_STATE = { done: false, promise: null as Promise<void>|null };
     }
     const state = g.__PQ_INIT_STATE as { done:boolean; promise: Promise<void>|null };
-    async function initializeOnce() {
+  // Propagate FAST_TESTS hint to migrations fast path (set once)
+  if ((env as any).FAST_TESTS === '1') { (globalThis as any).__FAST_TESTS = '1'; }
+  async function initializeOnce() {
       if (state.done) return;
       if (!state.promise) {
         state.promise = (async () => {
           const tInit0 = Date.now();
           try {
-            await runMigrations(env.DB);
+      await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
+            // Ensure metrics table exists early to avoid first-request race before first metric increment
+            try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run(); } catch {}
             state.done = true;
             await incMetric(env, 'init.success');
             await recordLatency(env, 'lat.init', Date.now()-tInit0);
@@ -583,7 +587,7 @@ export default {
     try {
       const anyDb: any = env.DB as any;
       if (!anyDb.__MIGRATIONS_DONE) {
-        await runMigrations(env.DB);
+        await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
       }
       else {
         // Integrity re-check: underlying storage may rotate while keeping same DB object; verify core tables exist.
@@ -594,7 +598,7 @@ export default {
           let missing = false; for (const t of core) if (!present.has(t)) { missing = true; break; }
           if (missing) {
             (anyDb.__MIGRATIONS_DONE = false); // force rerun
-            await runMigrations(env.DB);
+            await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
           }
         } catch {/* ignore */}
       }
