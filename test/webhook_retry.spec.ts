@@ -45,11 +45,13 @@ describe('Webhook retry logic', () => {
     await SELF.fetch('https://example.com/admin/test-insert', { method:'POST', headers:{ 'x-admin-token':'test-admin','content-type':'application/json' }, body: JSON.stringify({ table:'prices_daily', rows:[{ card_id:'card_WF', as_of: today, price_usd:5, price_eur:5 }] }) });
     const res = await SELF.fetch('https://example.com/alerts/create', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ email:'wf@test.com', card_id:'card_WF', threshold:20 }) });
     expect(res.status).toBe(200);
-    await SELF.fetch('https://example.com/admin/run-alerts', { method:'POST', headers:{ 'x-admin-token':'test-admin' } });
+  await SELF.fetch('https://example.com/admin/run-alerts', { method:'POST', headers:{ 'x-admin-token':'test-admin' } });
+  // Allow a microtask tick so any trailing async metric/delivery inserts complete.
+  await new Promise(r=> setTimeout(r, 10));
     const list = await SELF.fetch('https://example.com/admin/webhooks/deliveries', { headers:{ 'x-admin-token':'test-admin' } });
     const body:any = await list.json();
   const rows = body.rows.filter((r:any)=> r.webhook_id===webhookId && r.event==='alert.fired');
-    expect(rows.length).toBe(3); // all failed attempts
+  expect(rows.length).toBe(3); // all failed attempts
     expect(rows.every((r:any)=> r.ok===0)).toBe(true);
   });
 });

@@ -571,37 +571,53 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
   }
 ];
 
-let MIGRATIONS_RAN = false;
 let MIGRATIONS_PROMISE: Promise<void> | null = null;
 
 export async function runMigrations(db: D1Database) {
-  // Allow re-entry to pick up newly added migrations in same process; serialize with promise guard.
-  if (MIGRATIONS_PROMISE) await MIGRATIONS_PROMISE;
-  MIGRATIONS_PROMISE = (async () => {
-    await db.prepare(`CREATE TABLE IF NOT EXISTS migrations_applied (id TEXT PRIMARY KEY, applied_at TEXT, description TEXT);`).run();
-    const existing = await db.prepare(`SELECT id FROM migrations_applied`).all();
-    const have = new Set((existing.results||[]).map((r:any)=> String(r.id)));
-    for (const m of migrations) {
-      if (have.has(m.id)) continue;
-      if (m.sql.trim() && !/^--/.test(m.sql.trim())) {
-        const parts = m.sql.split(/;\s*\n/).map(s=>s.trim()).filter(Boolean);
-        for (const p of parts) {
-          try {
-            if (!p) continue;
-            await db.prepare(p).run();
-          } catch (e:any) {
-            const msg = String(e);
-            if (!/no such table/i.test(msg) && !/duplicate column name/i.test(msg)) {
-              throw e;
+  // Attach markers to the DB instance so a fresh D1 (new test file) re-runs migrations, but repeated
+  // requests against the same instance only run once (with proper concurrency serialization).
+  const anyDb = db as any;
+  if (anyDb.__MIGRATIONS_DONE) {
+    // Fast integrity check: if core table missing, underlying storage likely rotated => force re-run.
+    try {
+      const rs = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'").all();
+      if (!(rs.results && rs.results.length)) {
+        anyDb.__MIGRATIONS_DONE = false;
+      } else {
+        return; // schema present
+      }
+    } catch {
+      anyDb.__MIGRATIONS_DONE = false; // fall through to rerun
+    }
+  }
+  if (!anyDb.__MIGRATIONS_LOCK) {
+    anyDb.__MIGRATIONS_LOCK = (async () => {
+      await db.prepare(`CREATE TABLE IF NOT EXISTS migrations_applied (id TEXT PRIMARY KEY, applied_at TEXT, description TEXT);`).run();
+      const existing = await db.prepare(`SELECT id FROM migrations_applied`).all();
+      const have = new Set((existing.results||[])?.map((r:any)=> String(r.id)));
+      if (have.size === migrations.length) { anyDb.__MIGRATIONS_DONE = true; return; }
+      for (const m of migrations) {
+        if (have.has(m.id)) continue;
+        if (m.sql.trim() && !/^--/.test(m.sql.trim())) {
+          const parts = m.sql.split(/;\s*\n/).map(s=>s.trim()).filter(Boolean);
+          for (const p of parts) {
+            try {
+              if (!p) continue;
+              await db.prepare(p).run();
+            } catch (e:any) {
+              const msg = String(e);
+              if (!/no such table/i.test(msg) && !/duplicate column name/i.test(msg)) {
+                throw e;
+              }
             }
           }
         }
+        await db.prepare(`INSERT INTO migrations_applied (id, applied_at, description) VALUES (?,?,?)`).bind(m.id, new Date().toISOString(), m.description||null).run();
       }
-      await db.prepare(`INSERT INTO migrations_applied (id, applied_at, description) VALUES (?,?,?)`).bind(m.id, new Date().toISOString(), m.description||null).run();
-    }
-    MIGRATIONS_RAN = true;
-  })();
-  return MIGRATIONS_PROMISE;
+      anyDb.__MIGRATIONS_DONE = true;
+    })().catch((e: any) => { anyDb.__MIGRATIONS_DONE = false; throw e; }).finally(() => { anyDb.__MIGRATIONS_LOCK = null; });
+  }
+  return anyDb.__MIGRATIONS_LOCK;
 }
 
 export async function listMigrations(db: D1Database) {

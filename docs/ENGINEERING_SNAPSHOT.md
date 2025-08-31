@@ -28,6 +28,17 @@ Last Updated: 2025-08-31T01:10:00Z (webhook replay verify endpoint, portfolio sc
 | Rate Limiting | lib/rate_limit.ts | Stable | Headers standardized; confirm coverage. |
 | Security Tokens | portfolio_auth, admin, ingest | Stable | Dual admin token & ingest hashed-or-plaintext auth complete. |
 
+### Migrations & Test Seeding
+Cloudflare Workers Vitest provides a fresh D1 storage per test file while reusing the JS isolate. A simple global "migrations already ran" flag caused missing tables in later specs. Current strategy:
+
+* `runMigrations` attaches `__MIGRATIONS_LOCK` / `__MIGRATIONS_DONE` to the concrete D1Database object (not global) and performs an integrity probe (checks `cards` table) before early-returning. If storage rotated, it replays idempotent migrations.
+* Each migration is recorded in `migrations_applied`; replays skip existing IDs so the cost after first run per DB is negligible.
+* `ensureTestSeed` similarly uses per-DB markers so a new ephemeral DB still gets core seed rows/tables once.
+* Defensive `CREATE TABLE IF NOT EXISTS` statements remain at some route boundaries for robustness, but most core schema is in migrations.
+
+Operational notes: append new migrations with monotonic ids; prefer additive, idempotent ALTERs / CREATEs guarded by IF NOT EXISTS. Avoid irreversible data rewrites without presence checks.
+
+
 ## 3. Active Sprint Goals (Week 1–2 Hardening)
 - [x] Error & status-class request metrics (expose via /admin/metrics)
 - [x] Hash ingest token + dual admin token support

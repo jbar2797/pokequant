@@ -1148,7 +1148,17 @@ export default {
       const body: any = await req.json().catch(()=>({}));
       const table = (body.table||'').toString();
       const rows = Array.isArray(body.rows) ? body.rows : [];
-  const allow = new Set(['signal_components_daily','factor_returns','portfolio_nav','portfolio_factor_exposure','factor_ic','anomalies']);
+  const allow = new Set([
+    'signal_components_daily',
+    'factor_returns',
+    'portfolio_nav',
+    'portfolio_factor_exposure',
+    'factor_ic',
+    'anomalies',
+    // Added for webhook + alert tests seeding
+    'cards',
+    'prices_daily'
+  ]);
       if (!allow.has(table)) return json({ ok:false, error:'table_not_allowed' },400);
       if (!rows.length) return json({ ok:false, error:'no_rows' },400);
       for (const r of rows) {

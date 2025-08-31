@@ -1,36 +1,41 @@
 import { Env } from './types';
 import { log } from './log';
 
-let SEED_DONE = false; // one-time guard to avoid repeated DDL overhead each request in tests
 export async function ensureTestSeed(env: Env) {
-  if (SEED_DONE) return; // fast path after first successful seed
-  try {
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, name TEXT, set_name TEXT, rarity TEXT, image_url TEXT, types TEXT);`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS prices_daily (card_id TEXT, as_of DATE, price_usd REAL, price_eur REAL, src_updated_at TEXT, PRIMARY KEY(card_id, as_of));`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id, as_of));`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signal_components_daily (card_id TEXT, as_of DATE, ts7 REAL, ts30 REAL, dd REAL, vol REAL, z_svi REAL, regime_break INTEGER, liquidity REAL, scarcity REAL, mom90 REAL, PRIMARY KEY(card_id, as_of));`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mutation_audit (id TEXT PRIMARY KEY, ts TEXT, actor_type TEXT, actor_id TEXT, action TEXT, resource TEXT, resource_id TEXT, details TEXT);`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT, secret_hash TEXT);`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_orders (id TEXT PRIMARY KEY, portfolio_id TEXT, created_at TEXT, status TEXT, objective TEXT, params TEXT, suggestions JSON, executed_at TEXT, executed_trades JSON);`).run();
-    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN number TEXT`).run(); } catch {}
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN set_id TEXT`).run(); } catch {}
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN tcgplayer_url TEXT`).run(); } catch {}
-    try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN cardmarket_url TEXT`).run(); } catch {}
-    const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all().catch(()=>({ results: [{ n: 0 }] } as any));
-    const n = Number(count.results?.[0]?.n) || 0;
-    if (n === 0) {
-      const today = new Date().toISOString().slice(0,10);
-      await env.DB.prepare(`INSERT INTO cards (id,name,set_name,rarity,image_url,types,number,set_id) VALUES ('card1','Test Card','Test Set','Promo','https://placehold.co/160x223?text=PK','Fire','001','set1');`).run();
-      await env.DB.prepare(`INSERT OR REPLACE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES ('card1', ?, 12.34, 11.11, datetime('now'))`).bind(today).run();
-      await env.DB.prepare(`INSERT OR REPLACE INTO signals_daily (card_id, as_of, score, signal, reasons, edge_z, exp_ret, exp_sd) VALUES ('card1', ?, 1.5, 'BUY', 'test seed', 0.5, 0.02, 0.05)`).bind(today).run();
-      try { await env.DB.prepare(`INSERT OR REPLACE INTO signal_components_daily (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break) VALUES ('card1', ?, 0.1, 0.2, -0.05, 0.3, 1.2, 0)`).bind(today).run(); } catch {}
+  const anyDb = env.DB as any;
+  if (anyDb.__SEED_DONE) return;
+  if (anyDb.__SEED_LOCK) { await anyDb.__SEED_LOCK; return; }
+  anyDb.__SEED_LOCK = (async () => {
+    try {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, name TEXT, set_name TEXT, rarity TEXT, image_url TEXT, types TEXT);`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS prices_daily (card_id TEXT, as_of DATE, price_usd REAL, price_eur REAL, src_updated_at TEXT, PRIMARY KEY(card_id, as_of));`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id, as_of));`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signal_components_daily (card_id, as_of, ts7 REAL, ts30 REAL, dd REAL, vol REAL, z_svi REAL, regime_break INTEGER, liquidity REAL, scarcity REAL, mom90 REAL, PRIMARY KEY(card_id, as_of));`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS mutation_audit (id TEXT PRIMARY KEY, ts TEXT, actor_type TEXT, actor_id TEXT, action TEXT, resource TEXT, resource_id TEXT, details TEXT);`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT, secret_hash TEXT);`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_orders (id TEXT PRIMARY KEY, portfolio_id TEXT, created_at TEXT, status TEXT, objective TEXT, params TEXT, suggestions JSON, executed_at TEXT, executed_trades JSON);`).run();
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
+      try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN number TEXT`).run(); } catch {}
+      try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN set_id TEXT`).run(); } catch {}
+      try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN tcgplayer_url TEXT`).run(); } catch {}
+      try { await env.DB.prepare(`ALTER TABLE cards ADD COLUMN cardmarket_url TEXT`).run(); } catch {}
+      const count = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all().catch(()=>({ results: [{ n: 0 }] } as any));
+      const n = Number(count.results?.[0]?.n) || 0;
+      if (n === 0) {
+        const today = new Date().toISOString().slice(0,10);
+        await env.DB.prepare(`INSERT INTO cards (id,name,set_name,rarity,image_url,types,number,set_id) VALUES ('card1','Test Card','Test Set','Promo','https://placehold.co/160x223?text=PK','Fire','001','set1');`).run();
+        await env.DB.prepare(`INSERT OR REPLACE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES ('card1', ?, 12.34, 11.11, datetime('now'))`).bind(today).run();
+        await env.DB.prepare(`INSERT OR REPLACE INTO signals_daily (card_id, as_of, score, signal, reasons, edge_z, exp_ret, exp_sd) VALUES ('card1', ?, 1.5, 'BUY', 'test seed', 0.5, 0.02, 0.05)`).bind(today).run();
+        try { await env.DB.prepare(`INSERT OR REPLACE INTO signal_components_daily (card_id, as_of, ts7, ts30, dd, vol, z_svi, regime_break) VALUES ('card1', ?, 0.1, 0.2, -0.05, 0.3, 1.2, 0)`).bind(today).run(); } catch {}
+      }
+      anyDb.__SEED_DONE = true;
+    } catch (e) {
+      log('ensure_test_seed_error', { error: String(e) });
     }
-    SEED_DONE = true; // mark after successful execution
-  } catch (e) {
-    log('ensure_test_seed_error', { error: String(e) });
-  }
+  })();
+  await anyDb.__SEED_LOCK;
+  anyDb.__SEED_LOCK = null;
 }
 
 // Ensure the alerts_watch table (public price alerts) exists; minimal shape used by routes & alert runner.
