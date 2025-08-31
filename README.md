@@ -1,88 +1,110 @@
-# PokeQuant (MVP)
+# PokeQuant
 
-Edge analytics & signals for premium Pokémon TCG cards. Cloudflare Worker + D1.
+Edge analytics & factor / signal intelligence for premium Pokémon TCG cards.
 
-## Quick Start
+Status: ALPHA (backend feature-complete for initial trials; frontend undergoing full redesign).
 
-```bash
-npm install
-make dev      # run worker locally
-make test     # vitest
-make typecheck
-make lint
-make smoke    # hits local endpoints
+## 0. What This Is
+An analytics service that ingests card price & search interest data, computes multi-factor signals, and provides portfolio & alert tooling over an edge (Cloudflare Worker + D1) stack with low-latency public APIs.
+
+## 1. Quick Start (Developer)
 ```
-
+npm install
+make dev          # local worker (wrangler)
+make test         # vitest suite (isolated D1 per spec)
+make lint
+make typecheck
+make smoke BASE=http://127.0.0.1:8787
+```
 Deploy:
-```bash
+```
 make deploy
 ```
 
-Environment variables: copy `.env.example` and set via Wrangler or Cloudflare dashboard.
+### Environment / Secrets
+Set via Wrangler secrets / vars:
+- ADMIN_TOKEN, ADMIN_TOKEN_2 (dual admin auth)
+- INGEST_TOKEN (GitHub Actions trends ingest)
+- EMAIL_PROVIDER_API_KEY (planned – not yet required)
+- WEBHOOK_SIGNING_SECRET (planned – for signed deliveries)
 
-Rate limit overrides (optional):
-- RL_SEARCH_LIMIT / RL_SEARCH_WINDOW_SEC (default 30 per 300s)
-- RL_SUBSCRIBE_LIMIT / RL_SUBSCRIBE_WINDOW_SEC (default 5 per 86400s)
-- RL_ALERT_CREATE_LIMIT / RL_ALERT_CREATE_WINDOW_SEC (default 10 per 86400s)
+Rate limit overrides:
+RL_SEARCH_LIMIT / RL_SEARCH_WINDOW_SEC
+RL_SUBSCRIBE_LIMIT / RL_SUBSCRIBE_WINDOW_SEC
+RL_ALERT_CREATE_LIMIT / RL_ALERT_CREATE_WINDOW_SEC
 
-Provide as Wrangler vars to tune without code changes.
+### Auth Headers
+Admin: `x-admin-token`
+Ingest: `x-ingest-token`
+Portfolio: `x-portfolio-id`, `x-portfolio-secret`
 
-### Auth & Security
+## 2. Architecture (High Level)
+Cloudflare Worker (TypeScript)
+D1 (SQLite) for operational store (migrations in `src/migrations.ts`)
+Nightly pipeline (cron) → universe ingest, prices snapshot, signals, factor analytics, alerts, retention
+Public + admin routes (modular under `src/routes/*`)
+Metrics & latency captured in D1 (EMAs) surfaced via `/admin/metrics`
 
-Header tokens:
+See `docs/ARCHITECTURE.md` for diagram & deeper notes.
 
-- Admin endpoints: `x-admin-token: $ADMIN_TOKEN`
-- Ingestion mock `/admin/ingest/prices`: `x-ingest-token: $INGEST_TOKEN`
-- Portfolio private endpoints (`/portfolio/pnl`, exposure history, attribution): `x-portfolio-id`, `x-portfolio-secret`
+## 3. Current Feature Matrix (Alpha)
+Core ingestion (universe, prices, SVI) ✔
+Signals & factor analytics (IC, returns, risk, explainability) ✔
+Portfolio lots, PnL, exposure, attribution, scenario ✔
+Alerts creation, evaluation, email/webhook simulation ✔ (real provider pending)
+Webhooks (signed simulation, replay verify) ✔ (real dispatch off by default)
+Email logging simulated ✔ (real provider pending)
+Search + metadata (sets, rarities, types) ✔
+Caching (ETag + short TTL cache-control) ✔
+Rate limiting (search, subscribe, alert create) ✔ (expansion planned)
 
-Secrets originate when creating a portfolio (store securely). OpenAPI declares securitySchemes (AdminToken, IngestToken, PortfolioAuth) for these.
+Frontend: basic static pages (to be replaced) ✖ (rewrite in progress – see `docs/FRONTEND_PLAN.md`).
 
-Rotate by updating env vars and re-deploying.
+## 4. Production Readiness Gaps
+Frontend UX overhaul
+Real email provider integration & bounce webhook
+Webhook real delivery + HMAC signature + replay guard hardening
+Structured logging & per-route error/latency dashboards
+Granular error metrics (4xx vs 5xx) and alerting thresholds
+Coverage badge & ratchet (CI gate)
+Architecture + Runbook docs finalization
+Security review (headers, secrets rotation automation)
 
-## API
-See `openapi.yaml` and `docs/API_CONTRACT.md`.
+## 5. Roadmap (Alpha → Beta → GA)
+See `docs/ROADMAP.md` for dated milestones.
 
-## CI
-GitHub Actions workflow runs:
-- install deps (node cache by lock hash)
-- contract check (`npm run contract`)
-- version sync check (`npm run version-check`)
-- lint, typecheck, tests
-Fail-fast on contract or version drift to keep spec, code, and version aligned.
+Immediate (Week 1): email provider, webhook signature, error metrics, coverage badge
+Short (Weeks 2–3): frontend rewrite, structured logging, rate limit expansion
+Beta Gate: production pipeline stability (30d), user feedback loops, onboarding docs
+GA: performance benchmarks, SLA metrics, billing / access tiering (if pursued)
 
-## Roadmap (next increments)
-Refined goals:
-- Historical backfill tooling for missing days
-- Portfolio performance time-series endpoint (extended attribution & /portfolio/pnl public docs)
-- Alert delivery integration (email/send provider)
-- Enhanced signal explainability (component breakdown in API)
-- Coverage threshold increases (ratchet up over time)
+## 6. API / Contract
+Canonical: `openapi.yaml` + `docs/API_CONTRACT.md`. All public/admin changes MUST pass contract check (`npm run contract`).
 
-### Monitoring Checklist (MVP)
+## 7. CI & Quality Gates
+`ci.yml` → install, contract check, version check, lint, typecheck, tests, smoke preview
+`smoke.yml` (prod smoke) conditional on public base URL
+Planned additions: coverage upload + badge, performance smoke (latency budget) gate
 
-- Daily cron success: confirm /admin/metrics latency + recent factor analytics rows.
-- Error rate: count of `req_error` (future planned metric).
-- Cache effectiveness: `cache_hit_ratios` in /admin/metrics.
-- Retention job: run /admin/retention weekly and review deleted counts.
-- Portfolio usage: audit trail entries `resource=lot` for growth trends.
+## 8. Operations (Preview)
+Runbook: `docs/OPERATIONS_RUNBOOK.md` (cron failures, backlog recovery, retention tuning)
+Metrics: `/admin/metrics` (counters + latency EMAs). Expand soon with error classes.
+Retention: configurable table policies (see retention config endpoints) – review weekly.
 
-### Portfolio Secrets
+## 9. Security & Secrets
+All tokens hashed or rotated; portfolio secrets hashed (legacy plaintext phased out). Provide rotation endpoints for portfolio; admin & ingest rotate via redeploy.
+Planned: automatic key rotation guidelines + optional KMS-backed secret fetch.
 
-Creating a portfolio (`POST /portfolio/create`) returns `{ id, secret }`. Store the secret securely client-side; all subsequent calls include both headers:
+## 10. Frontend Overhaul
+Pending rewrite (framework evaluation: SvelteKit vs Next.js static export). See `docs/FRONTEND_PLAN.md` for acceptance criteria & component spec.
 
-```
-x-portfolio-id: <id>
-x-portfolio-secret: <secret>
-```
+## 11. Contributing (Internal Alpha)
+Update `docs/ENGINEERING_SNAPSHOT.md` before merging.
+Add / update tests for every new route or breaking change.
+Do not remove documented fields without version bump & contract update.
 
-Secrets are hashed at rest (SHA-256). Legacy plaintext column remains temporarily for backward compatibility and is backfilled lazily with a hash on first authenticated use.
+## 12. License
+Proprietary (decide OSS posture later).
 
-Rotate via `POST /portfolio/rotate-secret` (send current headers). Response returns `{ ok, id, secret }` with the new secret; persist it immediately. Old secret stops working once rotation succeeds.
-
-Compromise procedure:
-1. Call rotate endpoint with current secret.
-2. Replace stored secret locally.
-3. (Optional) Review audit entries (`/admin/audit?resource=portfolio&action=rotate_secret`) if you have admin access.
-
-## License
-Proprietary (set desired license).
+---
+For the fastest orientation read: ROADMAP → ARCHITECTURE → OPERATIONS_RUNBOOK.
