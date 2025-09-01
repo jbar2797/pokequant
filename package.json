@@ -1,7 +1,7 @@
 {
 		"name": "flat-art-5614",
 		"type": "module",
-		"version": "0.8.4",
+				"version": "0.8.5",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",

@@ -59,15 +59,32 @@ import './routes/explain';
 import './routes/slo';
 import './routes/admin_extras';
 import './routes/test_helpers';
+import './routes/dashboard';
 import { router } from './router';
 let INDICES_DONE = false;
 // Initialize signals provider (supports selection via env.SIGNALS_PROVIDER)
 try {
   const sp = (globalThis as any).__SIGNALS_PROVIDER_INITED;
   if (!sp) {
-    // Future: dynamic import for proprietary providers based on name.
-    setSignalsProvider(DefaultSignalsProvider);
+    const provName = (globalThis as any).__SIGNALS_PROVIDER_NAME || (typeof (globalThis as any).SIGNALS_PROVIDER === 'string' ? (globalThis as any).SIGNALS_PROVIDER : undefined);
+    // Default registry just has built-in provider for now.
+    let provider = DefaultSignalsProvider;
+    if (provName && provName !== DefaultSignalsProvider.name) {
+      // Attempt dynamic import pattern: ./signals/providers/<name>.ts exporting provider instance as default.
+      // This is best-effort; if it fails we fall back silently to default (observability via log).
+      try {
+        const slug = provName.toLowerCase().replace(/[^a-z0-9_\-]+/g,'');
+        const mod = await import(`./signals/providers/${slug}`);
+        if (mod && (mod.default || mod.provider)) {
+          provider = (mod.default || mod.provider);
+        }
+      } catch (e) {
+        try { console.warn('dynamic_signals_provider_load_failed', provName, e); } catch {/* ignore */}
+      }
+    }
+    setSignalsProvider(provider);
     (globalThis as any).__SIGNALS_PROVIDER_INITED = true;
+    (globalThis as any).__SIGNALS_PROVIDER_NAME = provider.name;
   }
 } catch {/* ignore */}
 async function ensureIndices(env: Env) {
