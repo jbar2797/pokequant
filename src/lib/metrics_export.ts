@@ -70,11 +70,19 @@ export function buildPrometheusMetricsExport(rows: MetricRow[]): string {
     }
   }
   if (Object.keys(sloCounters).length) {
+    // Legacy raw counter name export for tests/back-compat (flattened name req_slo_route_<slug>_{good|breach})
+    body += '# HELP req_slo_route Legacy per-route SLO classification counters (good/breach)\n# TYPE req_slo_route counter\n';
+    for (const slug of Object.keys(sloCounters).sort()) {
+      const { good, breach } = sloCounters[slug];
+      const flatSlug = sanitize(slug);
+      body += `req_slo_route_${flatSlug}_good ${good}\n`;
+      body += `req_slo_route_${flatSlug}_breach ${breach}\n`;
+    }
+    // Burn ratio gauge
     body += '# HELP pq_slo_burn Daily SLO burn ratio per route (breach/(good+breach))\n# TYPE pq_slo_burn gauge\n';
     for (const slug of Object.keys(sloCounters).sort()) {
       const { good, breach } = sloCounters[slug];
-      const total = good + breach;
-      const ratio = total ? breach/total : 0;
+      const total = good + breach; const ratio = total ? breach/total : 0;
       body += `pq_slo_burn{route="${sanitize(slug)}"} ${ratio.toFixed(6)}\n`;
     }
   }
