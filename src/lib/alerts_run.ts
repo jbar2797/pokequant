@@ -61,7 +61,8 @@ export async function runAlerts(env: Env) {
       for (const w of (wrs.results||[]) as any[]) {
         for (const alert of firedAlerts) {
           const payload = { type:'alert.fired', alert };
-          const payloadText = JSON.stringify(payload);
+          let payloadText: string;
+          try { payloadText = JSON.stringify(payload); } catch { payloadText = '{"type":"alert.fired"}'; }
           const nonceRaw = crypto.randomUUID();
           const nonce = nonceRaw.replace(/-/g,''); // spec: UUID w/o dashes
           const ts = Math.floor(Date.now()/1000);
@@ -117,7 +118,7 @@ export async function runAlerts(env: Env) {
             try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN planned_backoff_ms INTEGER`).run(); } catch {}
             try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN signature TEXT`).run(); } catch {}
             try { await env.DB.prepare(`ALTER TABLE webhook_deliveries ADD COLUMN sig_ts INTEGER`).run(); } catch {}
-            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms, nonce, planned_backoff_ms) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?)`).bind(did, w.id, 'alert.fired', JSON.stringify(payload), ok, status, error||null, attempt, duration||null, nonce, plannedBackoff).run();
+            await env.DB.prepare(`INSERT INTO webhook_deliveries (id, webhook_id, event, payload, ok, status, error, created_at, attempt, duration_ms, nonce, planned_backoff_ms) VALUES (?,?,?,?,?,?,?,datetime('now'),?,?,?,?)`).bind(did, w.id, 'alert.fired', payloadText, ok, status, error||null, attempt, duration||null, nonce, plannedBackoff).run();
             // Update signature columns if present
             if (signature) {
               try { await env.DB.prepare(`UPDATE webhook_deliveries SET signature=?, sig_ts=? WHERE id=?`).bind(signature, ts, did).run(); } catch {/* ignore */}

@@ -300,14 +300,20 @@ export function registerAdminRoutes() {
             lines.push(`pq_latency{name="${base}",quantile="p95"} ${p95.toFixed(2)}`);
         }
       }
-      // SLO burn gauges
+      // SLO burn gauges + legacy raw counters (req_slo_route_<slug>_{good,breach}) for back-compat tests
       if (Object.keys(sloMap).length) {
+        lines.push('# HELP req_slo_route Legacy per-route SLO classification counters');
+        lines.push('# TYPE req_slo_route counter');
+        for (const slug of Object.keys(sloMap).sort()) {
+          const { good, breach } = sloMap[slug];
+          lines.push(`req_slo_route_${slug}_good ${good}`);
+          lines.push(`req_slo_route_${slug}_breach ${breach}`);
+        }
         lines.push('# HELP pq_slo_burn Daily SLO burn ratio per route');
         lines.push('# TYPE pq_slo_burn gauge');
         for (const slug of Object.keys(sloMap).sort()) {
           const { good, breach } = sloMap[slug];
-          const total = good + breach;
-          const ratio = total ? breach/total : 0;
+          const total = good + breach; const ratio = total ? breach/total : 0;
           lines.push(`pq_slo_burn{route="${slug}"} ${ratio.toFixed(6)}`);
         }
       }

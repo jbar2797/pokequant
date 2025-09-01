@@ -282,7 +282,7 @@ export async function evaluateSloBurn(env: Env, opts?: { shortMinutes?: number; 
             await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER);`).run();
             const wrs = await env.DB.prepare(`SELECT id,url,secret FROM webhook_endpoints WHERE active=1`).all();
             const payloadObj = { type:'slo_burn.alert', route: slug, ratio, threshold, min_breach: minBreach };
-            const payloadText = JSON.stringify(payloadObj);
+            let payloadText: string; try { payloadText = JSON.stringify(payloadObj); } catch { payloadText = '{"type":"slo_burn.alert"}'; }
             const MAX_ATTEMPTS = 3;
             for (const w of (wrs.results||[]) as any[]) {
               const nonceRaw = crypto.randomUUID();
