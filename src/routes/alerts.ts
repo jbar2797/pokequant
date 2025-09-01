@@ -11,29 +11,28 @@ import { AlertCreateSchema, validate } from '../lib/validation';
 export function registerAlertRoutes(){
   router
     .add('POST','/alerts/create', async ({ env, req, url }) => {
-      // Ensure core + audit tables so audit(create) doesn't fail silently
-      await ensureTestSeed(env);
-      await ensureAlertsTable(env);
+      // Parse & validate first so missing-field errors short-circuit before any table work (reduces chance of runtime I/O issues under heavy parallel tests)
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
-  const body: any = await req.json().catch(()=>({}));
-  const parsed = validate(AlertCreateSchema, body);
-  if (!parsed.ok) {
-        // Maintain backward-compatible specific error codes for tests
+      const body: any = await req.json().catch(()=>({}));
+      const parsed = validate(AlertCreateSchema, body);
+      if (!parsed.ok) {
         const hasEmail = typeof body.email === 'string' && body.email.length > 0;
         const hasCard = typeof body.card_id === 'string' && body.card_id.length > 0;
-  if (!hasEmail || !hasCard) return err(ErrorCodes.EmailAndCardIdRequired, 400);
-        // Threshold specific legacy error
+        if (!hasEmail || !hasCard) return err(ErrorCodes.EmailAndCardIdRequired, 400);
         if (body.threshold === undefined || body.threshold === null || Number.isNaN(Number(body.threshold))) {
           return err(ErrorCodes.ThresholdInvalid, 400);
         }
         return err(ErrorCodes.InvalidBody, 400, { details: parsed.errors });
-  }
-  const { email, card_id, kind, threshold, snooze_minutes } = parsed.data;
-  const snoozeMinutes = snooze_minutes == null ? undefined : snooze_minutes;
+      }
+      // Only ensure schema after validation passes
+      await ensureTestSeed(env);
+      await ensureAlertsTable(env);
+      const { email, card_id, kind, threshold, snooze_minutes } = parsed.data;
+      const snoozeMinutes = snooze_minutes == null ? undefined : snooze_minutes;
       const rlKey = `alert:${ip}:${email}`;
       const cfg = getRateLimits(env).alertCreate;
       const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-  if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return err(ErrorCodes.RateLimited, 429, { retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
+      if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return err(ErrorCodes.RateLimited, 429, { retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       const id = crypto.randomUUID();
       const tokenBytes = new Uint8Array(16); crypto.getRandomValues(tokenBytes);
       const manage_token = Array.from(tokenBytes).map(b=>b.toString(16).padStart(2,'0')).join('');

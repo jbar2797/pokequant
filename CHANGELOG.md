@@ -5,6 +5,8 @@
 - Retention health endpoint `/admin/retention/health` and retention age gauge metrics `retention.age.*.days`.
 ### Fixed
 - Restored backup gzip logic after regression; added integrity safeguards and R2 meta update reliability.
+- Always include webhook `payload` in `/admin/webhooks/deliveries` output (eliminates undefined payload flake in signature verification test).
+- Reordered `/alerts/create` validation before schema ensures to reduce early-error DB work (mitigates rare `Network connection lost` test failure).
 ### Changed
 - Documentation updates (API_CONTRACT, ENGINEERING_SNAPSHOT) reflecting new SLO + retention features.
 
