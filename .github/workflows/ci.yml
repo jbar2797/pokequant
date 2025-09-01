@@ -34,8 +34,7 @@ jobs:
       - name: Generate coverage badge
         run: npm run coverage:badge
       - name: Coverage summary
-        run: |
-          node -e "const fs=require('fs');const s=JSON.parse(fs.readFileSync('coverage/coverage-summary.json','utf8'));const fmt=k=>s.total[k].pct.toFixed(2)+'%';const out=`## Coverage Summary\\nLines: ${fmt('lines')}\\nStatements: ${fmt('statements')}\\nFunctions: ${fmt('functions')}\\nBranches: ${fmt('branches')}\\n` ; fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,out); console.log(out);"
+        run: node scripts/coverage-summary.js
       - name: Upload coverage artifacts
         if: always()
         uses: actions/upload-artifact@v4
