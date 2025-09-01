@@ -27,7 +27,7 @@ router
     await ensureWatchlist(env); const ip = req.headers.get('cf-connecting-ip') || 'anon';
     const cfg = getRateLimits(env).publicRead; const rl = await rateLimit(env, `pub:watchlist:${ip}`, cfg.limit, cfg.window);
     if (!rl.allowed) { await incMetric(env,'rate_limited.public.watchlist'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
-    const rs = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily) SELECT w.card_id AS id, c.name, c.set_name, c.rarity, c.image_url, s.signal, ROUND(s.score,1) AS score, (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd, w.created_at FROM watchlist w LEFT JOIN cards c ON c.id=w.card_id LEFT JOIN signals_daily s ON s.card_id=w.card_id, latest WHERE s.as_of=latest.d ORDER BY w.created_at DESC LIMIT 200`).all();
+  const rs = await env.DB.prepare(`WITH latest AS (SELECT MAX(as_of) AS d FROM signals_daily) SELECT w.card_id AS id, c.name, c.set_name, c.rarity, c.image_url, s.signal, ROUND(s.score,1) AS score, (SELECT price_usd FROM prices_daily p WHERE p.card_id=c.id ORDER BY as_of DESC LIMIT 1) AS price_usd, w.created_at FROM watchlist w LEFT JOIN cards c ON c.id=w.card_id LEFT JOIN latest ON 1=1 LEFT JOIN signals_daily s ON s.card_id=w.card_id AND s.as_of=latest.d ORDER BY w.created_at DESC LIMIT 200`).all();
     return json({ ok:true, items: rs.results ?? [] });
   })
   // Add card to watchlist
