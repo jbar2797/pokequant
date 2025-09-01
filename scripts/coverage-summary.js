@@ -3,11 +3,6 @@
 import fs from 'fs';
 
 function main() {
-  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
-  if (!summaryFile) {
-    console.error('GITHUB_STEP_SUMMARY env var not set');
-    process.exit(1);
-  }
   const raw = fs.readFileSync('coverage/coverage-summary.json', 'utf8');
   const json = JSON.parse(raw);
   const fmt = (k) => json.total[k].pct.toFixed(2) + '%';
@@ -16,7 +11,12 @@ function main() {
     `Statements: ${fmt('statements')}\n` +
     `Functions: ${fmt('functions')}\n` +
     `Branches: ${fmt('branches')}\n`;
-  fs.appendFileSync(summaryFile, out);
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryFile) {
+    fs.appendFileSync(summaryFile, out);
+  } else {
+    console.log('(local) GITHUB_STEP_SUMMARY not set; printing summary to stdout');
+  }
   console.log(out);
 }
 

@@ -1,5 +1,6 @@
 import { router } from '../router';
-import { json } from '../lib/http';
+import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import type { Env } from '../lib/types';
 import { audit } from '../lib/audit';
 import { computeAndStoreSignals } from '../lib/signals';
@@ -21,13 +22,13 @@ function isAdmin(env: Env, req: Request) {
 router
   // Backfill jobs list
   .add('GET','/admin/backfill', async ({ env, req }) => {
-    if (!isAdmin(env, req)) return json({ ok:false, error:'forbidden' },403);
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     const rs = await env.DB.prepare(`SELECT id, created_at, dataset, from_date, to_date, days, status, processed, total, error FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
     return json({ ok:true, rows: rs.results||[] });
   })
   // Diag snapshot
   .add('GET','/admin/diag', async ({ env, req }) => {
-    if (!isAdmin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     const [svi14, pr1, pr7, sigLast, lp, ls, lsv] = await Promise.all([
       env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM svi_daily GROUP BY card_id HAVING COUNT(*) >= 14)`).all(),
       env.DB.prepare(`SELECT COUNT(*) AS n FROM (SELECT card_id FROM prices_daily GROUP BY card_id HAVING COUNT(*) >= 1)`).all(),
@@ -52,15 +53,15 @@ router
   })
   // Force legacy portfolio auth
   .add('POST','/admin/portfolio/force-legacy', async ({ env, req }) => {
-    if (!isAdmin(env, req)) return json({ ok:false, error:'forbidden' },403);
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const pid = (body.id||'').toString();
-    if (!pid) return json({ ok:false, error:'id_required' },400);
+    if (!pid) return err(ErrorCodes.IdRequired,400);
     try {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolios (id TEXT PRIMARY KEY, secret TEXT NOT NULL, created_at TEXT);`).run();
       try { await env.DB.prepare(`ALTER TABLE portfolios ADD COLUMN secret_hash TEXT`).run(); } catch {/* ignore */}
       const row = await env.DB.prepare(`SELECT secret, secret_hash FROM portfolios WHERE id=?`).bind(pid).all();
-      if (!row.results?.length) return json({ ok:false, error:'not_found' },404);
+      if (!row.results?.length) return err(ErrorCodes.NotFound,404);
       const hadHash = !!(row.results[0] as any).secret_hash;
       if (hadHash) await env.DB.prepare(`UPDATE portfolios SET secret_hash=NULL WHERE id=?`).bind(pid).run();
       await audit(env, { actor_type:'admin', action:'force_legacy', resource:'portfolio', resource_id:pid, details:{ hadHash } });
@@ -69,7 +70,7 @@ router
   })
   // Fast run (seed + signals only)
   .add('POST','/admin/run-fast', async ({ env, req }) => {
-    if (!isAdmin(env, req)) return json({ ok:false, error:'forbidden' },403);
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     try {
       const today = new Date(); const todayStr = today.toISOString().slice(0,10);
       const cardCount = await env.DB.prepare(`SELECT COUNT(*) AS n FROM cards`).all();
@@ -98,7 +99,7 @@ router
   })
   // Full pipeline (lightweight placeholder uses integrity snapshot only for now)
   .add('POST','/admin/run-now', async ({ env, req }) => {
-    if (!isAdmin(env, req)) return json({ ok:false, error:'forbidden' },403);
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     try {
       const phases: { name:string; fn:()=>Promise<any> }[] = [
         { name:'signals', fn: ()=> computeAndStoreSignals(env, { limit: 250 }) },
@@ -126,7 +127,7 @@ router
   })
   // Factor correlations (kept for backwards compatibility tests)
   .add('GET','/admin/factor-correlations', async ({ env, req, url }) => {
-    if (!isAdmin(env, req)) return json({ ok:false, error:'forbidden' },403);
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     const look = Math.min(180, Math.max(5, parseInt(url.searchParams.get('days')||'60',10)));
     try {
       const rs = await env.DB.prepare(`SELECT as_of, factor, ret FROM factor_returns WHERE as_of >= date('now', ?) ORDER BY as_of ASC`).bind(`-${look-1} day`).all();

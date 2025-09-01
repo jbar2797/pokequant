@@ -47,15 +47,18 @@ graph LR
 - Alerts + ingestion operations inside try/catch with metrics on failures.
 
 ## Observability
-Already implemented:
-- Structured JSON logging with correlation IDs (`x-request-id`) automatically propagated (see `src/lib/log.ts`).
-- Request metrics: total, status class buckets, latency EMAs (p50/p95), histogram buckets.
-- Alert/email/webhook metrics (queued, sent, retry, error, escalation).
- - Per-error code & HTTP status counters (`error.<code>`, `error_status.<status>`) emitted centrally in `err()` helper.
-Planned next:
-- Route-level error taxonomy grouping / aggregation dashboards.
-- Metrics export adapter (Prometheus scrape via push or log-based shipping).
-- Multi-region read replicas (post-GA) with eventual consistency strategy.
+Implemented:
+* Structured JSON logging with correlation IDs (`x-request-id`) automatically propagated (see `src/lib/log.ts`) and basic redaction of sensitive field names.
+* Request metrics: per-route counters, status family counters, latency EMAs (p50/p95), latency bucket counters.
+* Dynamic per-route SLO classification metrics with rolling breach ratio gauge.
+* Alert, email, webhook, retention purge, and ingestion job metrics.
+* Per-error code & HTTP status family counters (`error.<code>`, `error_status.<status>`), enumerated centrally in `src/lib/errors.ts` via the `err()` helper.
+* Admin diagnostics endpoints: `/admin/metrics`, `/admin/latency`, `/admin/latency-buckets`, `/admin/metrics/export` (Prometheus), and `/admin/errors` (lists all known error codes with current counts).
+
+Planned / Future:
+* Aggregated dashboard (external) consuming Prometheus export.
+* Structured log shipping adapter (R2 or external collector) + enhanced redaction policy.
+* Multi-region read replicas (post-GA) with eventual consistency strategy.
 
 ### Dynamic Per-Route SLOs
 - Table `slo_config(route TEXT PRIMARY KEY, threshold_ms INTEGER, updated_at TEXT)` defines latency SLO thresholds per normalized route slug (e.g. `/api/cards` → `api_cards`).

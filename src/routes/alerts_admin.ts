@@ -1,5 +1,6 @@
 import { router } from '../router';
 import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import type { Env } from '../lib/types';
 import { runAlerts } from '../lib/alerts_run';
 import { ensureAlertsTable, getAlertThresholdCol } from '../lib/data';
@@ -12,7 +13,7 @@ function admin(env: Env, req: Request) { const t=req.headers.get('x-admin-token'
 export function registerAdminAlertRoutes() {
   router
     .add('POST','/admin/run-alerts', async ({ env, req }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden,403);
       try {
         const gAny: any = globalThis as any;
         if (!gAny.__RUN_ALERTS_STATE) gAny.__RUN_ALERTS_STATE = { promise: null as Promise<any>|null, last: 0 };
@@ -27,7 +28,7 @@ export function registerAdminAlertRoutes() {
       } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     })
     .add('GET','/admin/alerts', async ({ env, req, url }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden,403);
       await ensureAlertsTable(env);
       const email = (url.searchParams.get('email')||'').trim();
       const active = url.searchParams.get('active');
@@ -42,7 +43,7 @@ export function registerAdminAlertRoutes() {
       return json({ ok:true, rows: rs.results||[] });
     })
     .add('GET','/admin/alerts/stats', async ({ env, req }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden,403);
       await ensureAlertsTable(env);
       const rs = await env.DB.prepare(`SELECT active, suppressed_until, fired_count FROM alerts_watch`).all();
       let total=0, activeCount=0, suppressed=0; let ge5=0, ge10=0, ge25=0;
@@ -54,7 +55,7 @@ export function registerAdminAlertRoutes() {
       return json({ ok:true, total, active: activeCount, suppressed, active_unsuppressed: activeCount - suppressed, escalation:{ ge5, ge10, ge25 } });
     })
     .add('POST','/admin/alert-queue/send', async ({ env, req }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden,403);
       const t0 = Date.now();
       try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS alert_email_queue (id TEXT PRIMARY KEY, created_at TEXT, email TEXT, card_id TEXT, kind TEXT, threshold_usd REAL, status TEXT, sent_at TEXT, attempt_count INTEGER DEFAULT 0, last_error TEXT);`).run(); } catch {}
       const rs = await env.DB.prepare(`SELECT id FROM alert_email_queue WHERE status='queued' ORDER BY created_at ASC LIMIT 50`).all();

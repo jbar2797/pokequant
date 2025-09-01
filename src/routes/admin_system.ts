@@ -2,6 +2,7 @@ import type { Env } from '../lib/types';
 import { respondJson, isAdminAuthorized } from '../lib/http_runtime';
 import { APP_VERSION, BUILD_COMMIT } from '../version';
 import { listMigrations } from '../migrations';
+import { ErrorCodes } from '../lib/errors';
 import { purgeOldData } from '../lib/retention';
 import { incMetricBy, recordLatency } from '../lib/metrics';
 import { audit } from '../lib/audit';
@@ -12,18 +13,18 @@ import { computeIntegritySnapshot } from '../lib/integrity';
 export async function handleAdminSystem(req: Request, env: Env, url: URL): Promise<Response|null> {
   // Version
   if (url.pathname === '/admin/version' && req.method === 'GET') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error:'forbidden' },403);
     return respondJson({ ok:true, version: APP_VERSION, build_commit: BUILD_COMMIT || (env as any).BUILD_COMMIT || undefined });
   }
   // Migrations list
   if (url.pathname === '/admin/migrations' && req.method === 'GET') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error: ErrorCodes.Forbidden },403);
     const rows = await listMigrations(env.DB);
     return respondJson({ ok:true, rows });
   }
   // Retention purge
   if (url.pathname === '/admin/retention' && req.method === 'POST') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error: ErrorCodes.Forbidden },403);
     let overrides: Record<string, number>|undefined;
     try {
       const body: any = await req.json().catch(()=> ({}));
@@ -47,12 +48,12 @@ export async function handleAdminSystem(req: Request, env: Env, url: URL): Promi
   }
   // Integrity snapshot
   if (url.pathname === '/admin/integrity' && req.method === 'GET') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error:'forbidden' },403);
     try { return respondJson(await computeIntegritySnapshot(env)); } catch (e:any) { return respondJson({ ok:false, error:String(e) },500); }
   }
   // Pipeline runs list
   if (url.pathname === '/admin/pipeline/runs' && req.method === 'GET') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error: ErrorCodes.Forbidden },403);
     try {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS pipeline_runs (id TEXT PRIMARY KEY, started_at TEXT, completed_at TEXT, status TEXT, error TEXT, metrics JSON);`).run();
       const rs = await env.DB.prepare(`SELECT id, started_at, completed_at, status, error FROM pipeline_runs ORDER BY started_at DESC LIMIT 20`).all();
@@ -61,7 +62,7 @@ export async function handleAdminSystem(req: Request, env: Env, url: URL): Promi
   }
   // Test insert helper
   if (url.pathname === '/admin/test-insert' && req.method === 'POST') {
-    if (req.headers.get('x-admin-token') !== (env as any).ADMIN_TOKEN) return respondJson({ ok:false, error:'forbidden' },403);
+  if (req.headers.get('x-admin-token') !== (env as any).ADMIN_TOKEN) return respondJson({ ok:false, error: ErrorCodes.Forbidden },403);
     const body: any = await req.json().catch(()=>({}));
     const table = (body.table||'').toString();
     const rows = Array.isArray(body.rows) ? body.rows : [];
@@ -86,13 +87,13 @@ export async function handleAdminSystem(req: Request, env: Env, url: URL): Promi
   }
   // Factor config CRUD
   if (url.pathname === '/admin/factors' && req.method === 'GET') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error: ErrorCodes.Forbidden },403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS factor_config (factor TEXT PRIMARY KEY, enabled INTEGER DEFAULT 1, display_name TEXT, created_at TEXT);`).run();
     const rs = await env.DB.prepare(`SELECT factor, enabled, display_name, created_at FROM factor_config ORDER BY factor ASC`).all();
     return respondJson({ ok:true, rows: rs.results||[] });
   }
   if (url.pathname === '/admin/factors' && req.method === 'POST') {
-    if (!isAdminAuthorized(req, env)) return respondJson({ ok:false, error:'forbidden' },403);
+  if (!(await isAdminAuthorized(req, env))) return respondJson({ ok:false, error: ErrorCodes.Forbidden },403);
     const body: any = await req.json().catch(()=>({}));
     const factor = (body.factor||'').toString().trim();
     const enabled = body.enabled === undefined ? 1 : (body.enabled ? 1 : 0);

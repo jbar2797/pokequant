@@ -1,4 +1,5 @@
-import { json } from '../lib/http';
+import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import { isoDaysAgo } from '../lib/date';
 import { incMetric, recordLatency } from '../lib/metrics';
 import { getRateLimits, rateLimit } from '../lib/rate_limit';
@@ -39,7 +40,7 @@ export function registerPublicRoutes(){
     .add('GET','/api/universe', async ({ env, req }) => {
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const cfg = getRateLimits(env).publicRead; const rl = await rateLimit(env, `pub:universe:${ip}`, cfg.limit, cfg.window);
-      if (!rl.allowed) { await incMetric(env,'rate_limited.public.universe'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) },429); }
+  if (!rl.allowed) { await incMetric(env,'rate_limited.public.universe'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       await ensureTestSeed(env); await incMetric(env,'universe.list');
       const sig = await baseDataSignature(env); const etag = `"${sig}:universe"`;
       if (req.headers.get('if-none-match') === etag) { await incMetric(env,'cache.hit.universe'); return new Response(null,{ status:304, headers:{ 'ETag': etag, 'Cache-Control':'public, max-age=60' } }); }
@@ -49,7 +50,7 @@ export function registerPublicRoutes(){
     .add('GET','/api/cards', async ({ env, req }) => {
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const cfg = getRateLimits(env).publicRead; const rl = await rateLimit(env, `pub:cards:${ip}`, cfg.limit, cfg.window);
-      if (!rl.allowed) { await incMetric(env,'rate_limited.public.cards'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) },429); }
+  if (!rl.allowed) { await incMetric(env,'rate_limited.public.cards'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       await ensureTestSeed(env); await incMetric(env,'cards.list');
       const sig = await baseDataSignature(env); const etag = `"${sig}:cards"`;
       if (req.headers.get('if-none-match') === etag) { await incMetric(env,'cache.hit.cards'); return new Response(null,{ status:304, headers:{ 'ETag': etag, 'Cache-Control':'public, max-age=30' } }); }
@@ -59,7 +60,7 @@ export function registerPublicRoutes(){
     .add('GET','/api/movers', async ({ env, req, url }) => {
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const cfg = getRateLimits(env).publicRead; const rl = await rateLimit(env, `pub:movers:${ip}`, cfg.limit, cfg.window);
-      if (!rl.allowed) { await incMetric(env,'rate_limited.public.movers'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) },429); }
+  if (!rl.allowed) { await incMetric(env,'rate_limited.public.movers'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       await ensureTestSeed(env); await incMetric(env,'cards.movers');
       const sig = await baseDataSignature(env); const etag = `"${sig}:movers"`;
       if (req.headers.get('if-none-match') === etag) { await incMetric(env,'cache.hit.movers'); return new Response(null,{ status:304, headers:{ 'ETag': etag, 'Cache-Control':'public, max-age=30' } }); }
@@ -70,7 +71,7 @@ export function registerPublicRoutes(){
     .add('GET','/api/card', async ({ env, req, url }) => {
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const cfg = getRateLimits(env).publicRead; const rl = await rateLimit(env, `pub:card:${ip}`, cfg.limit, cfg.window);
-      if (!rl.allowed) { await incMetric(env,'rate_limited.public.card'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) },429); }
+  if (!rl.allowed) { await incMetric(env,'rate_limited.public.card'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       await incMetric(env,'card.detail');
       const id = (url.searchParams.get('id') || '').trim(); let days = parseInt(url.searchParams.get('days') || '120', 10); if (!Number.isFinite(days) || days < 7) days = 120; if (days > 365) days = 365; const since = isoDaysAgo(days); if (!id) return json({ error: 'id required' }, 400);
       const [meta, p, g, v, c] = await Promise.all([
@@ -85,7 +86,7 @@ export function registerPublicRoutes(){
     .add('GET','/research/card-csv', async ({ env, req, url }) => {
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
       const cfg = getRateLimits(env).publicRead; const rl = await rateLimit(env, `pub:cardcsv:${ip}`, cfg.limit, cfg.window);
-      if (!rl.allowed) { await incMetric(env,'rate_limited.public.cardcsv'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) },429); }
+  if (!rl.allowed) { await incMetric(env,'rate_limited.public.cardcsv'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       const id = (url.searchParams.get('id') || '').trim(); let days = parseInt(url.searchParams.get('days') || '120', 10); if (!Number.isFinite(days) || days < 7) days = 120; if (days > 365) days = 365; const since = isoDaysAgo(days); if (!id) return json({ error: 'id required' }, 400);
       const [pRs, sRs, gRs, cRs] = await Promise.all([
         env.DB.prepare(`SELECT as_of AS d, price_usd AS usd, price_eur AS eur FROM prices_daily WHERE card_id=? AND as_of>=? ORDER BY as_of ASC`).bind(id, since).all(),

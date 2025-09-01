@@ -15,12 +15,27 @@ export function respondJson(data: any, status = 200, headers?: Record<string,str
 }
 
 // Admin auth gate (dual token support). Returns boolean; caller decides response.
-export function isAdminAuthorized(req: Request, env: Env): boolean {
+export async function isAdminAuthorized(req: Request, env: Env): Promise<boolean> {
   const at = req.headers.get('x-admin-token');
   if (!at) return false;
-  if (at === (env as any).ADMIN_TOKEN) return true;
-  if ((env as any).ADMIN_TOKEN_NEXT && at === (env as any).ADMIN_TOKEN_NEXT) return true;
-  return false;
+  const ok = (at === (env as any).ADMIN_TOKEN) || ((env as any).ADMIN_TOKEN_NEXT && at === (env as any).ADMIN_TOKEN_NEXT);
+  // Opportunistically record usage (hashed/fingerprinted) without blocking request
+  if (ok) {
+    try {
+      const fp = await fingerprintToken(at);
+      // fire and forget; ignore errors
+      env.DB.prepare(`INSERT INTO admin_token_usage (fingerprint, count, last_used_at) VALUES (?,1,datetime('now'))
+        ON CONFLICT(fingerprint) DO UPDATE SET count=count+1, last_used_at=datetime('now')`).bind(fp).run();
+    } catch {/* ignore */}
+  }
+  return !!ok;
+}
+
+// Lightweight SHA-256 hex fingerprint (not cryptographically secret inside runtime but avoids storing raw token)
+async function fingerprintToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(token);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  return [...new Uint8Array(digest)].map(b=> b.toString(16).padStart(2,'0')).join('').slice(0,32); // truncate to 128-bit hex for brevity
 }
 
 // Placeholder route wrapper for future metric instrumentation.

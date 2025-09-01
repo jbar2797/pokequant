@@ -1,5 +1,6 @@
 import { router } from '../router';
 import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import { incMetric } from '../lib/metrics';
 import { getRateLimits, rateLimit } from '../lib/rate_limit';
 import type { Env } from '../lib/types';
@@ -12,7 +13,7 @@ export function registerSearchRoutes(){
     const rlKey = `search:${ip}`;
     const cfg = getRateLimits(env).search;
     const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-    if (!rl.allowed) { await incMetric(env, 'rate_limited.search'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
+  if (!rl.allowed) { await incMetric(env, 'rate_limited.search'); return err(ErrorCodes.RateLimited,429,{ retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
     const q = (url.searchParams.get('q')||'').trim();
     const rarity = (url.searchParams.get('rarity')||'').trim();
     const setName = (url.searchParams.get('set')||'').trim();

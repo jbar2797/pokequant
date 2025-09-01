@@ -31,6 +31,14 @@ Actions:
 4. Add index / rewrite heavy queries (avoid full scans inside hot endpoints).
 
 ## 5. Rate Limiting Complaints
+## 5a. Elevated Error Rates
+Symptoms: Spike in 4xx/5xx counters or specific error codes.
+Actions:
+1. Check `/admin/errors` for top error codes today (counts per `error.<code>` and `error_status.<family>`).
+2. Correlate with `/admin/metrics` latency & SLO breach ratios. Rising 5xx often drives SLO breaches.
+3. Drill into recent deploy diff for affected route modules.
+4. Add temporary structured logging around suspected validation branch; redeploy; monitor reduction.
+
 Symptoms: Users hitting 429 unexpectedly.
 Actions:
 1. Confirm configured limits (env vars, defaults).

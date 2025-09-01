@@ -38,6 +38,17 @@ export const ErrorCodes = {
   , MetricRequired: 'metric_required'
   , IdAndTokenRequired: 'id_and_token_required'
   , IdAndMinutesRequired: 'id_and_minutes_required'
+  , EmailRequired: 'email_required'
+  , DatasetAndSourceRequired: 'dataset_and_source_required'
+  , InvalidTable: 'invalid_table'
+  , InvalidDays: 'invalid_days'
+  , IngestFailed: 'ingest_failed'
+  , TableNotAllowed: 'table_not_allowed'
+  , NoRows: 'no_rows'
+  , InvalidFactor: 'invalid_factor'
+  , LotIdRequired: 'lot_id_required'
+  , NoChanges: 'no_changes'
+  , InvalidStatus: 'invalid_status'
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];

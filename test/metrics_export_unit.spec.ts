@@ -22,5 +22,7 @@ describe('buildPrometheusMetricsExport', () => {
     expect(body).toMatch(/pq_latency_bucket\{name="api_universe",bucket="lt50"} 5/);
     expect(body).toMatch(/# TYPE pq_latency gauge/);
     expect(body).toMatch(/pq_latency\{name="lat_api_universe",quantile="p50"} 25.00/);
+    expect(body).toMatch(/# TYPE pq_error_codes gauge/);
+    expect(body).toMatch(/pq_error_codes 1/);
   });
 });

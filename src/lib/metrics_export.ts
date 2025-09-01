@@ -3,6 +3,7 @@
 // into a Prometheus exposition format string with families:
 // pq_metric (generic counters), pq_error (error.*), pq_status (error_status.* / req.status.*),
 // pq_latency_bucket (latbucket.* histogram-ish buckets), pq_latency (EMA p50/p95 gauges in ms)
+// pq_error_codes (gauge with distinct error.* codes that occurred today)
 
 export interface MetricRow { metric: string; count: number }
 
@@ -13,6 +14,7 @@ export function buildPrometheusMetricsExport(rows: MetricRow[]): string {
   const errors: MetricRow[] = [];
   const statusFamilies: MetricRow[] = [];
   const latencyBuckets: { tag: string; bucket: string; count: number }[] = [];
+  const sloCounters: Record<string, { good: number; breach: number }> = {};
   const other: MetricRow[] = [];
   for (const r of rows) {
     const metric = String(r.metric || '');
@@ -30,6 +32,14 @@ export function buildPrometheusMetricsExport(rows: MetricRow[]): string {
       errors.push({ metric, count: Number(r.count)||0 });
     } else if (metric.startsWith('error_status.') || metric.startsWith('req.status.')) {
       statusFamilies.push({ metric, count: Number(r.count)||0 });
+    } else if (metric.startsWith('req.slo.route.') && (metric.endsWith('.good') || metric.endsWith('.breach'))) {
+      const parts = metric.split('.'); // req.slo.route.<slug>.<kind>
+      if (parts.length >= 5) {
+        const slug = parts.slice(3, parts.length-1).join('.');
+        const kind = parts[parts.length-1];
+        const entry = (sloCounters[slug] ||= { good:0, breach:0 });
+        if (kind === 'good') entry.good += Number(r.count)||0; else entry.breach += Number(r.count)||0;
+      }
     } else {
       other.push({ metric, count: Number(r.count)||0 });
     }
@@ -43,6 +53,9 @@ export function buildPrometheusMetricsExport(rows: MetricRow[]): string {
     for (const e of errors.sort((a,b)=> a.metric.localeCompare(b.metric))) {
       body += `pq_error{name="${sanitize(e.metric)}"} ${e.count}\n`;
     }
+    // Distinct error codes gauge
+    body += '# HELP pq_error_codes Distinct error codes observed today\n# TYPE pq_error_codes gauge\n';
+    body += `pq_error_codes ${errors.length}\n`;
   }
   if (statusFamilies.length) {
     body += '# HELP pq_status Status family counters (error_status.*, req.status.*)\n# TYPE pq_status counter\n';
@@ -54,6 +67,15 @@ export function buildPrometheusMetricsExport(rows: MetricRow[]): string {
     body += '# HELP pq_latency_bucket Latency bucket counters (requests per bucket)\n# TYPE pq_latency_bucket counter\n';
     for (const b of latencyBuckets.sort((a,b)=> (a.tag+a.bucket).localeCompare(b.tag+b.bucket))) {
       body += `pq_latency_bucket{name="${sanitize(b.tag)}",bucket="${sanitize(b.bucket)}"} ${b.count}\n`;
+    }
+  }
+  if (Object.keys(sloCounters).length) {
+    body += '# HELP pq_slo_burn Daily SLO burn ratio per route (breach/(good+breach))\n# TYPE pq_slo_burn gauge\n';
+    for (const slug of Object.keys(sloCounters).sort()) {
+      const { good, breach } = sloCounters[slug];
+      const total = good + breach;
+      const ratio = total ? breach/total : 0;
+      body += `pq_slo_burn{route="${sanitize(slug)}"} ${ratio.toFixed(6)}\n`;
     }
   }
   body += '# HELP pq_latency Latency metrics (EMA p50/p95 in ms)\n# TYPE pq_latency gauge\n';

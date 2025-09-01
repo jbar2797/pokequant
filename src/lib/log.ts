@@ -1,5 +1,8 @@
 // Structured logging helper (console JSON lines). Disable by setting LOG_ENABLED=0.
 // Automatically attaches correlation/request id when present (set in request handler).
+const RING_MAX = 200; // lightweight in-memory ring for recent logs (admin diagnostics/export)
+let ring: any[] = [];
+
 export function log(event: string, fields: Record<string, unknown> = {}) {
 	if ((globalThis as any).__LOG_DISABLED) return;
 	try {
@@ -29,7 +32,13 @@ export function log(event: string, fields: Record<string, unknown> = {}) {
 		if (ctx?.slo_class) base.slo_class = ctx.slo_class; // 'good' | 'breach'
 		if (ctx?.slo_breach_ratio !== undefined) base.slo_breach_ratio = ctx.slo_breach_ratio; // last rolling window ratio 0..1
 		if (ctx?.corrId) base.request_id = ctx.corrId;
-		console.log(JSON.stringify({ ...base, ...fields }));
+		const entry = { ...base, ...fields };
+		console.log(JSON.stringify(entry));
+		// Ring buffer capture (best-effort)
+		try {
+			if (ring.length >= RING_MAX) ring.shift();
+			ring.push(entry);
+		} catch { /* ignore ring errors */ }
 	} catch {/* noop */}
 }
 
@@ -66,5 +75,10 @@ export function stopLogCapture(): any[] {
 	const logs = g.__LOG_CAPTURED || [];
 	g.__LOG_CAPTURED = [];
 	return logs;
+}
+
+// Expose recent ring for admin endpoint (read-only copy)
+export function recentLogs(limit = 100): any[] {
+	try { return ring.slice(-Math.min(limit, RING_MAX)); } catch { return []; }
 }
 

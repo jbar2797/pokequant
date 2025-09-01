@@ -1,5 +1,6 @@
 import { router } from '../router';
-import { json } from '../lib/http';
+import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import type { Env } from '../lib/types';
 
 // Public explainability endpoint: /api/card/factors?id=card123
@@ -8,7 +9,7 @@ import type { Env } from '../lib/types';
 export function registerExplainRoutes() {
   router.add('GET','/api/card/factors', async ({ env, req, url }) => {
     const id = (url.searchParams.get('id')||'').trim();
-    if (!id) return json({ ok:false, error:'id_required' },400);
+  if (!id) return err(ErrorCodes.IdRequired,400);
     // Ensure tables (defensive for pristine db)
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signal_components_daily (card_id TEXT, as_of DATE, ts7 REAL, ts30 REAL, dd REAL, vol REAL, z_svi REAL, regime_break INTEGER, liquidity REAL, scarcity REAL, mom90 REAL, PRIMARY KEY(card_id, as_of));`).run();
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS signals_daily (card_id TEXT, as_of DATE, score REAL, signal TEXT, reasons TEXT, edge_z REAL, exp_ret REAL, exp_sd REAL, PRIMARY KEY(card_id, as_of));`).run();

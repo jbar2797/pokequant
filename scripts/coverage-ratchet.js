@@ -1,71 +1,66 @@
-#!/usr/bin/env node
-/**
- * coverage-ratchet.js
- * Increases Vitest coverage thresholds incrementally when the current coverage
- * exceeds existing thresholds by a safety margin. Keeps build red on regression
- * while automatically raising the quality bar over time.
- *
- * Policy:
- *  - Requires a margin >= 2.0 percentage points over the existing threshold
- *  - Bumps each qualifying metric by +1 (never exceeding floor(actualPct))
- *  - Writes updated thresholds back into vitest.config.mts (regex replace)
- *  - Updates the baseline date comment.
- */
-
+// Compares current coverage against baseline and fails (exit 1) if any metric drops more than allowed tolerance.
+// Usage: node scripts/coverage-ratchet.js [--update] [--tolerance=0.1]
 import fs from 'fs';
 import path from 'path';
 
-const SUMMARY_PATH = path.join(process.cwd(), 'coverage', 'coverage-summary.json');
-const CONFIG_PATH = path.join(process.cwd(), 'vitest.config.mts');
+const root = process.cwd();
+const covPath = path.join(root, 'coverage', 'coverage-summary.json');
+const baselinePath = path.join(root, 'coverage-baseline.json');
 
-function readJSON(p){ return JSON.parse(fs.readFileSync(p,'utf8')); }
+const args = process.argv.slice(2);
+const update = args.includes('--update');
+const tolArg = args.find(a=> a.startsWith('--tolerance='));
+const tolerance = tolArg ? parseFloat(tolArg.split('=')[1]) : 0.1; // percentage points
 
-function main(){
-  if(!fs.existsSync(SUMMARY_PATH)){
-    console.error('Coverage summary not found at', SUMMARY_PATH);
-    process.exit(1);
+function readJson(p){ try { return JSON.parse(fs.readFileSync(p,'utf8')); } catch { return null; } }
+
+const cur = readJson(covPath);
+if (!cur) { console.error('coverage ratchet: missing current summary at', covPath); process.exit(1); }
+
+const metrics = ['lines','statements','functions','branches'];
+const extract = (o) => {
+  const out = {};
+  for (const m of metrics) {
+    const v = o?.total?.[m]?.pct;
+    if (typeof v === 'number') out[m] = v;
   }
-  const summary = readJSON(SUMMARY_PATH).total || {};
-  const actual = {
-    lines: Number(summary.lines?.pct ?? 0),
-    functions: Number(summary.functions?.pct ?? 0),
-    branches: Number(summary.branches?.pct ?? 0),
-    statements: Number(summary.statements?.pct ?? 0)
-  };
-  let config = fs.readFileSync(CONFIG_PATH,'utf8');
-  const current = {};
-  for (const k of ['lines','functions','branches','statements']){
-    const re = new RegExp(`${k}\\s*:\\s*(\\d+)`, 'm');
-    const m = config.match(re);
-    if(!m) { console.error('Could not locate threshold for', k); return process.exit(1); }
-    current[k] = Number(m[1]);
-  }
-  const marginNeeded = 2.0; // percentage points
-  const bumps = {};
-  for (const k of Object.keys(actual)){
-    const a = actual[k];
-    const c = current[k];
-    if (a >= c + marginNeeded){
-      const proposed = Math.min(Math.floor(a), c + 1); // conservative +1 ratchet
-      if (proposed > c){
-  const re = new RegExp(`(${k}\\s*:\\s*)(\\d+)`,'m');
-        config = config.replace(re, `$1${proposed}`);
-        bumps[k] = { from: c, to: proposed, actual: a };
-      }
-    }
-  }
-  if(Object.keys(bumps).length===0){
-    console.log('No threshold bumps (insufficient margin). Current:', current, 'Actual:', actual);
-    return;
-  }
-  // Update baseline date comment if present
-  const today = new Date().toISOString().slice(0,10);
-  config = config.replace(/Ratchet baseline \([^\)]+\)/, `Ratchet baseline (${today})`);
-  fs.writeFileSync(CONFIG_PATH, config);
-  console.log('Thresholds bumped:');
-  for (const [k,v] of Object.entries(bumps)){
-    console.log(`  ${k}: ${v.from} -> ${v.to} (actual ${v.actual.toFixed(2)})`);
+  return out;
+};
+
+const current = extract(cur);
+let baseline = readJson(baselinePath);
+if (!baseline || typeof baseline !== 'object') baseline = {};
+
+let changed = false;
+let failed = false;
+const report = [];
+for (const m of metrics) {
+  const curPct = current[m];
+  if (curPct == null) continue;
+  const basePct = baseline[m];
+  if (basePct == null) { baseline[m] = curPct; changed = true; report.push(`${m}: set baseline ${curPct.toFixed(2)}%`); continue; }
+  const drop = basePct - curPct;
+  if (drop > tolerance) {
+    failed = true;
+    report.push(`${m}: FAIL drop ${drop.toFixed(2)} > tolerance ${tolerance} (baseline ${basePct.toFixed(2)} -> current ${curPct.toFixed(2)})`);
+  } else if (curPct > basePct) {
+    baseline[m] = curPct; changed = true; report.push(`${m}: improved ${basePct.toFixed(2)} -> ${curPct.toFixed(2)} (baseline updated)`);
+  } else {
+    report.push(`${m}: ok ${curPct.toFixed(2)}% (baseline ${basePct.toFixed(2)}%)`);
   }
 }
 
-main();
+if (update || !fs.existsSync(baselinePath) || changed) {
+  try { fs.writeFileSync(baselinePath, JSON.stringify(baseline,null,2)+'\n'); } catch (e) { console.error('coverage ratchet: cannot write baseline', e); }
+}
+
+const summary = report.join('\n');
+console.log(summary);
+if (process.env.GITHUB_STEP_SUMMARY) {
+  fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Coverage Ratchet\n\n\n${report.map(r=>`- ${r}`).join('\n')}\n`);
+}
+
+if (failed) {
+  console.error('\nCoverage ratchet failure. Run with --update if intentional.');
+  process.exit(1);
+}

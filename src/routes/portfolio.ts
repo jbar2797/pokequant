@@ -1,4 +1,5 @@
 import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import { sha256Hex } from '../lib/crypto';
 import { audit } from '../lib/audit';
 import { portfolioAuth } from '../lib/portfolio_auth';
@@ -28,10 +29,10 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const body = await req.json().catch(()=>({}));
-    const parsed = validate(PortfolioLotSchema, body);
-    if (!parsed.ok) return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const parsed = validate(PortfolioLotSchema, body);
+  if (!parsed.ok) return err(ErrorCodes.InvalidBody,400,{ details: parsed.errors });
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
     const lotId = crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at) VALUES (?,?,?,?,?,?)`).bind(lotId, pid, parsed.data.card_id, parsed.data.qty, parsed.data.cost_usd, parsed.data.acquired_at || null).run();
@@ -43,8 +44,8 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const newBytes = new Uint8Array(16); crypto.getRandomValues(newBytes);
     const newSecret = Array.from(newBytes).map(b=> b.toString(16).padStart(2,'0')).join('');
     const newHash = await sha256Hex(newSecret);
@@ -57,8 +58,8 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const lots = await env.DB.prepare(`SELECT l.id AS lot_id,l.card_id,l.qty,l.cost_usd,l.acquired_at,(SELECT price_usd FROM prices_daily p WHERE p.card_id=l.card_id ORDER BY as_of DESC LIMIT 1) AS price_usd FROM lots l WHERE l.portfolio_id=?`).bind(pid).all();
     let mv=0, cost=0; for (const r of (lots.results||[]) as any[]) { const px = Number(r.price_usd)||0; mv += px * Number(r.qty); cost += Number(r.cost_usd)||0; }
     return json({ ok:true, totals:{ market_value: mv, cost_basis: cost, unrealized: mv-cost }, rows: lots.results||[] });
@@ -67,8 +68,8 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const lots = await env.DB.prepare(`SELECT * FROM lots WHERE portfolio_id=?`).bind(pid).all();
     return json({ ok:true, portfolio_id: pid, lots: lots.results||[] });
   })
@@ -77,10 +78,10 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const lotId = body && typeof body.lot_id === 'string' ? body.lot_id : '';
-    if (!lotId) return json({ ok:false, error:'lot_id_required' },400);
+  if (!lotId) return err(ErrorCodes.LotIdRequired,400);
     const del = await env.DB.prepare(`DELETE FROM lots WHERE id=? AND portfolio_id=?`).bind(lotId, pid).run();
     const changes = (del as any).meta?.changes ?? 0;
     if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'delete_lot', resource:'lot', resource_id:lotId });
@@ -90,19 +91,19 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const lotId = typeof body.lot_id === 'string' ? body.lot_id : '';
     const qty = body.qty == null ? undefined : Number(body.qty);
     const cost = body.cost_usd == null ? undefined : Number(body.cost_usd);
-    if (!lotId) return json({ ok:false, error:'lot_id_required' },400);
-    if (qty !== undefined && (!Number.isFinite(qty) || qty <= 0)) return json({ ok:false, error:'invalid_qty' },400);
-    if (cost !== undefined && (!Number.isFinite(cost) || cost < 0)) return json({ ok:false, error:'invalid_cost' },400);
+  if (!lotId) return err(ErrorCodes.LotIdRequired,400);
+  if (qty !== undefined && (!Number.isFinite(qty) || qty <= 0)) return err(ErrorCodes.InvalidQty,400);
+  if (cost !== undefined && (!Number.isFinite(cost) || cost < 0)) return err(ErrorCodes.InvalidCost,400);
     const sets:string[] = []; const binds:any[] = [];
     if (qty !== undefined) { sets.push('qty=?'); binds.push(qty); }
     if (cost !== undefined) { sets.push('cost_usd=?'); binds.push(cost); }
-    if (!sets.length) return json({ ok:false, error:'no_changes' },400);
+  if (!sets.length) return err(ErrorCodes.NoChanges,400);
     binds.push(lotId, pid);
     const res = await env.DB.prepare(`UPDATE lots SET ${sets.join(', ')} WHERE id=? AND portfolio_id=?`).bind(...binds).run();
     const changes = (res as any).meta?.changes ?? 0;
@@ -115,7 +116,7 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
     const d = (latest.results?.[0] as any)?.d;
     if (!d) return json({ ok:true, as_of:null, exposures:{} });
@@ -131,7 +132,7 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const mode = body && typeof body.mode === 'string' && (body.mode === 'delta' || body.mode === 'absolute') ? body.mode : 'absolute';
     const inputLots: any[] = Array.isArray(body?.lots) ? body.lots : [];
@@ -186,7 +187,7 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const rs = await env.DB.prepare(`SELECT as_of, factor, exposure FROM portfolio_factor_exposure WHERE portfolio_id=? ORDER BY as_of DESC, factor ASC LIMIT 700`).bind(pid).all();
     return json({ ok:true, rows: rs.results||[] });
   })
@@ -195,8 +196,8 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
     const rs = await env.DB.prepare(`SELECT kind, target_key, target_value FROM portfolio_targets WHERE portfolio_id=? ORDER BY kind, target_key`).bind(pid).all();
     return json({ ok:true, rows: rs.results||[] });
@@ -205,11 +206,11 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const parsed = validate(PortfolioTargetsSchema, body);
-    if(!parsed.ok) return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
+  if(!parsed.ok) return err(ErrorCodes.InvalidBody,400,{ details: parsed.errors });
     const factorTargets = parsed.data.factors || {};
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
     let updated=0; for (const [k,v] of Object.entries(factorTargets)){ const val=Number(v); if(!Number.isFinite(val)) continue; await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_targets (portfolio_id, kind, target_key, target_value, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(pid,'factor',k,val).run(); updated++; }
@@ -221,8 +222,8 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
-    const auth = await portfolioAuth(env, pid, psec);
-    if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const auth = await portfolioAuth(env, pid, psec);
+  if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_orders (id TEXT PRIMARY KEY, portfolio_id TEXT, created_at TEXT, status TEXT, objective TEXT, params TEXT, suggestions JSON, executed_at TEXT);`).run();
     const latest = await env.DB.prepare(`SELECT MAX(as_of) AS d FROM signal_components_daily`).all();
     const d = (latest.results?.[0] as any)?.d; let exposures:Record<string,number|null>={};
@@ -238,37 +239,37 @@ export function registerPortfolioRoutes(){
   })
   .add('GET','/portfolio/orders', async ({ env, req }) => {
     await ensureTestSeed(env);
-    const pid = req.headers.get('x-portfolio-id')||''; const psec = req.headers.get('x-portfolio-secret')||''; const auth = await portfolioAuth(env, pid, psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const pid = req.headers.get('x-portfolio-id')||''; const psec = req.headers.get('x-portfolio-secret')||''; const auth = await portfolioAuth(env, pid, psec); if(!auth.ok) return err(ErrorCodes.Forbidden,403);
     const rs = await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at FROM portfolio_orders WHERE portfolio_id=? ORDER BY created_at DESC LIMIT 20`).bind(pid).all();
     return json({ ok:true, rows: rs.results||[] });
   })
   .add('POST','/portfolio/orders/execute', async ({ env, req }) => {
     await ensureTestSeed(env);
-    const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const parsed = validate(PortfolioOrderExecuteSchema, body);
-    if(!parsed.ok) return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
+  if(!parsed.ok) return err(ErrorCodes.InvalidBody,400,{ details: parsed.errors });
     const { id } = parsed.data;
-    const orows = await env.DB.prepare(`SELECT id,status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const order=(orows.results||[])[0] as any; if(!order) return json({ ok:false, error:'not_found' },404); if(order.status!=='open') return json({ ok:false, error:'invalid_status' },400);
+  const orows = await env.DB.prepare(`SELECT id,status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const order=(orows.results||[])[0] as any; if(!order) return err(ErrorCodes.NotFound,404); if(order.status!=='open') return err(ErrorCodes.InvalidStatus,400);
     await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=datetime('now'), executed_trades=json('[]') WHERE id=?`).bind(id).run(); await audit(env,{ actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id }); return json({ ok:true, id, status:'executed' });
   })
   .add('GET','/portfolio/orders/detail', async ({ env, req, url }) => {
     await ensureTestSeed(env);
-    const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
-    const id=(url.searchParams.get('id')||'').trim(); if(!id) return json({ ok:false, error:'id_required' },400);
-    const rs=await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at, suggestions, executed_trades FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const row:any=rs.results?.[0]; if(!row) return json({ ok:false, error:'not_found' },404);
+  const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return err(ErrorCodes.Forbidden,403);
+  const id=(url.searchParams.get('id')||'').trim(); if(!id) return err(ErrorCodes.IdRequired,400);
+  const rs=await env.DB.prepare(`SELECT id, created_at, status, objective, executed_at, suggestions, executed_trades FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const row:any=rs.results?.[0]; if(!row) return err(ErrorCodes.NotFound,404);
     let suggestions:any=null, executed_trades:any=null; try{ if(row.suggestions) suggestions=JSON.parse(row.suggestions);}catch{} try{ if(row.executed_trades) executed_trades=JSON.parse(row.executed_trades);}catch{}
     return json({ ok:true, id: row.id, status: row.status, objective: row.objective, created_at: row.created_at, executed_at: row.executed_at, suggestions, executed_trades });
   })
   // Attribution & PnL
   .add('GET','/portfolio/attribution', async ({ env, req, url }) => {
     await ensureTestSeed(env);
-    const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return err(ErrorCodes.Forbidden,403);
     const days=Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10))); const rows= await computePortfolioAttribution(env, pid, days); return json({ ok:true, rows });
   })
   .add('GET','/portfolio/pnl', async ({ env, req, url }) => {
     await ensureTestSeed(env);
-    const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
+  const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return err(ErrorCodes.Forbidden,403);
   const days=Math.min(180, Math.max(1, parseInt(url.searchParams.get('days')||'60',10))); const rs=await env.DB.prepare(`SELECT as_of, ret, turnover_cost, realized_pnl, benchmark_ret, alpha FROM portfolio_pnl WHERE portfolio_id=? ORDER BY as_of DESC LIMIT ?`).bind(pid, days).all(); return json({ ok:true, rows: rs.results||[] });
   });
 }

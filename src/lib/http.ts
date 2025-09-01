@@ -1,5 +1,6 @@
 import type { JsonResponseOptions, Env } from './types';
 import { incMetric } from './metrics';
+import { log } from './log';
 
 function currentCtx(): { corrId?: string; env?: Env } | undefined {
 	try { return (globalThis as any).__REQ_CTX; } catch { return undefined; }
@@ -29,6 +30,13 @@ export function err(code: string, status = 400, extra: Record<string, unknown> =
 			incMetric(ctx.env, `error.${code}`);
 			// eslint-disable-next-line @typescript-eslint/no-floating-promises
 			incMetric(ctx.env, `error_status.${status}`);
+			// Optional structured logging (once per request) when API_ERROR_LOG=1
+			try {
+				if ((ctx.env as any).API_ERROR_LOG === '1' && !(ctx as any).__err_logged) {
+					log('api_error', { code, status });
+					(ctx as any).__err_logged = true;
+				}
+			} catch { /* ignore */ }
 		}
 	} catch { /* ignore */ }
 	return json({ ok:false, error: code, ...extra }, status);

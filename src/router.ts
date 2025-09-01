@@ -48,8 +48,10 @@ export class Router {
   // Dynamic SLO classification: good if latency under threshold AND status <500
   sloGood = dur < sloMs && resp.status < 500;
   await incMetric(env, `req.slo.route.${slug}.${sloGood? 'good':'breach'}`);
-  // Update rolling breach ratio in-memory (window of last 100 events per route)
-  updateSLOBreachWindow(slug, sloGood ? 0 : 1);
+  // Update rolling breach ratio in-memory (window of last 100 events per route) and persist per-minute counters
+  const breachFlag = sloGood ? 0 : 1;
+  updateSLOBreachWindow(slug, breachFlag);
+  recordSLOBreachMinute(env, slug, breachFlag);
   sloRatio = computeSLOBreachRatio(slug);
   if (sloRatio >= 0) { try { await setMetric(env, `slo.breach_ratio.route.${slug}`, Math.round(sloRatio*1000)); } catch {/* ignore */} }
       } catch {/* ignore metric errors */}
@@ -82,6 +84,7 @@ export class Router {
         // Always a breach on error if we have a threshold
   await incMetric(env, `req.slo.route.${slug}.breach`);
   updateSLOBreachWindow(slug, 1);
+  recordSLOBreachMinute(env, slug, 1);
   const sloRatio2 = computeSLOBreachRatio(slug);
   if (sloRatio2 >= 0) { try { await setMetric(env, `slo.breach_ratio.route.${slug}`, Math.round(sloRatio2*1000)); } catch {/* ignore */} }
       } catch {/* ignore */}
@@ -156,4 +159,13 @@ function computeSLOBreachRatio(slug: string): number {
   if (!arr || !arr.length) return -1;
   const breaches = arr.reduce((a,b)=> a + (b?1:0), 0);
   return breaches / arr.length;
+}
+
+// Persist rolling counts per route per minute to survive restarts (approximation for short-window burn)
+async function recordSLOBreachMinute(env: Env, slug: string, breachFlag: number) {
+  const minute = new Date().toISOString().slice(0,16).replace(/[-:T]/g,'').slice(0,12); // YYYYMMDDHHMM
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS slo_breach_minute (route TEXT NOT NULL, minute TEXT NOT NULL, total INTEGER NOT NULL, breach INTEGER NOT NULL, PRIMARY KEY(route, minute));`).run();
+    await env.DB.prepare(`INSERT INTO slo_breach_minute (route, minute, total, breach) VALUES (?,?,1,?) ON CONFLICT(route,minute) DO UPDATE SET total=total+1, breach=breach + excluded.breach`).bind(slug, minute, breachFlag?1:0).run();
+  } catch {/* ignore */}
 }

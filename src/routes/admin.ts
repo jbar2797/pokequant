@@ -1,4 +1,5 @@
 import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import { audit } from '../lib/audit';
 import type { Env } from '../lib/types';
 import { router } from '../router';
@@ -6,6 +7,7 @@ import { runIncrementalIngestion } from '../lib/ingestion';
 import { computeIntegritySnapshot, updateDataCompleteness } from '../lib/integrity';
 import { purgeOldData } from '../lib/retention';
 import { incMetric, incMetricBy, recordLatency } from '../lib/metrics';
+import { recentLogs } from '../lib/log';
 
 // Helper to enforce admin auth
 function adminAuth(env: Env, req: Request) {
@@ -16,7 +18,7 @@ function adminAuth(env: Env, req: Request) {
 export function registerAdminRoutes() {
   router
     .add('GET','/admin/ingestion/provenance', async ({ env, req, url }) => {
-  if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
       const dataset = (url.searchParams.get('dataset')||'').trim();
       const source = (url.searchParams.get('source')||'').trim();
       const status = (url.searchParams.get('status')||'').trim();
@@ -32,18 +34,18 @@ export function registerAdminRoutes() {
       return json({ ok:true, rows: rs.results||[], filtered: { dataset: dataset||undefined, source: source||undefined, status: status||undefined, limit } });
     })
     .add('GET','/admin/ingestion/config', async ({ env, req }) => {
-  if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
       try {
         const rs = await env.DB.prepare(`SELECT dataset, source, cursor, enabled, last_run_at, meta FROM ingestion_config ORDER BY dataset, source`).all();
         return json({ ok:true, rows: rs.results||[] });
       } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     })
     .add('POST','/admin/ingestion/config', async ({ env, req }) => {
-  if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
       const body:any = await req.json().catch(()=>({}));
       const dataset = (body.dataset||'').toString().trim();
       const source = (body.source||'').toString().trim();
-      if (!dataset || !source) return json({ ok:false, error:'dataset_and_source_required' },400);
+  if (!dataset || !source) return err(ErrorCodes.DatasetAndSourceRequired,400);
       const cursor = body.cursor !== undefined ? String(body.cursor) : null;
       const enabled = body.enabled === undefined ? 1 : (body.enabled ? 1 : 0);
       const meta = body.meta !== undefined ? JSON.stringify(body.meta).slice(0,2000) : null;
@@ -56,13 +58,13 @@ export function registerAdminRoutes() {
       } catch (e:any) { return json({ ok:false, error:String(e) },500); }
     })
     .add('POST','/admin/ingestion/run', async ({ env, req }) => {
-  if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
       const body:any = await req.json().catch(()=>({}));
       const results = await runIncrementalIngestion(env, { maxDays: Number(body.maxDays)||1 });
       return json({ ok:true, runs: results });
     })
     .add('POST','/admin/ingest/prices', async ({ env, req }) => {
-  if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
       const body = await req.json().catch(()=>({})) as any;
       const days = Math.min(30, Math.max(1, Number(body.days)||3));
       const to = new Date();
@@ -102,13 +104,13 @@ export function registerAdminRoutes() {
 
   // Integrity snapshot (moved from index.ts)
   router.add('GET','/admin/integrity', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     try { const integrity = await computeIntegritySnapshot(env); return json(integrity); } catch (e:any) { return json({ ok:false, error:String(e) },500); }
   });
 
   // Retention purge (moved from index.ts)
   router.add('POST','/admin/retention', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     let overrides: Record<string, number>|undefined;
     try {
       const body: any = await req.json().catch(()=> ({}));
@@ -131,19 +133,19 @@ export function registerAdminRoutes() {
 
   // Retention configuration CRUD (list & upsert)
   router.add('GET','/admin/retention/config', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS retention_config (table_name TEXT PRIMARY KEY, days INTEGER NOT NULL, updated_at TEXT);`).run();
     const rs = await env.DB.prepare(`SELECT table_name, days, updated_at FROM retention_config ORDER BY table_name`).all();
     return json({ ok:true, rows: rs.results||[] });
   });
   router.add('POST','/admin/retention/config', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     const body: any = await req.json().catch(()=>({}));
     const table = (body.table||body.table_name||'').toString().trim();
     const days = Number(body.days);
     const allowed = new Set(['backtests','mutation_audit','anomalies','metrics_daily','data_completeness']);
-    if (!table || !allowed.has(table)) return json({ ok:false, error:'invalid_table' },400);
-    if (!Number.isFinite(days) || days < 0 || days > 365) return json({ ok:false, error:'invalid_days' },400);
+  if (!table || !allowed.has(table)) return err(ErrorCodes.InvalidTable,400);
+  if (!Number.isFinite(days) || days < 0 || days > 365) return err(ErrorCodes.InvalidDays,400);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS retention_config (table_name TEXT PRIMARY KEY, days INTEGER NOT NULL, updated_at TEXT);`).run();
     await env.DB.prepare(`INSERT OR REPLACE INTO retention_config (table_name, days, updated_at) VALUES (?,?,datetime('now'))`).bind(table, Math.floor(days)).run();
     await audit(env, { actor_type:'admin', action:'upsert', resource:'retention_config', resource_id:table, details:{ days: Math.floor(days) } });
@@ -153,7 +155,7 @@ export function registerAdminRoutes() {
 
   // Metrics & latency endpoints moved
   router.add('GET','/admin/metrics', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     try {
       const rs = await env.DB.prepare(`SELECT d, metric, count FROM metrics_daily WHERE d >= date('now','-3 day') ORDER BY d DESC, metric ASC`).all();
       let latency: any[] = [];
@@ -186,13 +188,13 @@ export function registerAdminRoutes() {
     } catch { return json({ ok:true, rows: [] }); }
   });
   router.add('GET','/admin/latency', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     try { const rs = await env.DB.prepare(`SELECT d, base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d = date('now') ORDER BY base_metric ASC`).all(); return json({ ok:true, rows: rs.results||[] }); } catch { return json({ ok:true, rows: [] }); }
   });
 
   // Latency buckets (moved from index.ts)
   router.add('GET','/admin/latency-buckets', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     try {
       const rs = await env.DB.prepare(`SELECT metric, count FROM metrics_daily WHERE d=date('now') AND metric LIKE 'latbucket.%'`).all();
       const buckets: Record<string, Record<string, number>> = {};
@@ -210,7 +212,7 @@ export function registerAdminRoutes() {
 
   // Email deliveries recent (moved from index.ts)
   router.add('GET','/admin/email/deliveries', async ({ env, req }) => {
-    if (!adminAuth(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
     try {
       await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_deliveries (id TEXT PRIMARY KEY, queued_id TEXT, email TEXT, subject TEXT, provider TEXT, ok INTEGER, error TEXT, attempt INTEGER, created_at TEXT, sent_at TEXT, provider_message_id TEXT);`).run();
       const rs = await env.DB.prepare(`SELECT id, queued_id, email, subject, provider, ok, error, attempt, created_at, sent_at, provider_message_id FROM email_deliveries ORDER BY created_at DESC LIMIT 200`).all();
@@ -225,6 +227,20 @@ export function registerAdminRoutes() {
       // Current day counters
       const dayRs = await env.DB.prepare(`SELECT metric, count FROM metrics_daily WHERE d = date('now') ORDER BY metric ASC`).all();
       const metrics: { metric:string; count:number }[] = (dayRs.results||[]) as any;
+  const distinctErrorCodes = metrics.filter(m=> m.metric.startsWith('error.')).length;
+      // Pre-compute SLO burn ratios from good/breach counters
+      const sloMap: Record<string, { good:number; breach:number }> = {};
+      for (const m of metrics) {
+        if (m.metric.startsWith('req.slo.route.') && (m.metric.endsWith('.good') || m.metric.endsWith('.breach'))) {
+          const parts = m.metric.split('.');
+          if (parts.length >= 5) {
+            const slug = parts.slice(3, parts.length-1).join('_');
+            const kind = parts[parts.length-1];
+            const entry = (sloMap[slug] ||= { good:0, breach:0 });
+            if (kind === 'good') entry.good += Number(m.count)||0; else entry.breach += Number(m.count)||0;
+          }
+        }
+      }
       // Latency quantiles (p50/p95)
       let latencyRows: any[] = [];
       try { const lrs = await env.DB.prepare(`SELECT base_metric, p50_ms, p95_ms FROM metrics_latency WHERE d = date('now') ORDER BY base_metric ASC`).all(); latencyRows = lrs.results||[]; } catch {/* ignore */}
@@ -237,10 +253,15 @@ export function registerAdminRoutes() {
         // Skip latency bucket + status here; expose separately in families
         if (m.metric.startsWith('latbucket.')) continue;
         if (m.metric.startsWith('req.status.')) continue;
+  if (m.metric.startsWith('req.slo.route.')) continue; // handled via aggregated burn gauge
   // Prometheus metric label value must match test regex (A-Za-z0-9_:), so map '.' -> '_'
   const name = m.metric.replace(/"/g,'').replace(/[^A-Za-z0-9_:]/g,'_');
   lines.push('pq_metric{name="'+name+'"} '+(Number(m.count)||0));
       }
+  // Distinct error code gauge for external alerting (mirrors pq_error_codes in consolidated exporter)
+  lines.push('# HELP pq_error_codes Distinct error codes observed today');
+  lines.push('# TYPE pq_error_codes gauge');
+  lines.push(`pq_error_codes ${distinctErrorCodes}`);
       // Latency buckets (histogram-ish)
       let bucketMetrics = metrics.filter(m=> typeof m.metric === 'string' && m.metric.startsWith('latbucket.'));
       const allowSynthetic = (env as any).METRICS_EXPORT_SYNTHETIC !== '0';
@@ -279,6 +300,17 @@ export function registerAdminRoutes() {
             lines.push(`pq_latency{name="${base}",quantile="p95"} ${p95.toFixed(2)}`);
         }
       }
+      // SLO burn gauges
+      if (Object.keys(sloMap).length) {
+        lines.push('# HELP pq_slo_burn Daily SLO burn ratio per route');
+        lines.push('# TYPE pq_slo_burn gauge');
+        for (const slug of Object.keys(sloMap).sort()) {
+          const { good, breach } = sloMap[slug];
+          const total = good + breach;
+          const ratio = total ? breach/total : 0;
+          lines.push(`pq_slo_burn{route="${slug}"} ${ratio.toFixed(6)}`);
+        }
+      }
       if (bucketMetrics.length) {
         lines.push('# HELP pq_latency_bucket Latency bucket counters');
         lines.push('# TYPE pq_latency_bucket counter');
@@ -311,6 +343,35 @@ export function registerAdminRoutes() {
   router.add('GET','/admin/metrics/export', async (ctx) => {
     // Delegate to existing handler logic by calling metrics-export path
     return router.match('GET','/admin/metrics-export')!.handler(ctx as any);
+  });
+
+  // Error codes & current counters exposure (diagnostics). Non-breaking additive admin endpoint.
+  router.add('GET','/admin/errors', async ({ env, req }) => {
+    if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
+    // Read today's error.* and error_status.* metrics and map to codes; include codes with zero count for completeness.
+    try {
+      const rs = await env.DB.prepare(`SELECT metric, count FROM metrics_daily WHERE d=date('now') AND (metric LIKE 'error.%' OR metric LIKE 'error_status.%')`).all();
+      const byMetric: Record<string, number> = {};
+      for (const r of (rs.results||[]) as any[]) { if (r && r.metric) byMetric[String(r.metric)] = Number(r.count)||0; }
+      // Import lazily to avoid circular import risk (already imported at top) - reusing ErrorCodes const.
+      const codes: string[] = Object.values(ErrorCodes as any);
+      const errors = codes.map(code => ({ code, count: byMetric[`error.${code}`]||0 }));
+      const statusFamilies: Record<string, number> = {};
+      for (const [k,v] of Object.entries(byMetric)) {
+        if (k.startsWith('error_status.')) statusFamilies[k.substring('error_status.'.length)] = v;
+      }
+      return json({ ok:true, errors, status_families: statusFamilies });
+    } catch (e:any) {
+      return json({ ok:false, error:String(e) },500);
+    }
+  });
+
+  // Recent structured logs ring buffer (diagnostics). Non-persistent, best-effort.
+  router.add('GET','/admin/logs/recent', async ({ env, req, url }) => {
+    if (!adminAuth(env, req)) return err(ErrorCodes.Forbidden,403);
+    const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit')||'100',10)||100));
+    const logs = recentLogs(limit);
+    return json({ ok:true, logs, count: logs.length });
   });
 }
 

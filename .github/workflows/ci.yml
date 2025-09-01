@@ -35,6 +35,8 @@ jobs:
         run: npm run coverage:badge
       - name: Coverage summary
         run: node scripts/coverage-summary.js
+      - name: Coverage ratchet
+        run: npm run coverage:ratchet || (echo 'Coverage ratchet failed (regression). To accept new coverage run with --update locally.' && exit 1)
       - name: Upload coverage artifacts
         if: always()
         uses: actions/upload-artifact@v4

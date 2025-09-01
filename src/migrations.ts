@@ -582,6 +582,60 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
   created_at TEXT
 );`
   }
+  ,
+  {
+    id: '0049_admin_token_usage',
+    description: 'Track admin token (fingerprint) usage counts and last used time',
+    sql: `CREATE TABLE IF NOT EXISTS admin_token_usage (
+  fingerprint TEXT PRIMARY KEY,
+  count INTEGER DEFAULT 0,
+  last_used_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0050_backups',
+    description: 'Logical backup snapshots storage',
+    sql: `CREATE TABLE IF NOT EXISTS backups (
+  id TEXT PRIMARY KEY,
+  created_at TEXT,
+  meta TEXT,
+  data TEXT
+);`
+  }
+  ,
+  {
+    id: '0051_slo_burn_config',
+    description: 'Configurable SLO burn threshold ratio and minimum breach count',
+    sql: `CREATE TABLE IF NOT EXISTS slo_burn_config (
+  id INTEGER PRIMARY KEY CHECK (id=1),
+  threshold_ratio REAL,
+  min_breach_count INTEGER,
+  updated_at TEXT
+);`
+  }
+  ,
+  {
+    id: '0052_slo_breach_minute',
+    description: 'Per-minute SLO breach aggregation (route, minute, total, breach)',
+    sql: `CREATE TABLE IF NOT EXISTS slo_breach_minute (
+  route TEXT NOT NULL,
+  minute TEXT NOT NULL,
+  total INTEGER NOT NULL,
+  breach INTEGER NOT NULL,
+  PRIMARY KEY(route, minute)
+);`
+  }
+  ,
+  {
+    id: '0053_retention_defaults',
+    description: 'Seed default retention_config rows for anomalies, backups, slo_breach_minute',
+    sql: `CREATE TABLE IF NOT EXISTS retention_config (table_name TEXT PRIMARY KEY, days INTEGER NOT NULL, updated_at TEXT);
+INSERT OR IGNORE INTO retention_config (table_name, days, updated_at) VALUES
+ ('anomalies',30, datetime('now')),
+ ('backups',30, datetime('now')),
+ ('slo_breach_minute',2, datetime('now'));`
+  }
 ];
 
 let MIGRATIONS_PROMISE: Promise<void> | null = null;
