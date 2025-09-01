@@ -1,5 +1,6 @@
 import { router } from '../router';
-import { json } from '../lib/http';
+import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import type { Env } from '../lib/types';
 import { computeIntegritySnapshot } from '../lib/integrity';
 
@@ -7,7 +8,7 @@ function admin(env: Env, req: Request) { const t=req.headers.get('x-admin-token'
 
 export function registerSnapshotRoutes() {
   router.add('GET','/admin/snapshot', async ({ env, req }) => {
-    if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
     const [integrity, ic, weights] = await Promise.all([
       computeIntegritySnapshot(env),
       env.DB.prepare(`SELECT as_of, factor, ic FROM factor_ic ORDER BY as_of DESC, factor ASC LIMIT 30`).all(),

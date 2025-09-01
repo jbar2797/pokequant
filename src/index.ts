@@ -30,6 +30,32 @@ import { runIncrementalIngestion } from './lib/ingestion';
 import { runAlerts } from './lib/alerts_run';
 import { computeAndStoreSignals } from './lib/signals';
 import { baseDataSignature } from './lib/base_data';
+// Eagerly import all route modules at module load so the first request in CI does not spend
+// significant time performing many dynamic imports under the test timeout clock. This mitigates
+// observed GitHub Actions flakiness where coverage + cold bundling pushed initial request over 25s.
+// (Each route module self-registers with the shared router instance.)
+import './routes/factors';
+import './routes/admin';
+import './routes/anomalies';
+import './routes/portfolio_nav';
+import './routes/backfill';
+import './routes/public';
+import './routes/alerts';
+import './routes/alerts_admin';
+import './routes/backtests';
+import './routes/webhooks';
+import './routes/ingestion_schedule';
+import './routes/audit';
+import './routes/snapshot';
+import './routes/metadata';
+import './routes/search';
+import './routes/subscribe';
+import './routes/portfolio';
+import './routes/explain';
+import './routes/slo';
+import './routes/admin_extras';
+import './routes/test_helpers';
+import { router } from './router';
 let INDICES_DONE = false;
 async function ensureIndices(env: Env) {
   if (INDICES_DONE) return;
@@ -210,32 +236,8 @@ export default {
         } catch {/* ignore */}
       }
     } catch { /* swallow */ }
-    // Router dispatch first (modularized endpoints)
+    // Router dispatch (routes already eagerly registered at module load)
     try {
-      await Promise.all([
-        import('./routes/factors'),
-        import('./routes/admin'),
-        import('./routes/anomalies'),
-        import('./routes/portfolio_nav'),
-        import('./routes/backfill'),
-        import('./routes/public'),
-        import('./routes/alerts'),
-        import('./routes/alerts_admin'),
-        import('./routes/backtests'),
-        import('./routes/webhooks'),
-        import('./routes/ingestion_schedule'),
-        import('./routes/audit'),
-        import('./routes/snapshot'),
-        import('./routes/metadata'),
-        import('./routes/search'),
-        import('./routes/subscribe'),
-        import('./routes/portfolio'),
-        import('./routes/explain'),
-  import('./routes/slo'),
-  import('./routes/admin_extras'),
-  import('./routes/test_helpers'),
-      ]);
-      const { router } = await import('./router');
       const routed = await router.handle(req, env);
       if (routed) return routed;
     } catch (e) { try { console.warn('router dispatch failed', e); } catch {} }
