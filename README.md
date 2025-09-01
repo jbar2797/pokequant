@@ -69,6 +69,8 @@ Granular error dashboards (aggregation & alert thresholds) – base error/status
 Coverage badge & ratchet (CI gate) ✔
 Architecture + Runbook docs finalization
 Security review (headers, secrets rotation automation)
+Discord alert delivery (stub present, real webhook configurable)
+Signals provider dynamic selection (scaffolded)
 
 ### Coverage Ratchet
 `npm run coverage:ratchet` will auto-bump coverage thresholds by +1 (lines/functions/statements/branches) when the current coverage exceeds the existing threshold by >=2 percentage points. This should run after meaningful test additions (can be integrated as an optional CI step that only commits when bumps occur).
@@ -101,6 +103,9 @@ Planned: automatic key rotation guidelines + optional KMS-backed secret fetch.
 
 ## 10. Frontend Overhaul
 Pending rewrite (framework evaluation: SvelteKit vs Next.js static export). See `docs/FRONTEND_PLAN.md` for acceptance criteria & component spec.
+
+## 13. Signals Provider
+Pluggable interface in `src/signals/` with `default_v1`. Set future provider via `SIGNALS_PROVIDER` (dynamic import planned).
 
 ## 11. Contributing (Internal Alpha)
 Update `docs/ENGINEERING_SNAPSHOT.md` before merging.
