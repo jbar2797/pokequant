@@ -105,3 +105,9 @@ Key Points:
 - Stable error codes enumerated in `src/lib/errors.ts`; responses include `{ ok:false, error:<code> }` (tests assert specific codes for regression safety).
 - Metrics automatically increment for standardized error paths via helper (in-progress full adoption) using pattern `error.<code>` & `error_status.<status>`.
 - Basic log redaction masks field names containing `secret|token|password|apikey|auth` (case-insensitive) including shallow object properties. Review periodically for adequacy before introducing external log shipping.
+
+### Test Flake Mitigation (Cache Headers)
+Context: Intermittent `Network connection lost` errors previously affected the cache headers spec hitting `/api/universe`. Mitigation implemented: a `/health` preflight (ensures migrations + seed) plus bounded retry (one re-attempt) on network disconnect. If flakes recur in CI (>1 per 500 full runs):
+1. Add shared test utility wrapper for fetch with exponential backoff on transient network errors.
+2. Capture and log underlying error object (ensure not swallowed) for the first failure only.
+3. Consider adding readiness polling (loop on `/health` until `ok:true` & seed counts > 0) before first universe/cards tests.

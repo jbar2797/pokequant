@@ -8,8 +8,8 @@ Core ingestion, signals, portfolio, alerts (simulated), search, caching, rate li
 ## Phase 1 (Alpha Hardening) – Weeks 1–2
 - 🚧 Real email provider integration (send + bounce webhook)
 - 🚧 Webhook real delivery (config flag) + HMAC signature + timestamp + nonce doc
-- ⏭ Error metrics expansion (req.error.4xx / req.error.5xx) & surfacing
-- ⏭ Coverage badge & ratchet gate in CI
+- ✅ Error metrics expansion (req.error.4xx / req.error.5xx) & surfacing (/admin/errors endpoint + metrics)
+- ⏭ Coverage badge & ratchet gate in CI (script present; enforcement pending)
 - ⏭ Architecture diagram & README alignment
 
 ## Phase 2 (Frontend Overhaul) – Weeks 2–3
@@ -19,7 +19,7 @@ Core ingestion, signals, portfolio, alerts (simulated), search, caching, rate li
 - ⏭ Basic analytics (pageview + key action events) optional
 
 ## Phase 3 (Beta Readiness) – Weeks 4–6
-- ⏭ Structured JSON logging + log correlation id
+- ✅ Structured JSON logging + log correlation id
 - ⏭ Rate limit expansion: all public endpoints & per-IP adaptive backoff
 - ⏭ Runbook completion + incident drills (simulate ingestion failure, migration rollback)
 - ⏭ User onboarding docs (API quickstart, portfolio examples)

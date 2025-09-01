@@ -5,7 +5,7 @@ Goal (Sprint Theme): Achieve beta-ready reliability & observability: real provid
 
 ## Success Criteria (Exit)
 - Real email provider integrated (send + bounce/complaint ingestion) behind feature flag; adapter abstraction stable.
-- Webhook delivery signing spec finalized (canonical string + HMAC) & documented; feature flag for real dispatch implemented (not necessarily enabled in prod until keys provisioned).
+- Webhook delivery signing spec documented (HMAC ts.nonce.sha256(body)) & feature flag for real dispatch implemented (pending enable once provider secrets ready).
 - `/admin/errors` endpoint live (DONE) and referenced in runbook + dashboard story documented.
 - Coverage ratchet enforced in CI (fails on regression) and baseline auto-update documented.
 - Architecture / Ops docs updated for new error taxonomy & metrics (DONE).
@@ -32,7 +32,7 @@ Goal (Sprint Theme): Achieve beta-ready reliability & observability: real provid
 - [ ] Ops runbook: add bounce troubleshooting section.
 
 ### 2. Webhook Real Dispatch & Signing
-- [ ] Decision Record: canonical signing string (JSON payload canonicalization? current plan: `timestamp + '.' + nonce + '.' + sha256(body)` ).
+- [x] Decision Record: canonical signing string (`timestamp.nonce.sha256(body)`).
 - [ ] Implement HMAC SHA256 with per-webhook secret; add `signature` header & existing `nonce` & `timestamp`.
 - [ ] Feature flag `WEBHOOK_REAL=1` gate network egress; simulated mode increments `.simulated` metrics.
 - [ ] Admin endpoint to rotate webhook secret (updates row, returns new secret once) + audit event.
@@ -48,6 +48,7 @@ Goal (Sprint Theme): Achieve beta-ready reliability & observability: real provid
 
 ### 4. Observability & Error Diagnostics
 - [x] `/admin/errors` endpoint listing codes & counts.
+- [x] Cache headers test flake mitigation (stabilize CI noise).
 - [ ] Add log field `error_code` when `err()` used (modify helper to log event `api_error` once per request optionally; guard by env flag to avoid noise).
 - [ ] Dashboard doc draft (Grafana/Looker placeholder) mapping metrics → panels.
 - [ ] Add metric `req.route.<slug>` counter (if not already) for cardinality baseline (verify; tests suggest present indirectly).
@@ -87,6 +88,7 @@ Goal (Sprint Theme): Achieve beta-ready reliability & observability: real provid
 - SLO breach ratio for `api_universe`, `api_cards`, `api_search` (target <5%).
 - Email delivery success rate (once real provider enabled).
 - Webhook success / retry distribution.
+- Production readiness % (baseline 64%; target 75% by sprint end).
 
 ## Daily Cadence
 - Standup: status, blockers, next 1–2 tasks.

@@ -1,4 +1,4 @@
-Last Updated: 2025-09-01T07:05:00Z (signed slo_burn.alert webhooks + retention health endpoint + backup compression fix)
+Last Updated: 2025-09-01T08:15:00Z (cache headers test flake mitigation + production readiness scorecard added)
 # Engineering Snapshot (Rolling)
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
@@ -89,6 +89,7 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 - Portfolio risk decomposition (factor vs residual volatility)
 
 ## 6. Recently Completed (chronological, newest first, trimmed)
+0. Cache headers test hardened (health preflight + bounded retry) — 2025-09-01
 0. Signed slo_burn.alert webhooks (HMAC ts.nonce.sha256(payload)) + retry + retention health endpoint + retention age metrics + gzip backup integrity restore (0.8.4) — 2025-09-01
 1. Per-minute SLO breach persistence (`slo_breach_minute`) + windows endpoint persisted_60m section (0.8.3) — 2025-09-01
 2. SLO windows debug endpoint + log redaction shallow object support + tests (0.8.3) — 2025-08-31
@@ -110,7 +111,7 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 14. Retention config table + CRUD endpoints — 2025-08-30
 
 ## 7. Quality Gates Snapshot
-- Tests: 117 passing (full suite) (no regressions after SLO burn + webhook signing additions)
+- Tests: 117 passing (full suite) (cache headers flake stabilized locally)
 - Coverage: thresholds enforced (lines 67%, functions 59%, branches 48%, statements 59%) – ratchet script present; `npm run coverage` alias added for CI summary step
 - Contract Check: Passing (`scripts/contract-check.js`)
 - Version Sync: Passing (`scripts/version-check.js`)
@@ -146,6 +147,26 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 - Coverage ratchet gating strategy (auto commit vs fail-only) – decide with CI update
 - Default retention windows per table (document baseline policy)
 - Benchmark construction (equal-weight vs heuristic top-N) – doc after provider + webhook done
+
+## 11. Production Readiness (Scorecard)
+As of 2025-09-01T08:15:00Z estimated overall production readiness: **64%**.
+
+Breakdown (subjective weights; refine approaching Beta):
+- Functional Coverage (MVP endpoints + analytics): 80% (all MVP shipped; real email/webhook still simulated)
+- Observability & Telemetry: 70% (latency, SLO, errors, retention health; external log sink pending)
+- Reliability / Resilience: 60% (idempotent migrations, retries; single-region only, no failover)
+- Delivery Integrations (email/webhooks real): 30% (simulation + signing spec; provider + bounce ingest outstanding)
+- Security & Guardrails: 65% (hashed secrets, dual tokens, basic redaction; no token rotation automation, no RBAC tiers)
+- Test & Quality Gates: 75% (suite stable post flake fix; coverage ratchet automation not yet enforced)
+- Frontend UX: 40% (static pages; SPA overhaul not started)
+
+Key levers to reach ~75–80% (Beta readiness):
+1. Real email provider (send + bounce/complaint ingestion)
+2. Real webhook dispatch flag + secret rotation + metrics namespace
+3. Enforce coverage ratchet in CI (auto-update workflow) + badge automation
+4. SPA scaffold (cards + movers + detail + portfolio basics)
+
+Watchlist: Re-run full suite in CI twice post-merge to confirm absence of residual transient network errors. If recurrence >1/500 runs, introduce shared fetch retry helper around SELF.fetch in tests.
 
 ---
 (Automate future date stamping with a small pre-commit hook if desired.)
