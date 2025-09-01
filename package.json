@@ -13,6 +13,7 @@
 		"coverage:ratchet": "node scripts/coverage-ratchet.js",
 		"coverage:badge": "node scripts/gen-coverage-badge.js",
 		"data:dict": "node scripts/gen-data-dictionary.js",
+				"demo:seed": "node scripts/demo-seed.js",
 		"perf-smoke": "node scripts/perf-smoke.js",
 		"typecheck": "tsc --noEmit",
 		"lint": "eslint 'src/**/*.ts'",
