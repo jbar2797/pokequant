@@ -1,3 +1,13 @@
+## [0.8.4] - 2025-09-01
+### Added
+- Per-minute SLO breach persistence (`slo_breach_minute`) and inclusion in `/admin/slo/windows` (`persisted_60m`).
+- Signed `slo_burn.alert` webhook dispatch (HMAC ts.nonce.sha256(body)) with retries and legacy header compatibility.
+- Retention health endpoint `/admin/retention/health` and retention age gauge metrics `retention.age.*.days`.
+### Fixed
+- Restored backup gzip logic after regression; added integrity safeguards and R2 meta update reliability.
+### Changed
+- Documentation updates (API_CONTRACT, ENGINEERING_SNAPSHOT) reflecting new SLO + retention features.
+
 # Changelog
 
 All notable changes to this project will be documented here.

@@ -1,8 +1,9 @@
-Last Updated: 2025-09-01T05:28:00Z (export SLO_WINDOWS for debug endpoint; relax windows test for flake reduction)
+Last Updated: 2025-09-01T07:05:00Z (signed slo_burn.alert webhooks + retention health endpoint + backup compression fix)
 # Engineering Snapshot (Rolling)
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
 
+Last Updated: 2025-09-01T06:10:00Z (standardized error responses complete, added /admin/errors endpoint, coverage script alias)
 Last Updated: 2025-08-31T23:40:00Z (rolling SLO breach ratio gauge + public rate limiting expansion + email bounce ingestion + log enrichment fix)
 
 ## 1. High-Level Architecture
@@ -22,8 +23,8 @@ Last Updated: 2025-08-31T23:40:00Z (rolling SLO breach ratio gauge + public rate
 | Anomalies | routes/anomalies.ts | NEW modularized | Resolution + status filter + cursor pagination. |
 | Factors & Analytics | routes/factors.ts, lib/factors/* | Stable | Includes returns, risk, smoothing, IC, quality. |
 | Alerts | routes/alerts.ts, email_adapter.ts | Improved | Provider message id persistence + retry metrics; real external provider path in place (Resend) pending prod key. |
-| Metrics & Latency | lib/metrics.ts, /admin/metrics routes/admin.ts, router.ts | Stable | Route SLO classification, buckets, rolling breach ratio gauge. |
-| Integrity & Retention | lib/integrity.ts, lib/retention.ts, routes/admin.ts | Stable | Retention config CRUD implemented (0038). |
+| Metrics & Latency | lib/metrics.ts, /admin/metrics, /admin/errors, routes/admin.ts | Stable | Route SLO classification, per-minute breach aggregation, short-window in-memory ratios, buckets, percentiles, per-error counters. |
+| Integrity & Retention | lib/integrity.ts, lib/retention.ts, routes/admin.ts, routes/admin_security.ts | Improved | Retention config CRUD + automated purge + age gauges + health endpoint. |
 | Ingestion & Provenance | lib/ingestion.ts, routes/admin.ts | Stable | Incremental run + provenance listing. |
 | Audit | lib/audit.ts, routes/admin.ts | Stable | Pagination + stats endpoints exist. |
 | Rate Limiting | lib/rate_limit.ts | Stable | Headers standardized; confirm coverage. |
@@ -62,13 +63,13 @@ Focus only on high-leverage features; defer cosmetic/detail polish:
    - Delivery metrics: `email.delivered`, `email.bounced`, `email.complaint`
 - [ ] Real webhook dispatch toggle (feature flag) + HMAC signature (payload + nonce + timestamp) + secret rotation flow
    - Delivery success/error SLIs + retry budget metrics
-- [ ] Error taxonomy expansion: map internal errors to stable `error_code` enums; aggregate counters & dashboard docs
+- [x] Error taxonomy consolidation: stable codes enumerated + `/admin/errors` listing endpoint
 - [ ] Coverage ratchet automation wired into CI (already script; add safeguarded auto-commit) + badge update step (DONE for badge asset, not automated commit gate)
 - [ ] Structured log shipping plan (even if manual) + minimal redaction policy (confirm no secrets in logs)
 - [ ] Rate limit expansion to remaining public endpoints (cards, movers, sets, rarities) with adaptive defaults
 - [ ] Frontend core SPA (minimal) delivering: Cards list, Card detail, Movers, Portfolio lots+PnL read-only
    - Auth token handling + ETag client caching
-- [x] SLO breach alerting primitive: rolling breach ratio gauge metric (foundation for alerting pipeline)
+- [x] SLO breach alerting primitives: rolling breach ratio gauge, per-minute persisted aggregation, signed burn alert webhooks & email
 
 Definition of Done (Sprint): All above either shipped or time-boxed decisions recorded (provider choice, signature spec) with docs updated.
 
@@ -88,7 +89,9 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 - Portfolio risk decomposition (factor vs residual volatility)
 
 ## 6. Recently Completed (chronological, newest first, trimmed)
-0. SLO windows debug endpoint + log redaction shallow object support + tests (0.8.3) — 2025-08-31
+0. Signed slo_burn.alert webhooks (HMAC ts.nonce.sha256(payload)) + retry + retention health endpoint + retention age metrics + gzip backup integrity restore (0.8.4) — 2025-09-01
+1. Per-minute SLO breach persistence (`slo_breach_minute`) + windows endpoint persisted_60m section (0.8.3) — 2025-09-01
+2. SLO windows debug endpoint + log redaction shallow object support + tests (0.8.3) — 2025-08-31
 1. Rolling SLO breach ratio gauge + log enrichment context (0.8.2) — 2025-08-31
 2. Latency ensure noise suppression + log capture assertion (0.8.1) — 2025-08-31
 3. Dynamic per-route SLO thresholds + classification metrics (0.8.0) — 2025-08-31
@@ -107,8 +110,8 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 14. Retention config table + CRUD endpoints — 2025-08-30
 
 ## 7. Quality Gates Snapshot
-- Tests: 116 passing (full suite) (added slo_windows + log_redaction specs; windows endpoint exported)
-- Coverage: thresholds enforced (lines 67%, functions 59%, branches 48%, statements 59%) – ratchet script present, CI auto-bump pending
+- Tests: 117 passing (full suite) (no regressions after SLO burn + webhook signing additions)
+- Coverage: thresholds enforced (lines 67%, functions 59%, branches 48%, statements 59%) – ratchet script present; `npm run coverage` alias added for CI summary step
 - Contract Check: Passing (`scripts/contract-check.js`)
 - Version Sync: Passing (`scripts/version-check.js`)
 
@@ -116,7 +119,8 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 | TODO | Stage | Priority | Notes |
 |------|-------|----------|-------|
 | Email provider productionization (send + bounce/complaint ingest) | Beta Gate | P0 | Decide provider, implement adapter + webhook | 
-| Webhook real dispatch + HMAC signature + secret rotation | Beta Gate | P0 | Feature flag `WEBHOOK_REAL=1`; audit retries |
+| Webhook real dispatch + HMAC signature + secret rotation | Beta Gate | P0 | Simulated path shipped (signed); enable real send flag + rotation flow |
+| Retention health endpoint & age gauges | Beta Gate | DONE | `/admin/retention/health` + metrics `retention.age.*.days` |
 | Error taxonomy & aggregation (stable codes) | Beta Gate | P0 | Map internal errors -> codes + metrics | 
 | Coverage ratchet CI auto-commit | Beta Gate | P1 | Use existing script + protected branch rules |
 | Rate limit expansion (cards/movers/etc) | Beta Gate | P1 | Reuse existing limiter infra |
