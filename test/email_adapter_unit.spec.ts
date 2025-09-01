@@ -54,4 +54,26 @@ describe('email_adapter sendEmail', () => {
     expect(r.provider_error_code).toBe('exception');
     globalThis.fetch = originalFetch;
   });
+
+  it('handles resend non-ok fetch path extracting provider_error_code', async () => {
+    env.RESEND_API_KEY = 'prodkey';
+    const originalFetch = globalThis.fetch;
+    (globalThis as any).fetch = async () => ({ ok: false, status: 500, json: async () => ({ error: { code: 'rate_limit' } }) });
+    const r = await sendEmail(env as any, 'user@test.dev', 'Subj', 'x');
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/^resend_status_500/);
+    expect(r.provider_error_code).toBe('rate_limit');
+    globalThis.fetch = originalFetch;
+  });
+
+  it('handles resend successful fetch path returning id', async () => {
+    env.RESEND_API_KEY = 'prodkey';
+    const originalFetch = globalThis.fetch;
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ id: 'abc123' }) });
+    const r = await sendEmail(env as any, 'user@test.dev', 'Subj', 'x');
+    expect(r.ok).toBe(true);
+    expect(r.provider).toBe('resend');
+    expect(r.id).toBe('abc123');
+    globalThis.fetch = originalFetch;
+  });
 });

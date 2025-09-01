@@ -9,12 +9,14 @@ import { APP_VERSION, BUILD_COMMIT } from './version';
 import { snapshotPortfolioFactorExposure } from './lib/portfolio_exposure';
 import { detectAnomalies } from './lib/anomalies';
 import { handleAdminSystem } from './routes/admin_system';
+import { handleAdminSecurity, evaluateSloBurn } from './routes/admin_security';
 // import { z } from 'zod';
 import { runMigrations, listMigrations } from './migrations';
 // Modularized helpers
 import type { Env } from './lib/types';
 import { log, setRequestContext } from './lib/log';
 import { json, err, CORS } from './lib/http';
+import { ErrorCodes } from './lib/errors';
 import { isoDaysAgo } from './lib/date';
 import { sha256Hex } from './lib/crypto';
 import { rateLimit, getRateLimits } from './lib/rate_limit';
@@ -269,7 +271,7 @@ export default {
 
     // Data integrity snapshot (coverage + staleness + gap heuristic)
     if (url.pathname === '/admin/integrity' && req.method === 'GET') {
-      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' }, 403); }
+  { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return err(ErrorCodes.Forbidden,403); }
       try {
   const integrity = await computeIntegritySnapshot(env);
   return json(integrity);
@@ -282,6 +284,11 @@ export default {
     {
       const adminResp = await handleAdminSystem(req, env, url);
       if (adminResp) return adminResp;
+    }
+    // Phase 1 security & reliability endpoints (token usage, SLO burn, backup)
+    {
+      const secResp = await handleAdminSecurity(req, env, url);
+      if (secResp) return secResp;
     }
 
   // (Legacy admin retention/migrations/version/pipeline-runs/factors/test-insert now handled via routes/admin_system.ts)
@@ -305,7 +312,7 @@ export default {
 
     // Test seed utility (not documented) to insert cards & prices
     if (url.pathname === '/admin/test-seed' && req.method === 'POST') {
-      { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return json({ ok:false, error:'forbidden' },403); }
+  { const at=req.headers.get('x-admin-token'); if(!(at&&(at===env.ADMIN_TOKEN||(env.ADMIN_TOKEN_NEXT&&at===env.ADMIN_TOKEN_NEXT)))) return err(ErrorCodes.Forbidden,403); }
       const body: any = await req.json().catch(()=>({}));
       const cards = Array.isArray(body.cards) ? body.cards : [];
       const batch: D1PreparedStatement[] = [];
@@ -362,6 +369,20 @@ export default {
         { name:'portfolio_nav', fn: ()=> snapshotPortfolioNAV(env) },
         { name:'portfolio_pnl', fn: ()=> computePortfolioPnL(env) },
         { name:'portfolio_factor_exposure', fn: ()=> snapshotPortfolioFactorExposure(env) },
+  { name:'slo_burn_eval', fn: ()=> evaluateSloBurn(env) },
+        { name:'daily_backup', fn: async ()=> {
+            // Run backup once per day (idempotent check via backups table timestamp date)
+            try {
+              await env.DB.prepare(`CREATE TABLE IF NOT EXISTS backups (id TEXT PRIMARY KEY, created_at TEXT, meta TEXT, data TEXT);`).run();
+              const today = new Date().toISOString().slice(0,10);
+              const rs = await env.DB.prepare(`SELECT id FROM backups WHERE substr(created_at,1,10)=? LIMIT 1`).bind(today).all();
+              if (!(rs.results||[]).length) {
+                // Import runBackup dynamically to avoid circular
+                const { runBackup: rb } = await import('./routes/admin_security');
+                await rb(env as any);
+              }
+            } catch {/* ignore */}
+          } },
         { name:'retention', fn: async ()=> { const t0r=Date.now(); const deleted=await purgeOldData(env); const rMs=Date.now()-t0r; for (const [table,n] of Object.entries(deleted)) if (n>0) incMetricBy(env, `retention.deleted.${table}`, n); recordLatency(env,'job.retention', rMs); return { deleted }; } }
       ];
       const metrics: any = { phases:{} };
