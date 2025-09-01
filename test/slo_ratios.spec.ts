@@ -5,14 +5,16 @@ import { describe, it, expect } from 'vitest';
 
 describe('SLO ratios aggregation', () => {
   it('computes breach_ratio after good + breach events', async () => {
-    // Configure threshold so first fast call is good, second slow call breaches.
-    const route = '/admin/test/sleep';
-    let res = await SELF.fetch('https://example.com/admin/slo/set', { method:'POST', headers:{ 'x-admin-token':'test-admin','content-type':'application/json' }, body: JSON.stringify({ route, threshold_ms: 50 }) });
-    expect(res.status).toBe(200);
-    // Good (10ms sleep)
-    await SELF.fetch('https://example.com/admin/test/sleep?ms=10', { headers:{ 'x-admin-token':'test-admin' } });
-    // Breach (80ms sleep)
-    await SELF.fetch('https://example.com/admin/test/sleep?ms=80', { headers:{ 'x-admin-token':'test-admin' } });
+  // Warm-up (migrations/metrics table creation) to avoid classifying first measured call as breach due to one-time init latency.
+  await SELF.fetch('https://example.com/admin/test/sleep?ms=0', { headers:{ 'x-admin-token':'test-admin' } });
+  // Configure threshold (200ms) so a small 10ms sleep is "good" and a large 500ms sleep (capped) is a deterministic breach.
+  const route = '/admin/test/sleep';
+  const set = await SELF.fetch('https://example.com/admin/slo/set', { method:'POST', headers:{ 'x-admin-token':'test-admin','content-type':'application/json' }, body: JSON.stringify({ route, threshold_ms: 200 }) });
+  expect(set.status).toBe(200);
+  // Good (10ms sleep < 200ms threshold)
+  await SELF.fetch('https://example.com/admin/test/sleep?ms=10', { headers:{ 'x-admin-token':'test-admin' } });
+  // Breach (500ms sleep > 200ms threshold; route clamps >500)
+  await SELF.fetch('https://example.com/admin/test/sleep?ms=500', { headers:{ 'x-admin-token':'test-admin' } });
     // Fetch metrics JSON
     const metrics = await SELF.fetch('https://example.com/admin/metrics', { headers:{ 'x-admin-token':'test-admin' } });
     expect(metrics.status).toBe(200);
