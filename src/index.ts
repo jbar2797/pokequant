@@ -31,6 +31,8 @@ import { ensureTestSeed } from './lib/data';
 import { runIncrementalIngestion } from './lib/ingestion';
 import { runAlerts } from './lib/alerts_run';
 import { computeAndStoreSignals } from './lib/signals';
+import { setSignalsProvider } from './signals';
+import { DefaultSignalsProvider } from './signals/default_provider';
 import { baseDataSignature } from './lib/base_data';
 // Eagerly import all route modules at module load so the first request in CI does not spend
 // significant time performing many dynamic imports under the test timeout clock. This mitigates
@@ -59,6 +61,15 @@ import './routes/admin_extras';
 import './routes/test_helpers';
 import { router } from './router';
 let INDICES_DONE = false;
+// Initialize signals provider (supports selection via env.SIGNALS_PROVIDER)
+try {
+  const sp = (globalThis as any).__SIGNALS_PROVIDER_INITED;
+  if (!sp) {
+    // Future: dynamic import for proprietary providers based on name.
+    setSignalsProvider(DefaultSignalsProvider);
+    (globalThis as any).__SIGNALS_PROVIDER_INITED = true;
+  }
+} catch {/* ignore */}
 async function ensureIndices(env: Env) {
   if (INDICES_DONE) return;
   try {

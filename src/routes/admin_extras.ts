@@ -92,8 +92,8 @@ router
           let i = 0; for (const r of (cards.results||[]) as any[]) { const base = 20 + (i % 10) * 1.25; await env.DB.prepare(`INSERT OR IGNORE INTO prices_daily (card_id, as_of, price_usd, price_eur, src_updated_at) VALUES (?,?,?,?,datetime('now'))`).bind((r as any).id, todayStr, base, base*0.9).run(); i++; }
         }
       }
-      const out = await computeAndStoreSignals(env, { limit: 150 });
-      log('admin_run_fast', out);
+  const out = await computeAndStoreSignals(env, { limit: 150 });
+  log('admin_run_fast', { ...out });
       return json({ ok:true, ...out });
     } catch (e:any) { log('admin_run_fast_error', { error:String(e) }); return json({ ok:false, error:String(e) },500); }
   })
