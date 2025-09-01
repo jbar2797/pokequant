@@ -94,3 +94,7 @@ regime_break | INTEGER | , -- 0/1
 
 
 (Do not edit manually – run `npm run data:dict` to regenerate.)
+
+---
+### Legacy Manual Notes (merged)
+Earlier manually curated dictionary included high-level summaries for additional tables (factors, anomalies, metrics_daily, backups, webhooks, slo_config, portfolio snapshots, ingestion config). These will be incorporated into future automated extraction once those tables are part of the introspection script scope.

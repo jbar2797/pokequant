@@ -1,3 +1,19 @@
+## PR Title (Conventional)
+
+### Summary
+Explain the change briefly.
+
+### Checklist
+- [ ] Tests added/updated
+- [ ] Lint & typecheck pass locally
+- [ ] Docs updated (ENGINEERING_SNAPSHOT / READMEs / API / Data Dictionary as needed)
+- [ ] Coverage ratchet unaffected or increased
+- [ ] No secrets committed
+
+### Risk
+Describe risk & rollback plan.
+
+### Screenshots / Logs (if UI or perf)
 ## Summary
 <!-- What changed and why? -->
 
