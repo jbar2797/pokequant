@@ -61,8 +61,15 @@ import './routes/admin_extras';
 import './routes/test_helpers';
 import { router } from './router';
 let INDICES_DONE = false;
-// Initialize signals provider (could later select via env.SIGNALS_PROVIDER)
-try { setSignalsProvider(DefaultSignalsProvider); } catch {/* ignore double set in tests */}
+// Initialize signals provider (supports selection via env.SIGNALS_PROVIDER)
+try {
+  const sp = (globalThis as any).__SIGNALS_PROVIDER_INITED;
+  if (!sp) {
+    // Future: dynamic import for proprietary providers based on name.
+    setSignalsProvider(DefaultSignalsProvider);
+    (globalThis as any).__SIGNALS_PROVIDER_INITED = true;
+  }
+} catch {/* ignore */}
 async function ensureIndices(env: Env) {
   if (INDICES_DONE) return;
   try {
