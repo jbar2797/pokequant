@@ -1,5 +1,6 @@
 import { router } from '../router';
-import { json } from '../lib/http';
+import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import type { Env } from '../lib/types';
 import { snapshotPortfolioNAV, computePortfolioPnL } from '../lib/portfolio_nav';
 
@@ -8,17 +9,17 @@ function admin(env: Env, req: Request) { const t=req.headers.get('x-admin-token'
 export function registerPortfolioNavRoutes() {
   router
     .add('GET','/admin/portfolio-nav', async ({ env, req }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
       const rs = await env.DB.prepare(`SELECT portfolio_id, as_of, market_value FROM portfolio_nav ORDER BY as_of DESC LIMIT 500`).all();
       return json({ ok:true, rows: rs.results||[] });
     })
     .add('POST','/admin/portfolio-nav/snapshot', async ({ env, req }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
       await snapshotPortfolioNAV(env);
       return json({ ok:true });
     })
     .add('GET','/admin/portfolio-pnl', async ({ env, req, url }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
       await computePortfolioPnL(env);
       const pid = url.searchParams.get('portfolio_id');
       let rows; if (pid) {

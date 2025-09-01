@@ -1,5 +1,6 @@
 import { router } from '../router';
 import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import { audit } from '../lib/audit';
 import { incMetric } from '../lib/metrics';
 import { getRateLimits, rateLimit } from '../lib/rate_limit';
@@ -20,19 +21,19 @@ export function registerAlertRoutes(){
         // Maintain backward-compatible specific error codes for tests
         const hasEmail = typeof body.email === 'string' && body.email.length > 0;
         const hasCard = typeof body.card_id === 'string' && body.card_id.length > 0;
-        if (!hasEmail || !hasCard) return json({ ok:false, error:'email_and_card_id_required' },400);
+  if (!hasEmail || !hasCard) return err(ErrorCodes.EmailAndCardIdRequired, 400);
         // Threshold specific legacy error
         if (body.threshold === undefined || body.threshold === null || Number.isNaN(Number(body.threshold))) {
-          return json({ ok:false, error:'threshold_invalid' },400);
+          return err(ErrorCodes.ThresholdInvalid, 400);
         }
-        return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
+        return err(ErrorCodes.InvalidBody, 400, { details: parsed.errors });
   }
   const { email, card_id, kind, threshold, snooze_minutes } = parsed.data;
   const snoozeMinutes = snooze_minutes == null ? undefined : snooze_minutes;
       const rlKey = `alert:${ip}:${email}`;
       const cfg = getRateLimits(env).alertCreate;
       const rl = await rateLimit(env, rlKey, cfg.limit, cfg.window);
-      if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return json({ ok:false, error:'rate_limited', retry_after: rl.reset - Math.floor(Date.now()/1000) }, 429); }
+  if (!rl.allowed) { await incMetric(env, 'rate_limited.alert_create'); return err(ErrorCodes.RateLimited, 429, { retry_after: rl.reset - Math.floor(Date.now()/1000) }); }
       const id = crypto.randomUUID();
       const tokenBytes = new Uint8Array(16); crypto.getRandomValues(tokenBytes);
       const manage_token = Array.from(tokenBytes).map(b=>b.toString(16).padStart(2,'0')).join('');
@@ -59,9 +60,9 @@ export function registerAlertRoutes(){
     .add('GET','/alerts/deactivate', async ({ env, req, url }) => {
       const id = (url.searchParams.get('id') || '').trim();
       const token = (url.searchParams.get('token') || '').trim();
-      if (!id || !token) return err('id_and_token_required');
+  if (!id || !token) return err(ErrorCodes.IdAndTokenRequired);
       const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
-      const mt = row.results?.[0]?.manage_token as string | undefined; if (!mt || mt !== token) return err('invalid_token', 403);
+  const mt = row.results?.[0]?.manage_token as string | undefined; if (!mt || mt !== token) return err(ErrorCodes.InvalidToken, 403);
       await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
       const html = `<!doctype html><meta charset="utf-8"><title>PokeQuant</title><body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; padding:24px"><h3>Alert deactivated.</h3><p><a href="${env.PUBLIC_BASE_URL || '/'}">Back to PokeQuant</a></p></body>`;
       return new Response(html, { headers: { 'content-type':'text/html; charset=utf-8' } });
@@ -71,9 +72,9 @@ export function registerAlertRoutes(){
       const body:any = await req.json().catch(()=>({}));
       const id = (body.id||'').toString();
       const token = (body.token||'').toString();
-      if (!id || !token) return err('id_and_token_required');
+  if (!id || !token) return err(ErrorCodes.IdAndTokenRequired);
       const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
-      const mt = row.results?.[0]?.manage_token as string | undefined; if (!mt || mt !== token) return err('invalid_token', 403);
+  const mt = row.results?.[0]?.manage_token as string | undefined; if (!mt || mt !== token) return err(ErrorCodes.InvalidToken, 403);
       await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
       await audit(env, { actor_type:'public', action:'deactivate', resource:'alert', resource_id:id, details:{} });
       return json({ ok:true, id, deactivated:true });
@@ -85,11 +86,11 @@ export function registerAlertRoutes(){
       const body: any = await req.json().catch(()=>({}));
       const minutes = Number(body.minutes);
       const token = (body.token||'').toString();
-      if (!id || !Number.isFinite(minutes)) return err('id_and_minutes_required');
+  if (!id || !Number.isFinite(minutes)) return err(ErrorCodes.IdAndMinutesRequired);
       const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
       const found = (row.results||[])[0] as any;
-      if (!found) return err('not_found',404);
-      if (found.manage_token !== token) return err('forbidden',403);
+  if (!found) return err(ErrorCodes.NotFound,404);
+  if (found.manage_token !== token) return err(ErrorCodes.Forbidden,403);
       await env.DB.prepare(`UPDATE alerts_watch SET suppressed_until=datetime('now', ? || ' minutes') WHERE id=?`).bind(minutes.toString(), id).run();
       await audit(env, { actor_type:'public', action:'snooze', resource:'alert', resource_id:id, details:{ minutes } });
       return json({ ok:true, id, suppressed_for_minutes: minutes });

@@ -1,5 +1,6 @@
 import { router } from '../router';
-import { json } from '../lib/http';
+import { json, err } from '../lib/http';
+import { ErrorCodes } from '../lib/errors';
 import { audit } from '../lib/audit';
 import type { Env } from '../lib/types';
 
@@ -8,7 +9,7 @@ function admin(env: Env, req: Request) { const t=req.headers.get('x-admin-token'
 export function registerBackfillRoutes() {
   router
     .add('POST','/admin/backfill', async ({ env, req }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
       const body: any = await req.json().catch(()=>({}));
       const dataset = (body.dataset||'prices_daily').toString();
       const days = Math.min(365, Math.max(1, Number(body.days)||30));
@@ -51,7 +52,7 @@ export function registerBackfillRoutes() {
       return json({ ok:true, job: job.results?.[0] });
     })
     .add('GET','/admin/backfill', async ({ env, req, url }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
       let limit = parseInt(url.searchParams.get('limit')||'50',10); if (!Number.isFinite(limit)||limit<1) limit=25; if (limit>100) limit=100;
       const before = url.searchParams.get('before_created_at') || '';
       const where = before ? 'WHERE created_at < ?' : '';
@@ -64,7 +65,7 @@ export function registerBackfillRoutes() {
       return json({ ok:true, rows, page:{ next_before_created_at: next }, filtered:{ limit, before_created_at: before||undefined } });
     })
     .add('GET','/admin/backfill/:id', async ({ env, req, url }) => {
-      if (!admin(env, req)) return json({ ok:false, error:'forbidden' },403);
+  if (!admin(env, req)) return err(ErrorCodes.Forbidden, 403);
       const id = url.pathname.split('/').pop();
       const row = await env.DB.prepare(`SELECT * FROM backfill_jobs WHERE id=?`).bind(id).all();
       return json({ ok:true, job: row.results?.[0]||null });

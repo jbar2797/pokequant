@@ -35,6 +35,9 @@ export const ErrorCodes = {
   InvalidToken: 'invalid_token',
   InvalidQty: 'invalid_qty',
   InvalidCost: 'invalid_cost'
+  , MetricRequired: 'metric_required'
+  , IdAndTokenRequired: 'id_and_token_required'
+  , IdAndMinutesRequired: 'id_and_minutes_required'
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
