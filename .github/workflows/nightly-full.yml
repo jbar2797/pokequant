@@ -1,0 +1,43 @@
+name: Nightly Full (Migrations & Heavy Paths)
+
+on:
+  schedule:
+    - cron: '15 3 * * *' # 03:15 UTC nightly
+  workflow_dispatch:
+
+jobs:
+  full-suite:
+    runs-on: ubuntu-latest
+    env:
+      FAST_TESTS: 0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install deps
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (full migrations)
+        run: npm test -- --coverage=false
+      - name: Smoke preview
+        run: |
+          npx wrangler dev --local --port=8787 2>&1 | tee wrangler_dev.log &
+          echo $! > wrangler_pid
+          for i in $(seq 1 25); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/health || true)
+            if [ "$code" = 200 ]; then echo "Preview up"; break; fi
+            sleep 1
+            if [ $i -eq 25 ]; then echo 'Preview failed'; cat wrangler_dev.log; exit 1; fi
+          done
+          curl -s http://127.0.0.1:8787/health | head -c 500
+      - name: Shutdown
+        if: always()
+        run: |
+          if [ -f wrangler_pid ]; then kill $(cat wrangler_pid) || true; fi
+      - name: Summarize
+        run: echo "Nightly full suite completed"

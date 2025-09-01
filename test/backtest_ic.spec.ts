@@ -1,10 +1,11 @@
 import { SELF } from 'cloudflare:test';
-import { describe, it, expect } from 'vitest';
+import { describe, expect } from 'vitest';
+import { heavy } from './heavy';
 
 // Backtest & Factor IC endpoints
 
 describe('Backtest & Factor IC', () => {
-  it('runs factor ic and backtest', async () => {
+  heavy('runs factor ic and backtest', async () => {
     // Warm signals (idempotent, may insert minimal seed rows)
     await SELF.fetch('https://example.com/admin/run-fast', { method:'POST', headers:{'x-admin-token':'test-admin'} });
     // Run IC (may skip if insufficient data; still should return 200 quickly)
@@ -27,5 +28,5 @@ describe('Backtest & Factor IC', () => {
     expect(list.status).toBe(200);
     const snap = await SELF.fetch('https://example.com/admin/snapshot', { headers: { 'x-admin-token':'test-admin' }});
     expect(snap.status).toBe(200);
-  }, 40000); // allow extra time in CI
+  }, 40000); // allow extra time in full (non-FAST) CI
 });

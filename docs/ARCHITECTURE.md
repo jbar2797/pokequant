@@ -56,3 +56,15 @@ Planned next:
 - Route-level error taxonomy grouping / aggregation dashboards.
 - Metrics export adapter (Prometheus scrape via push or log-based shipping).
 - Multi-region read replicas (post-GA) with eventual consistency strategy.
+
+### Dynamic Per-Route SLOs
+- Table `slo_config(route TEXT PRIMARY KEY, threshold_ms INTEGER, updated_at TEXT)` defines latency SLO thresholds per normalized route slug (e.g. `/api/cards` → `api_cards`).
+- Default threshold 250ms if unset; admin can GET `/admin/slo` and POST `/admin/slo/set { route, threshold_ms }` (route may be path or slug).
+- Router fetches threshold (cached 30s) and emits classification metrics: `req.slo.route.<slug>.good|breach` (breach on latency >= threshold or any 5xx).
+- Latency histograms: `latbucket.route.<slug>.<bucket>` with buckets lt50/lt100/lt250/lt500/lt1000/gte1000.
+
+### Webhook Redelivery
+- Admin endpoint `/admin/webhooks/redeliver` performs a single immediate replay of a prior delivery (body: `{ delivery_id }`).
+- Creates new `webhook_deliveries` row with `redeliver=1`, fresh nonce/signature (if secret) and attempt=1 (separate from original attempts sequence).
+- Metrics: `webhook.redeliver.sent(.real)` or `webhook.redeliver.error(.real)` parallel existing send namespaces.
+- Use-case: manual out-of-band replay after fixing an external receiver issue without waiting for automated retry window (original retries limited to 3 attempts with exponential backoff + jitter).

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.7.9
+  version: 0.8.0
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -730,6 +730,9 @@ paths:
                     latency: [ { d: 2025-08-29, base_metric: sets, p50_ms: 20, p95_ms: 75 } ]
                     cache_hits: [ { d: 2025-08-29, metric: cache.hit.universe, count: 15 } ]
                     cache_hit_ratios: { universe: 0.65 }
+                    slo_ratios:
+                      api_cards: { good: 950, breach: 25, breach_ratio: 0.0256 }
+                      api_universe: { good: 400, breach: 5, breach_ratio: 0.0123 }
                     email_metrics:
                       - { d: 2025-08-29, metric: email.retry, count: 2 }
                       - { d: 2025-08-29, metric: email.giveup, count: 1 }
@@ -803,6 +806,57 @@ paths:
                     buckets:
                       sets: { lt50: 12, lt100: 3 }
                       rarities: { lt50: 15 }
+  /admin/slo:
+    get:
+      summary: List dynamic SLO thresholds (admin)
+      description: Returns configured per-route latency SLO thresholds (ms). Defaults to 250ms when not set.
+      security: [ { AdminToken: [] } ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SloConfigListResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    rows:
+                      - route: /api/cards
+                        threshold_ms: 250
+                        updated_at: '2025-08-30T12:00:00Z'
+                      - route: /admin/alerts
+                        threshold_ms: 400
+                        updated_at: '2025-08-30T12:05:00Z'
+  /admin/slo/set:
+    post:
+      summary: Upsert SLO threshold for a route (admin)
+      description: Body accepts { route, threshold_ms }. Route can be a full path (e.g. /api/cards) or slug (api_cards).
+      security: [ { AdminToken: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ route, threshold_ms ]
+              properties:
+                route: { type: string }
+                threshold_ms: { type: integer, minimum: 10, maximum: 30000 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SloConfigUpsertResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    row:
+                      route: api_cards
+                      threshold_ms: 180
+                      updated_at: '2025-08-31T12:34:56Z'
   /admin/run-alerts:
     post:
       summary: Run alerts evaluation only
@@ -860,6 +914,15 @@ paths:
                 active: { type: integer, nullable: true }
       responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/SimpleOkResponse' } } } } }
   /admin/webhooks/delete:
+        '400':
+          description: Invalid body
+          content:
+            application/json:
+              examples:
+                invalid:
+                  value:
+                    ok: false
+                    error: invalid_body
     post:
       summary: Delete webhook endpoint (admin)
       description: Body: { url }
@@ -914,6 +977,57 @@ paths:
               examples:
                 sample:
                   value: { ok: true, nonce: 'uuid', seen: true }
+  /admin/webhooks/redeliver:
+    post:
+      summary: Manually redeliver a prior webhook payload (admin)
+      description: Single immediate attempt to resend the original payload of a prior delivery (body: { delivery_id }). Creates a new delivery row with redeliver=1 and fresh nonce/signature.
+      security: [ { AdminToken: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ delivery_id ]
+              properties:
+                delivery_id: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+                  status: { type: integer }
+                  ok_flag: { type: boolean }
+                  redeliver_of: { type: string }
+                required: [ ok, id, redeliver_of ]
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    id: 'new-delivery-uuid'
+                    status: 200
+                    ok_flag: true
+                    redeliver_of: 'original-delivery-uuid'
+        '404':
+          description: Delivery not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  error: { type: string }
+                required: [ ok, error ]
+              examples:
+                missing:
+                  value:
+                    ok: false
+                    error: delivery_not_found
   /admin/migrations:
     get:
       summary: List applied migrations (admin)
@@ -1112,6 +1226,19 @@ paths:
           name: limit
           schema: { type: integer, minimum: 1, maximum: 200 }
         - in: query
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              examples:
+                bad_threshold:
+                  value:
+                    ok: false
+                    error: invalid_threshold
+                route_required:
+                  value:
+                    ok: false
+                    error: route_required
           name: before_created_at
           schema: { type: string, description: 'Cursor: fetch rows with created_at < this ISO timestamp' }
       responses: { '200': { description: OK } }
@@ -1190,27 +1317,19 @@ paths:
     post:
       summary: Run due ingestion schedules (admin)
       description: |
-        Updates last_run_at for schedules whose frequency_minutes elapsed since last run; emits ingest.scheduled_run metric per dataset.
-        Optional run flag (`?run=1` query or JSON body `{ "run": true }`) triggers immediate incremental ingestion for the due datasets (max 1 day) using the same logic as `/admin/ingestion/run`.
-      responses: { '200': { description: OK } }
-  security: [ { AdminToken: [] } ]
-  /admin/alerts:
-    get:
-      summary: List alerts (admin)
-      description: Filterable by email, active (0|1), suppressed (0|1). Suppressed means current time < suppressed_until.
-      parameters:
-        - in: query
-          name: email
-          schema: { type: string }
-        - in: query
-          name: active
-          schema: { type: string, enum: ['0','1'] }
-        - in: query
-          name: suppressed
-          schema: { type: string, enum: ['0','1'] }
-      responses:
         '200':
           description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RedeliverResponse' }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    id: 'new-delivery-uuid'
+                    status: 200
+                    ok_flag: true
+                    redeliver_of: 'original-delivery-uuid'
           content:
             application/json:
               schema:
@@ -1306,6 +1425,36 @@ paths:
   security: [ { AdminToken: [] } ]
 components:
   schemas:
+    SloConfigRow:
+      type: object
+      properties:
+        route: { type: string }
+        threshold_ms: { type: integer }
+        updated_at: { type: string, nullable: true }
+      required: [route, threshold_ms]
+    SloConfigListResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/SloConfigRow' }
+      required: [ ok, rows ]
+    SloConfigUpsertResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        row: { $ref: '#/components/schemas/SloConfigRow' }
+      required: [ ok ]
+    RedeliverResponse:
+      type: object
+      properties:
+        ok: { type: boolean }
+        id: { type: string }
+        status: { type: integer }
+        ok_flag: { type: boolean }
+        redeliver_of: { type: string }
+      required: [ ok, id, redeliver_of ]
     PortfolioLot:
       type: object
       properties:
@@ -1904,6 +2053,16 @@ components:
           type: object
           additionalProperties: { type: number }
           description: Map short key -> hit ratio for public endpoints.
+        slo_ratios:
+          type: object
+          description: Per-route SLO counters and breach ratio for today.
+          additionalProperties:
+            type: object
+            properties:
+              good: { type: integer }
+              breach: { type: integer }
+              breach_ratio: { type: number }
+            required: [good, breach, breach_ratio]
       required: [ok, rows]
     RetentionResult:
       type: object

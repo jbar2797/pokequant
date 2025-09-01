@@ -7,6 +7,8 @@ export interface Env {
 	INGEST_TOKEN: string;
 	ADMIN_TOKEN: string;
 	ADMIN_TOKEN_NEXT?: string; // optional rotating next token
+	// Optional inbound webhook shared secret (HMAC SHA-256) for /webhooks/inbound verification
+	INBOUND_WEBHOOK_SECRET?: string;
 	PUBLIC_BASE_URL: string;
 	LOG_ENABLED?: string; // '0' disables structured logging
 	// Rate limit override knobs (stringified ints)

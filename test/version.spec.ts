@@ -5,9 +5,13 @@ describe('Admin version', () => {
   it('returns version', async () => {
     const r = await SELF.fetch('https://example.com/admin/version', { headers: { 'x-admin-token':'test-admin' }});
     expect(r.status).toBe(200);
-    const j = await r.json();
+  const j = await r.json() as { ok:boolean; version:string; build_commit?:string };
     expect(j.ok).toBe(true);
     expect(typeof j.version).toBe('string');
     expect(j.version).toMatch(/^\d+\.\d+\./);
+    if (j.build_commit !== undefined) {
+      expect(typeof j.build_commit).toBe('string');
+      expect(j.build_commit.length).toBeGreaterThan(5);
+    }
   });
 });

@@ -85,7 +85,8 @@ GA: performance benchmarks, SLA metrics, billing / access tiering (if pursued)
 Canonical: `openapi.yaml` + `docs/API_CONTRACT.md`. All public/admin changes MUST pass contract check (`npm run contract`).
 
 ## 7. CI & Quality Gates
-`ci.yml` → install, contract check, version check, lint, typecheck, tests (with coverage), badge generation, smoke preview, performance smoke (latency p95 budget)
+`ci.yml` (FAST_TESTS=1) → install, contract check, version check, lint, typecheck, tests (fast migrations mode + coverage), badge generation, smoke preview, performance smoke (latency p95 budget)
+`nightly-full.yml` (FAST_TESTS=0) → full migrations + typecheck + full tests (no fast path) + lightweight preview smoke to catch drift
 `smoke.yml` (prod smoke) conditional on public base URL
 Implemented: performance smoke gate, Prometheus export (`/admin/metrics-export`) with counters, errors, status families, latency gauges.
 
@@ -105,6 +106,18 @@ Pending rewrite (framework evaluation: SvelteKit vs Next.js static export). See 
 Update `docs/ENGINEERING_SNAPSHOT.md` before merging.
 Add / update tests for every new route or breaking change.
 Do not remove documented fields without version bump & contract update.
+
+### FAST_TESTS Mode
+CI default (`ci.yml`) runs with `FAST_TESTS=1` which:
+- Uses fast migrations (minimal schema) to cut cold-start time.
+- Skips or short-circuits heavy computations (signals bulk, some analytics).
+- Certain long-running specs should guard with a skip when `FAST_TESTS=1` if they depend on full historical depth.
+Nightly workflow (`nightly-full.yml`) runs with full migrations to catch drift. When adding new heavy tests, add a short comment & conditional skip pattern:
+```
+const fast = (globalThis as any).FAST_TESTS === '1' || (globalThis as any).__FAST_TESTS === '1';
+const maybe = fast ? it.skip : it;
+```
+Prefer keeping logic deterministic & under 1s in fast mode.
 
 ## 12. License
 Proprietary (decide OSS posture later).

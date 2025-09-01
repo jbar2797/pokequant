@@ -14,6 +14,14 @@ All notable changes to this project will be documented here.
 - Structured logging correlation IDs (`x-request-id`) propagation across responses & logs.
 - Centralized error metrics: per-error code (`error.<code>`) and HTTP status (`error_status.<status>`) counters emitted via HTTP helper.
 
+## [0.8.0] - 2025-08-30
+### Added
+- Dynamic per-route latency SLO configuration: new admin endpoints `/admin/slo` (list) and `/admin/slo/set` (upsert) with thresholds (10–30000ms, default 250ms fallback) feeding req.slo.route.<slug>.good|breach metrics.
+### Changed
+- OpenAPI spec updated with SLO endpoints and SloConfigRow schema; version bumped to 0.8.0.
+### Removed
+- Obsolete `lib/http_runtime.ts` finalizeRequest helper (fully unused after routing refactor).
+
 ## [0.7.9] - 2025-08-30
 ### Changed
 - OpenAPI: add error metrics (`error.*`, `error_status.*`) example rows to /admin/metrics; version bump.

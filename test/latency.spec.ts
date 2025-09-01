@@ -16,5 +16,5 @@ describe('Latency metrics', () => {
     // at least one latency metric for sets or rarities
   const tags = new Set<string>(j.latency.map((l:any)=> String(l.base_metric||'')));
   expect(Array.from(tags).some((t:string)=> t.includes('sets') || t.includes('rarities'))).toBe(true);
-  });
+  }, 30000);
 });

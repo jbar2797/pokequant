@@ -6,6 +6,7 @@ import type { Env } from '../lib/types';
 import { router } from '../router';
 import { computePortfolioAttribution } from '../lib/portfolio_attribution';
 import { ensureTestSeed } from '../lib/data';
+import { PortfolioLotSchema, validate, PortfolioTargetsSchema, PortfolioOrderExecuteSchema } from '../lib/validation';
 
 export function registerPortfolioRoutes(){
   // Create portfolio
@@ -27,18 +28,8 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const body = await req.json().catch(()=>({}));
-    const LotSchema = {
-      parse(v:any){
-        if (!v || typeof v !== 'object') return { success:false, error:'invalid_body' };
-        const card_id = typeof v.card_id==='string' && v.card_id.trim()? v.card_id.trim(): null;
-        const qty = Number(v.qty);
-        const cost_usd = Number(v.cost_usd);
-        if (!card_id || !Number.isFinite(qty) || qty<=0 || !Number.isFinite(cost_usd) || cost_usd<0) return { success:false, error:'invalid_body' };
-        return { success:true, data:{ card_id, qty, cost_usd, acquired_at: typeof v.acquired_at==='string'? v.acquired_at: null } };
-      }
-    };
-    const parsed:any = LotSchema.parse(body);
-    if (!parsed.success) return json({ ok:false, error:'invalid_body' },400);
+    const parsed = validate(PortfolioLotSchema, body);
+    if (!parsed.ok) return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
     const auth = await portfolioAuth(env, pid, psec);
     if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
@@ -217,7 +208,9 @@ export function registerPortfolioRoutes(){
     const auth = await portfolioAuth(env, pid, psec);
     if (!auth.ok) return json({ ok:false, error:'forbidden' },403);
     const body:any = await req.json().catch(()=>({}));
-    const factorTargets = body.factors && typeof body.factors==='object' ? body.factors : {};
+    const parsed = validate(PortfolioTargetsSchema, body);
+    if(!parsed.ok) return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
+    const factorTargets = parsed.data.factors || {};
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
     let updated=0; for (const [k,v] of Object.entries(factorTargets)){ const val=Number(v); if(!Number.isFinite(val)) continue; await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_targets (portfolio_id, kind, target_key, target_value, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(pid,'factor',k,val).run(); updated++; }
     await audit(env, { actor_type:'portfolio', actor_id:pid, action:'set_targets', resource:'portfolio_targets', resource_id:pid, details:{ factors: updated } });
@@ -252,7 +245,10 @@ export function registerPortfolioRoutes(){
   .add('POST','/portfolio/orders/execute', async ({ env, req }) => {
     await ensureTestSeed(env);
     const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return json({ ok:false, error:'forbidden' },403);
-    const body:any = await req.json().catch(()=>({})); const id=(body.id||'').toString(); if(!id) return json({ ok:false, error:'id_required' },400);
+    const body:any = await req.json().catch(()=>({}));
+    const parsed = validate(PortfolioOrderExecuteSchema, body);
+    if(!parsed.ok) return json({ ok:false, error:'invalid_body', details: parsed.errors },400);
+    const { id } = parsed.data;
     const orows = await env.DB.prepare(`SELECT id,status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const order=(orows.results||[])[0] as any; if(!order) return json({ ok:false, error:'not_found' },404); if(order.status!=='open') return json({ ok:false, error:'invalid_status' },400);
     await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=datetime('now'), executed_trades=json('[]') WHERE id=?`).bind(id).run(); await audit(env,{ actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id }); return json({ ok:true, id, status:'executed' });
   })

@@ -1,8 +1,9 @@
+Last Updated: 2025-09-01T05:28:00Z (export SLO_WINDOWS for debug endpoint; relax windows test for flake reduction)
 # Engineering Snapshot (Rolling)
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
 
-Last Updated: 2025-08-31T01:10:00Z (webhook replay verify endpoint, portfolio scenario what-if exposures)
+Last Updated: 2025-08-31T23:40:00Z (rolling SLO breach ratio gauge + public rate limiting expansion + email bounce ingestion + log enrichment fix)
 
 ## 1. High-Level Architecture
 - Cloudflare Worker (TypeScript) + D1 (SQLite) backing store
@@ -21,7 +22,7 @@ Last Updated: 2025-08-31T01:10:00Z (webhook replay verify endpoint, portfolio sc
 | Anomalies | routes/anomalies.ts | NEW modularized | Resolution + status filter + cursor pagination. |
 | Factors & Analytics | routes/factors.ts, lib/factors/* | Stable | Includes returns, risk, smoothing, IC, quality. |
 | Alerts | routes/alerts.ts, email_adapter.ts | Improved | Provider message id persistence + retry metrics; real external provider path in place (Resend) pending prod key. |
-| Metrics & Latency | lib/metrics.ts, /admin/metrics routes/admin.ts | Stable | Missing error counters. |
+| Metrics & Latency | lib/metrics.ts, /admin/metrics routes/admin.ts, router.ts | Stable | Route SLO classification, buckets, rolling breach ratio gauge. |
 | Integrity & Retention | lib/integrity.ts, lib/retention.ts, routes/admin.ts | Stable | Retention config CRUD implemented (0038). |
 | Ingestion & Provenance | lib/ingestion.ts, routes/admin.ts | Stable | Incremental run + provenance listing. |
 | Audit | lib/audit.ts, routes/admin.ts | Stable | Pagination + stats endpoints exist. |
@@ -39,23 +40,44 @@ Cloudflare Workers Vitest provides a fresh D1 storage per test file while reusin
 Operational notes: append new migrations with monotonic ids; prefer additive, idempotent ALTERs / CREATEs guarded by IF NOT EXISTS. Avoid irreversible data rewrites without presence checks.
 
 
-## 3. Active Sprint Goals (Week 1–2 Hardening)
-- [x] Error & status-class request metrics (expose via /admin/metrics)
+## 3. Completed Alpha Hardening Goals (Week 1–2)
+- [x] Error & status-class request metrics (exposed via /admin/metrics)
 - [x] Hash ingest token + dual admin token support
 - [x] Anomalies & backfill pagination
 - [x] Retention configuration table & CRUD
-- [x] OpenAPI spec updated for new modular routes + pagination params + retention config endpoints (rolled into broader spec sync 0.7.5)
+- [x] OpenAPI spec updated (pagination params + new endpoints)
 - [x] Factor explainability endpoint (`/api/card/factors`)
 - [x] Portfolio benchmark series + alpha in `/portfolio/pnl`
 - [x] Email delivery logging table + admin listing endpoint
-- [x] Webhook alert infrastructure (endpoints + simulated deliveries)
+- [x] Webhook alert infrastructure (simulated deliveries + retry/backoff + redelivery + replay verify)
+- [x] Dynamic per-route SLO thresholds + classification metrics
+- [x] Latency bucket metrics & percentile smoothing stabilization
+- [x] Latency ensure missing-table noise suppression (silent first retry)
+- [x] Log capture test utilities & assertion of zero `metric_latency_error` on cold start
 
-## 4. Ready / Next Up (post 0.7.9)
+## 3a. Production Hardening Sprint (Beta Gate) – Proposed Major Feature Focus
+Focus only on high-leverage features; defer cosmetic/detail polish:
+- [ ] Real email provider (Resend or Postmark) selection & abstraction finalize
+   - Adapter interface hardened; add bounce webhook ingestion + status update (delivered, bounced, complaint)
+   - Delivery metrics: `email.delivered`, `email.bounced`, `email.complaint`
+- [ ] Real webhook dispatch toggle (feature flag) + HMAC signature (payload + nonce + timestamp) + secret rotation flow
+   - Delivery success/error SLIs + retry budget metrics
+- [ ] Error taxonomy expansion: map internal errors to stable `error_code` enums; aggregate counters & dashboard docs
+- [ ] Coverage ratchet automation wired into CI (already script; add safeguarded auto-commit) + badge update step (DONE for badge asset, not automated commit gate)
+- [ ] Structured log shipping plan (even if manual) + minimal redaction policy (confirm no secrets in logs)
+- [ ] Rate limit expansion to remaining public endpoints (cards, movers, sets, rarities) with adaptive defaults
+- [ ] Frontend core SPA (minimal) delivering: Cards list, Card detail, Movers, Portfolio lots+PnL read-only
+   - Auth token handling + ETag client caching
+- [x] SLO breach alerting primitive: rolling breach ratio gauge metric (foundation for alerting pipeline)
+
+Definition of Done (Sprint): All above either shipped or time-boxed decisions recorded (provider choice, signature spec) with docs updated.
+
+## 4. Ready / Next Up (post 0.8.0)
+- [x] SLO documentation expansion in API_CONTRACT (brief reference) & operations runbook alerting tie-in
 - [ ] Coverage badge automation (thresholds already enforced)
-- [ ] Architecture diagram & docs page (mermaid + explanation)
 - [ ] Provider selection decision (Resend vs Postmark) finalize & document
 - [ ] Real email provider domain configuration (SPF/DKIM) & bounce webhook ingestion
-- [ ] Manual webhook re-delivery trigger (admin) leveraging verify endpoint
+- [ ] Route-level error taxonomy (group specific error codes)
 
 ## 5. Parking Lot / Future Enhancements
 - What-if portfolio scenario endpoint
@@ -66,36 +88,43 @@ Operational notes: append new migrations with monotonic ids; prefer additive, id
 - Portfolio risk decomposition (factor vs residual volatility)
 
 ## 6. Recently Completed (chronological, newest first, trimmed)
-0. Webhook replay verification endpoint (/admin/webhooks/verify) — 2025-08-31
-1. Portfolio scenario what-if exposures endpoint (/portfolio/scenario) — 2025-08-31
-2. Webhook signing + nonce replay metadata + planned_backoff_ms + real vs simulated metrics namespaces — 2025-08-31
-3. Webhook retry/backoff (attempt & duration_ms columns, metrics webhook.sent/retry_success/error) + tests (0.7.8) — 2025-08-30
-4. Email provider_message_id persistence + OpenAPI schema + test (0.7.7) — 2025-08-30
-5. Pipeline run tracking table + overlap guard + /admin/pipeline/runs endpoint (0.7.6) — 2025-08-30
-6. Correlation ID propagation (x-request-id) + latency bucket metrics (latbucket.*) — 2025-08-30
-7. Webhook alert infrastructure (tables, /admin/webhooks*, simulated deliveries) — 2025-08-30
-8. Email delivery logging (table + /admin/email/deliveries) — 2025-08-30
-9. Portfolio benchmark_ret + alpha computation & exposure via endpoints — 2025-08-30
-10. Factor explainability endpoint `/api/card/factors` — 2025-08-30
-11. Retention config table + CRUD endpoints — 2025-08-30
-12. Anomalies & backfill pagination + tests — 2025-08-30
+0. SLO windows debug endpoint + log redaction shallow object support + tests (0.8.3) — 2025-08-31
+1. Rolling SLO breach ratio gauge + log enrichment context (0.8.2) — 2025-08-31
+2. Latency ensure noise suppression + log capture assertion (0.8.1) — 2025-08-31
+3. Dynamic per-route SLO thresholds + classification metrics (0.8.0) — 2025-08-31
+2. Manual webhook redelivery endpoint (/admin/webhooks/redeliver) — 2025-08-31
+3. Webhook replay verification endpoint (/admin/webhooks/verify) — 2025-08-31
+4. Portfolio scenario what-if exposures endpoint (/portfolio/scenario) — 2025-08-31
+5. Webhook signing scaffolding (nonce replay metadata, planned_backoff_ms field, simulated vs real metrics namespaces) — 2025-08-31
+6. Webhook retry/backoff (attempt & duration_ms columns, metrics webhook.sent/retry_success/error) + tests (0.7.8) — 2025-08-30
+7. Email provider_message_id persistence + OpenAPI schema + test (0.7.7) — 2025-08-30
+8. Pipeline run tracking table + overlap guard + /admin/pipeline/runs endpoint (0.7.6) — 2025-08-30
+9. Correlation ID propagation (x-request-id) + latency bucket metrics (latbucket.*) — 2025-08-30
+10. Webhook alert infrastructure (tables, /admin/webhooks*, simulated deliveries) — 2025-08-30
+11. Email delivery logging (table + /admin/email/deliveries) — 2025-08-30
+12. Portfolio benchmark_ret + alpha computation & exposure via endpoints — 2025-08-30
+13. Factor explainability endpoint `/api/card/factors` — 2025-08-30
+14. Retention config table + CRUD endpoints — 2025-08-30
 
 ## 7. Quality Gates Snapshot
-- Tests: 77+ passing (additions pending)
-- Coverage: thresholds enforced (lines 60%, functions 60%, branches 50%, statements 60%) – badge automation pending
+- Tests: 116 passing (full suite) (added slo_windows + log_redaction specs; windows endpoint exported)
+- Coverage: thresholds enforced (lines 67%, functions 59%, branches 48%, statements 59%) – ratchet script present, CI auto-bump pending
 - Contract Check: Passing (`scripts/contract-check.js`)
 - Version Sync: Passing (`scripts/version-check.js`)
 
-## 8. Operational TODOs
-| TODO | Owner | Target | Notes |
-|------|-------|--------|-------|
-| Real email provider productionization |  | Short | Configure domain, handle bounces/errors |
-| Real webhook dispatch enable & signing |  | Short | HMAC header + nonce replay guard |
-| Request error counters expansion |  | Short | Distinguish 4xx vs 5xx granularly |
-| Pipeline run tracking table |  | Done | Prevent overlapping cron runs |
-| Structured logging + correlation id |  | Mid | Add request_id & span friendly format |
-| Coverage threshold ratchet |  | Mid | Fail CI if coverage drops |
-| Benchmark methodology doc |  | Mid | Document construction & alternatives |
+## 8. Operational TODOs (Condensed High-Leverage)
+| TODO | Stage | Priority | Notes |
+|------|-------|----------|-------|
+| Email provider productionization (send + bounce/complaint ingest) | Beta Gate | P0 | Decide provider, implement adapter + webhook | 
+| Webhook real dispatch + HMAC signature + secret rotation | Beta Gate | P0 | Feature flag `WEBHOOK_REAL=1`; audit retries |
+| Error taxonomy & aggregation (stable codes) | Beta Gate | P0 | Map internal errors -> codes + metrics | 
+| Coverage ratchet CI auto-commit | Beta Gate | P1 | Use existing script + protected branch rules |
+| Rate limit expansion (cards/movers/etc) | Beta Gate | P1 | Reuse existing limiter infra |
+| Structured log shipping plan & redaction review | Beta | P1 | Evaluate R2 log sink or external collector |
+| SLO breach rolling ratio metric & alert doc | Beta | P1 | Metric: `req.slo.breach_ratio_WINDOW` (computed) |
+| Frontend core SPA (minimal pages) | Beta | P1 | Replace static HTML pages |
+| Benchmark methodology doc | Post-Beta | P2 | Clarify baseline strategy |
+| Portfolio risk decomposition (future) | GA+ | P3 | Requires factor residual calc |
 
 ## 9. Update Protocol
 1. Before merging any feature/refactor, update:
@@ -107,10 +136,12 @@ Operational notes: append new migrations with monotonic ids; prefer additive, id
 4. Reference this file in commit messages when completing checklist items (e.g., "feat(metrics): add error counters (snapshot #Active Sprint Goals)").
 
 ## 10. Open Questions (Capture & Resolve)
-- Which email provider (Resend vs Postmark) → decision pending (currently test-mode Resend simulation).
-- Benchmark construction method (equal-weight vs top-N) → TBD.
-- Retention windows default policy per table → document when adding config.
-- Webhook signing scope: include nonce + timestamp vs simple payload HMAC → TBD.
+- Email provider decision (Resend vs Postmark) – target decision early Sprint
+- Bounce / complaint schema (single table vs normalized events) – decide with provider choice
+- Webhook signing canonical string (payload JSON + timestamp + nonce?) – finalize before enabling real dispatch
+- Coverage ratchet gating strategy (auto commit vs fail-only) – decide with CI update
+- Default retention windows per table (document baseline policy)
+- Benchmark construction (equal-weight vs heuristic top-N) – doc after provider + webhook done
 
 ---
 (Automate future date stamping with a small pre-commit hook if desired.)

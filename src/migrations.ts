@@ -569,6 +569,19 @@ ALTER TABLE alert_email_queue ADD COLUMN last_error TEXT;`
     description: 'Add provider_error_code column to email_deliveries for upstream classification',
     sql: `ALTER TABLE email_deliveries ADD COLUMN provider_error_code TEXT;`
   }
+  ,
+  {
+    id: '0048_email_bounces',
+    description: 'Add email_bounces table for provider bounce/complaint events',
+    sql: `CREATE TABLE IF NOT EXISTS email_bounces (
+  id TEXT PRIMARY KEY,
+  provider TEXT,
+  message_id TEXT,
+  type TEXT,
+  raw TEXT,
+  created_at TEXT
+);`
+  }
 ];
 
 let MIGRATIONS_PROMISE: Promise<void> | null = null;

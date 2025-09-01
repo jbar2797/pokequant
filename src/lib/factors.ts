@@ -1,5 +1,6 @@
 import type { Env } from './types';
 import { log } from './log';
+import { mean as avg, covariance as covar, pearson, rankIC as rankICHelper } from './factor_math';
 
 // Dynamic factor universe helper (persisted in factor_config). Falls back to default list.
 export async function getFactorUniverse(env: Env): Promise<string[]> {
@@ -59,21 +60,19 @@ export async function computeFactorRiskModel(env: Env) {
 		if (usable.length < 10) return { ok:false, skipped:true };
 		const series: Record<string, number[]> = {};
 		for (const f of factors) series[f] = usable.map(d=> byFactor[f].find(o=> o.d===d)!.r);
-		const mean = (a:number[])=> a.reduce((s,x)=>s+x,0)/a.length;
-		const cov = (a:number[], b:number[]) => { const ma=mean(a), mb=mean(b); let sum=0; for (let i=0;i<a.length;i++){ sum += (a[i]-ma)*(b[i]-mb); } return sum/(a.length-1); };
 		const market: number[] = []; for (let i=0;i<usable.length;i++){ let s=0; for (const f of factors) s+= series[f][i]; market.push(s/factors.length); }
-		const mMean = mean(market); let mVar=0; for (const v of market) mVar+=(v-mMean)*(v-mMean); mVar /= (market.length-1); const mVarSafe = mVar || 1e-9;
+		const mMean = avg(market); let mVar=0; for (const v of market) mVar+=(v-mMean)*(v-mMean); mVar /= (market.length-1); const mVarSafe = mVar || 1e-9;
 		for (const f of factors) {
-			const vol = Math.sqrt(Math.max(0, cov(series[f], series[f])));
-			const beta = cov(series[f], market)/mVarSafe;
+			const vol = Math.sqrt(Math.max(0, covar(series[f], series[f])));
+			const beta = covar(series[f], market)/mVarSafe;
 			await env.DB.prepare(`INSERT OR REPLACE INTO factor_metrics (as_of, factor, vol, beta) VALUES (date('now'), ?, ?, ?)`).bind(f, vol, beta).run();
 		}
 		for (let i=0;i<factors.length;i++) {
 			for (let j=i;j<factors.length;j++) {
 				const fi = factors[i], fj = factors[j];
-				const c = cov(series[fi], series[fj]);
-				const vi = cov(series[fi], series[fi]);
-				const vj = cov(series[fj], series[fj]);
+				const c = covar(series[fi], series[fj]);
+				const vi = covar(series[fi], series[fi]);
+				const vj = covar(series[fj], series[fj]);
 				const corr = (vi>0 && vj>0)? c/Math.sqrt(vi* vj) : 0;
 				await env.DB.prepare(`INSERT OR REPLACE INTO factor_risk_model (as_of, factor_i, factor_j, cov, corr) VALUES (date('now'), ?, ?, ?, ?)`).bind(fi, fj, c, corr).run();
 			}
@@ -158,19 +157,7 @@ export async function computeFactorIC(env: Env) {
 		const rets: number[] = [];
 		for (const r of rows) { const a = Number(r.px_prev)||0, b=Number(r.px_next)||0; rets.push(a>0 && b>0 ? (b-a)/a : 0); }
 		if (rets.filter(x=>x!==0).length < 3) return { ok:false, skipped:true };
-		function rankIC(fvals: number[]): number|null {
-			const data: { v:number; r:number }[] = [];
-			for (let i=0;i<fvals.length;i++) { const fv = fvals[i]; const rv = rets[i]; if (Number.isFinite(fv) && Number.isFinite(rv)) data.push({ v: fv, r: rv }); }
-			const n = data.length; if (n < 5) return null;
-			const idxF = data.map((_,i)=> i).sort((a,b)=> data[a].v - data[b].v);
-			const idxR = data.map((_,i)=> i).sort((a,b)=> data[a].r - data[b].r);
-			const rankF = new Array(n); const rankR = new Array(n);
-			for (let i=0;i<n;i++){ rankF[idxF[i]] = i+1; rankR[idxR[i]] = i+1; }
-			let sumF=0,sumR=0; for (let i=0;i<n;i++){ sumF+=rankF[i]; sumR+=rankR[i]; }
-			const mF = sumF/n, mR = sumR/n; let num=0,dF=0,dR=0;
-			for (let i=0;i<n;i++){ const a1=rankF[i]-mF,b1=rankR[i]-mR; num+=a1*b1; dF+=a1*a1; dR+=b1*b1; }
-			const den = Math.sqrt(dF*dR)||0; if (!den) return null; return num/den;
-		}
+		function rankIC(fvals: number[]): number|null { return rankICHelper(fvals, rets); }
 		const baseMaps: Record<string, number[]> = {
 			ts7: rows.map(r=> Number(r.ts7)),
 			ts30: rows.map(r=> Number(r.ts30)),

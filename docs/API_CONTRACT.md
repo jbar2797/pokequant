@@ -165,6 +165,27 @@ An OpenAPI 3.1 document is maintained at `/openapi.yaml` in the repository root.
 
 ## Rate Limiting
 
+## Dynamic Route SLOs (Latency)
+Administrative controls for per-route latency objectives.
+
+### `GET /admin/slo`
+- 200: `{ ok:true, rows:[{ route:<slug>, threshold_ms, updated_at }, ...] }`
+- `route` is a normalized slug form (e.g. `/api/cards` → `api_cards`). Routes without an entry implicitly use default 250ms.
+
+### `POST /admin/slo/set`
+- Body: `{ route, threshold_ms }` where `route` may be full path or slug. Threshold range 10–30000 ms.
+- 200: `{ ok:true, row:{ route, threshold_ms, updated_at } }`
+- Effects take effect immediately (SLO cache invalidated on upsert).
+
+### Metrics
+- Good vs breach counters: `req.slo.route.<slug>.good` and `req.slo.route.<slug>.breach` (breach when latency >= threshold OR 5xx status).
+- Exported via Prometheus endpoint: `/admin/metrics/export` (`pq_metric{name="req_slo_route_<slug>_good"} <count>`).
+- Use ratio breach/(good+breach) to gauge compliance.
+
+### Tuning Guidance
+- Start with 250ms default; tighten high-traffic read endpoints (<150ms) once stable.
+- Breach budget alerts should trigger when rolling 5–10 minute breach ratio exceeds target SLO (e.g. >5%).
+
 ## Caching & Validation
 Public read-mostly endpoints send short-lived Cache-Control headers (see individual sections).
 

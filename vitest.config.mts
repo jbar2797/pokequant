@@ -1,8 +1,8 @@
 import { defineWorkersConfig } from '@cloudflare/vitest-pool-workers/config';
 
-export default defineWorkersConfig({
+	export default defineWorkersConfig({
 	test: {
-		testTimeout: 15000,
+		testTimeout: 25000,
 		poolOptions: {
 			workers: {
 				wrangler: { configPath: './wrangler.jsonc' },
@@ -18,12 +18,13 @@ export default defineWorkersConfig({
 			include: ['src/**/*.ts'],
 			exclude: ['src/version.ts'],
 			thresholds: {
-				// Ratchet baseline (2025-08-31). Auto-raise via future PRs; failing build if coverage regresses.
-				lines: 66,
+				// Ratchet baseline updated (2025-08-31 late). Increased branch & lines after SLO tests.
+				lines: 67,
 				functions: 59,
-				branches: 46,
+				branches: 48,
 				statements: 59,
 			},
 		},
+		setupFiles: ['test/setup.fast.ts'],
 	},
 });

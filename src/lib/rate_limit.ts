@@ -32,7 +32,8 @@ export function getRateLimits(env: Env) {
 	return {
 		search: { limit: p(env.RL_SEARCH_LIMIT, 30), window: p(env.RL_SEARCH_WINDOW_SEC, 300) },
 		subscribe: { limit: p(env.RL_SUBSCRIBE_LIMIT, 5), window: p(env.RL_SUBSCRIBE_WINDOW_SEC, 86400) },
-		alertCreate: { limit: p(env.RL_ALERT_CREATE_LIMIT, 10), window: p(env.RL_ALERT_CREATE_WINDOW_SEC, 86400) }
+		alertCreate: { limit: p(env.RL_ALERT_CREATE_LIMIT, 10), window: p(env.RL_ALERT_CREATE_WINDOW_SEC, 86400) },
+		publicRead: { limit: p((env as any).RL_PUBLIC_READ_LIMIT, 120), window: p((env as any).RL_PUBLIC_READ_WINDOW_SEC, 300) }
 	} as const;
 }
 

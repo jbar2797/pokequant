@@ -1,14 +1,14 @@
 {
 		"name": "flat-art-5614",
 		"type": "module",
-		"version": "0.7.9",
+		"version": "0.8.0",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
-		"test": "vitest --run",
-		"test:coverage": "vitest --run --coverage",
+		"test": "node scripts/test-bootstrap.js && vitest --run",
+		"test:coverage": "node scripts/test-bootstrap.js && vitest --run --coverage",
 		"coverage:ratchet": "node scripts/coverage-ratchet.js",
 		"coverage:badge": "node scripts/gen-coverage-badge.js",
 		"perf-smoke": "node scripts/perf-smoke.js",

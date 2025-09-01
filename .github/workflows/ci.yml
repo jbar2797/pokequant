@@ -8,6 +8,9 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    env:
+      # Enable fast test mode (minimal migrations & heavy compute short-circuits) to avoid CI timeouts
+      FAST_TESTS: 1
     steps:
       - name: Checkout
         uses: actions/checkout@v4

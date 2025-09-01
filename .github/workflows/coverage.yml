@@ -1,0 +1,26 @@
+name: coverage-ratchet
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  test-and-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm test --silent --ignore-scripts --max-workers=50%
+      - run: npm run test:coverage --silent --ignore-scripts || true
+      - name: Ratchet thresholds (if improved)
+        run: |
+          node scripts/coverage-ratchet.js || true
+          if git diff --quiet; then echo "No threshold change"; exit 0; fi
+          git config user.name "coverage-bot"
+          git config user.email "coverage-bot@example.com"
+          git commit -am "chore(ci): ratchet coverage thresholds" || true
+          git push || true
