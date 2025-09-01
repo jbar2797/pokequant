@@ -11,6 +11,7 @@ An analytics service that ingests card price & search interest data, computes mu
 ```
 npm install
 make dev          # local worker (wrangler)
+npm run demo:seed # populate a small demo dataset (after dev is running)
 make test         # vitest suite (isolated D1 per spec)
 make lint
 make typecheck
@@ -69,6 +70,9 @@ Granular error dashboards (aggregation & alert thresholds) – base error/status
 Coverage badge & ratchet (CI gate) ✔
 Architecture + Runbook docs finalization
 Security review (headers, secrets rotation automation)
+Discord alert delivery (stub present, real webhook configurable)
+Signals provider dynamic selection (scaffolded)
+Dashboard snapshot & watchlist (public): `/api/dashboard`, `/api/watchlist` (add/remove via POST/DELETE). Seed demo data then hit these endpoints for quick UI prototyping.
 
 ### Coverage Ratchet
 `npm run coverage:ratchet` will auto-bump coverage thresholds by +1 (lines/functions/statements/branches) when the current coverage exceeds the existing threshold by >=2 percentage points. This should run after meaningful test additions (can be integrated as an optional CI step that only commits when bumps occur).
@@ -101,6 +105,10 @@ Planned: automatic key rotation guidelines + optional KMS-backed secret fetch.
 
 ## 10. Frontend Overhaul
 Pending rewrite (framework evaluation: SvelteKit vs Next.js static export). See `docs/FRONTEND_PLAN.md` for acceptance criteria & component spec.
+
+## 13. Signals Provider
+Pluggable interface in `src/signals/` with `default_v1`. Set future provider via `SIGNALS_PROVIDER` (dynamic import planned).
+Example (future proprietary provider): set env var `SIGNALS_PROVIDER=pro_v2` and deploy a module at `src/signals/providers/pro_v2.ts` exporting a default provider instance implementing `SignalsProvider`.
 
 ## 11. Contributing (Internal Alpha)
 Update `docs/ENGINEERING_SNAPSHOT.md` before merging.

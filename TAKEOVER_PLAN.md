@@ -2,72 +2,72 @@
 
 Owner: Principal Engineer (App Studio)
 Date: 2025-09-01
-Status: Draft (iteration 1)
+Status: Iteration 2
 
 ### 1. Repository & Stack Inventory
 Component | Current | Target Delta
 --------- | ------- | ------------
 Runtime | Cloudflare Worker (TS, Modules) | Keep (add edge cache headers polish)
-DB | Cloudflare D1 (SQLite) | Migrate to Postgres (alpha keeps D1) — introduce DAL abstraction
-Tests | Vitest + custom fast/full modes | Keep; add e2e (Playwright or API-level) later
-CI | GitHub Actions (ci.yml, nightly-full, smoke) | Add release tagging + conventional commits gate
-Docs | Multiple markdown under docs/ | Normalize + add missing (DATA_DICTIONARY, API, CONTRIBUTING, RUNBOOK)
-Signals | Custom in `lib/signals.ts` | Introduce pluggable provider interface (`signals/` dir)
-Frontend | Static pages (public/) | New Next.js app (separate repo or /app) – TBD alpha stub
-Auth | Token headers (admin/ingest/portfolio) | Plan OAuth / NextAuth for web; keep headers for system tokens
-Alerts | Email/webhook simulated | Integrate Discord + real email (Resend) – feature flags
-Observability | Metrics tables + JSON logs | Add tracing (OpenTelemetry shim) + Sentry later
+DB | Cloudflare D1 (SQLite) | Abstract; plan Postgres after Alpha
+Tests | Vitest fast/full | Add provider swap & discord alert tests
+CI | Actions (ci, nightly, smoke) | Release tagging + data dict drift gate (gate DONE)
+Docs | docs/*.md partial | Core docs + automation complete (DONE)
+Signals | Single module | Pluggable provider abstraction (DONE)
+Frontend | Static pages | Next.js app scaffold (TODO)
+Auth | Token headers (admin/ingest/portfolio) | OAuth/NextAuth later (post-Alpha)
+Alerts | Email/webhook only | Discord webhook stub (DONE)
+Observability | Metrics + export | Add tracing + Sentry later
 
 ### 2. Immediate Stabilization Tasks (Week 1)
-- [ ] Add CODEOWNERS
-- [ ] Add CONTRIBUTING.md (internal standards, commit message style)
-- [ ] Add PR template & issue templates (bug/feature/tech debt)
-- [ ] Create BLOCKERS.md
-- [ ] Add DATA_DICTIONARY.md (seed from schema & migrations)
-- [ ] Add API.md (higher level than openapi.yaml)
-- [ ] Extract signal engine interface
-- [ ] Add `.env.example` completeness pass
-- [ ] Tighten ESLint (imports ordering, unused vars) add CI gate for formatting
+- [x] CODEOWNERS
+- [x] CONTRIBUTING.md
+- [x] PR / issue templates
+- [x] BLOCKERS.md
+- [x] Data dictionary automation
+- [x] API high-level doc
+- [x] Signal engine interface
+- [x] `.env.example` updates
+- [x] Dashboard & watchlist endpoints
+- [ ] Provider selection via dynamic import (scaffolded only)
+- [ ] Discord alert end-to-end assertion test
 
 ### 3. Risks / Gaps
 Area | Risk | Mitigation
 -----|------|-----------
-Schema Drift | Fast vs full migrations divergence | Add schema drift check (already script) to nightly, enforce on CI for PRs touching migrations
-Signals Complexity | Proprietary model swap risk | Interface boundary + regression harness w/ golden cards
-Rate Limiting | Simple fixed-window may allow bursts | Consider sliding window + token bucket once traffic increases
-Secrets Rotation | Manual for admin/ingest tokens | Add rotation script + doc, move to GitHub Actions secret rotation quarterly
-Vendor Lock (D1) | Scale / SQL feature limits | Abstract DB layer; plan Postgres migration w/ drizzle or prisma generator
+Schema Drift | Fast vs full migrations divergence | Drift script nightly + CI data dict gate
+Signals Swap | Proprietary model integration risk | Stable provider interface & test harness
+Rate Limiting | Burst bypass | Plan sliding window post-Alpha
+Secrets Rotation | Manual tokens | Add rotation script & schedule
+Vendor Lock | D1 limits at scale | DAL abstraction + migration plan
 
-### 4. Alpha Feature Scope (Confirm)
-See README & user request: buy/hold/sell signals, portfolios, alerts (Discord), dashboard movers, search tiles, card detail.
+### 4. Alpha Feature Scope
+Buy/Hold/Sell signals, portfolios, alerts (Discord stub), dashboard movers, search tiles, card detail.
 
 ### 5. Branch & PR Strategy
-Branch naming: `chore/*`, `feat/*`, `fix/*`, `docs/*`, `ci/*`.
-Small atomic PRs (<400 LOC diff) with checklist referencing Alpha Gate.
+Prefixes: feat/fix/chore/docs/ci. <400 LOC per PR preferred.
 
-### 6. Workstream Timeline (Projected)
-Week | Focus
----- | -----
-1 | Stabilization + docs + signal interface extraction
-2 | Schema refinement + data dictionary + seed dataset & demo cards
-3 | Alerts (Discord), portfolio/watchlist polish, dashboard API bundling
-4 | Frontend scaffolding (Next.js) + search tiles + card detail mocks
-5 | E2E tests, security headers, rate limit tuning
-6 | Alpha hardening & Beta planning doc
+### 6. Timeline (Projected)
+Week 1: Stabilization, docs, signals abstraction (DONE)
+Week 2: Schema refinement, seed demo dataset, Discord wiring test
+Week 3: Dashboard aggregation endpoints, watchlist (DONE)
+Week 4: Frontend scaffold + search tiles
+Week 5: Card detail view + E2E tests
+Week 6: Hardening & Alpha readiness review
 
 ### 7. Open Questions
-1. Frontend repo split vs monorepo? (default: monorepo /apps/web)
-2. Postgres timeline — before Beta or after? (lean: after Beta once workloads defined)
-3. Licensing OSS or closed? (Need legal input)
+Frontend monorepo vs separate? (lean monorepo)
+Postgres timing? (Post-Alpha)
+Licensing posture? (Pending legal)
 
 ### 8. Decision Log References
-See `docs/DECISIONS/` – add new entries for: DB abstraction, signal provider boundary, frontend framework selection.
+Use `.github/ISSUE_TEMPLATE/adr.md` for new ADRs.
 
-### 9. Acceptance for This Phase (Done Definition)
-- Core CI green; new docs present
-- Signal provider interface stub merged & used by cron
-- Data dictionary generated & validated in CI
-- Blockers documented with owners
+### 9. Acceptance (Phase 0)
+- CI green with data dictionary gate
+- Pluggable signals provider in use
+- Discord stub present
+- Dashboard & watchlist endpoints live
+- Docs baseline complete
 
 ---
-Iteration history will be appended below.
+Iteration 2: Added signals provider, discord stub, automated data dictionary, dashboard & watchlist.

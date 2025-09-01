@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.8.4
+  version: 0.8.5
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -109,6 +109,28 @@ paths:
     get:
       summary: Card CSV export
       responses: { '200': { description: CSV } }
+  /api/dashboard:
+    get:
+      summary: Public dashboard snapshot
+      description: Top signals (score desc), recent movers (z_svi/edge), and aggregate counts.
+      responses:
+        '200': { description: OK }
+  /api/watchlist:
+    get:
+      summary: List watchlist cards (latest signal & price)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Add card to watchlist
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [id], properties: { id: { type: string } } } } } }
+      responses: { '200': { description: OK } }
+    delete:
+      summary: Remove card from watchlist
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema: { type: string }
+      responses: { '200': { description: OK } }
   /admin/factor-returns:
     get:
       summary: Latest stored factor daily top-bottom quintile returns

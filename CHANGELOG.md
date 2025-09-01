@@ -25,6 +25,8 @@ All notable changes to this project will be documented here.
 ### Added
 - Structured logging correlation IDs (`x-request-id`) propagation across responses & logs.
 - Centralized error metrics: per-error code (`error.<code>`) and HTTP status (`error_status.<status>`) counters emitted via HTTP helper.
+ - Public dashboard snapshot endpoint `/api/dashboard` (top signals, movers, aggregate counts) and watchlist CRUD endpoints (`GET/POST/DELETE /api/watchlist`).
+ - Dynamic signals provider selection scaffold via `SIGNALS_PROVIDER` env (dynamic import fallback) with graceful default.
 
 ## [0.8.0] - 2025-08-30
 ### Added

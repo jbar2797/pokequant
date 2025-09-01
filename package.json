@@ -1,7 +1,7 @@
 {
 		"name": "flat-art-5614",
 		"type": "module",
-		"version": "0.8.4",
+				"version": "0.8.5",
 	"private": true,
 	"scripts": {
 		"deploy": "wrangler deploy",
@@ -13,6 +13,7 @@
 		"coverage:ratchet": "node scripts/coverage-ratchet.js",
 		"coverage:badge": "node scripts/gen-coverage-badge.js",
 		"data:dict": "node scripts/gen-data-dictionary.js",
+				"demo:seed": "node scripts/demo-seed.js",
 		"perf-smoke": "node scripts/perf-smoke.js",
 		"typecheck": "tsc --noEmit",
 		"lint": "eslint 'src/**/*.ts'",
