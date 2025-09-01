@@ -4,6 +4,13 @@ import type { Env } from './types';
 // Lightweight retention purge logic extracted from index.ts
 export async function purgeOldData(env: Env, overrides?: Record<string, number>) {
   try {
+    // Preflight: ensure tables we may touch exist (avoid uncaught 'no such table' causing runtime disconnect)
+    try {
+      await env.DB.batch([
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`),
+        env.DB.prepare(`CREATE TABLE IF NOT EXISTS data_completeness (dataset TEXT NOT NULL, as_of DATE NOT NULL, rows INTEGER NOT NULL, PRIMARY KEY(dataset, as_of));`),
+      ]);
+    } catch {/* ignore */}
     const windows: Record<string, number> = {
       backtests: 30,
       mutation_audit: 30,

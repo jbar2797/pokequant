@@ -3,7 +3,24 @@ import { log } from './log';
 
 export async function ensureTestSeed(env: Env) {
   const anyDb = env.DB as any;
-  if (anyDb.__SEED_DONE) return;
+  // Fast integrity check: a prior test file may have rotated isolated storage while
+  // retaining the same DB object reference (Cloudflare test runner behavior). In that
+  // case the marker __SEED_DONE would be stale and core tables (cards, prices_daily, etc)
+  // would no longer exist, leading to "no such table" errors and upstream network
+  // disconnects in tests hitting /api/universe or /api/rarities before migrations rerun.
+  if (anyDb.__SEED_DONE) {
+    try {
+      const rs = await env.DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='cards'`).all();
+      if (!(rs.results||[]).length) {
+        // Underlying storage rotated; force reseed path.
+        anyDb.__SEED_DONE = false;
+      } else {
+        return; // seed still valid
+      }
+    } catch {
+      anyDb.__SEED_DONE = false; // force reseed on error
+    }
+  }
   if (anyDb.__SEED_LOCK) { await anyDb.__SEED_LOCK; return; }
   anyDb.__SEED_LOCK = (async () => {
     try {
