@@ -46,13 +46,13 @@ export function registerWebhookRoutes() {
   if (env.EMAIL_WEBHOOK_SECRET || env.EMAIL_WEBHOOK_SECRET_NEXT) {
     const provided = req.headers.get('x-email-webhook-secret');
     if (!provided || (provided !== env.EMAIL_WEBHOOK_SECRET && provided !== env.EMAIL_WEBHOOK_SECRET_NEXT)) {
-      return json({ ok:false, error:'unauthorized' }, 401);
+      return err(ErrorCodes.Unauthorized,401);
     }
   }
   let body: any = await req.json().catch(()=>({}));
   const provider = String(body.provider||'resend');
   const messageId = String(body.message_id||body.id||'');
-  if (!messageId) return json({ ok:false, error:'missing_message_id' },400);
+  if (!messageId) return err(ErrorCodes.MissingMessageId,400);
   try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_delivered_events (id TEXT PRIMARY KEY, provider TEXT, message_id TEXT, raw TEXT, created_at TEXT);`).run(); } catch {}
   const id = crypto.randomUUID();
   try { await env.DB.prepare(`INSERT INTO email_delivered_events (id, provider, message_id, raw, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(id, provider, messageId||null, JSON.stringify(body)).run(); } catch {}

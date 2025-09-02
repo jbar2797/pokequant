@@ -49,6 +49,8 @@ export const ErrorCodes = {
   , LotIdRequired: 'lot_id_required'
   , NoChanges: 'no_changes'
   , InvalidStatus: 'invalid_status'
+  , Unauthorized: 'unauthorized'
+  , MissingMessageId: 'missing_message_id'
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];

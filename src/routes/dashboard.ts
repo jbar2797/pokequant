@@ -34,14 +34,14 @@ router
   .add('POST','/api/watchlist', async ({ env, req }) => {
     await ensureWatchlist(env);
     let body: any = {}; try { body = await req.json(); } catch {/* ignore */}
-    const id = (body.id || '').trim(); if (!id) return json({ ok:false, error:'id required' },400);
+  const id = (body.id || '').trim(); if (!id) return err(ErrorCodes.IdRequired,400);
     await env.DB.prepare(`INSERT OR IGNORE INTO watchlist (card_id, created_at) VALUES (?,?)`).bind(id, new Date().toISOString()).run();
     return json({ ok:true, id });
   })
   // Remove card
   .add('DELETE','/api/watchlist', async ({ env, req, url }) => {
     await ensureWatchlist(env);
-    const id = (url.searchParams.get('id') || '').trim(); if (!id) return json({ ok:false, error:'id required' },400);
+  const id = (url.searchParams.get('id') || '').trim(); if (!id) return err(ErrorCodes.IdRequired,400);
     await env.DB.prepare(`DELETE FROM watchlist WHERE card_id=?`).bind(id).run();
     return json({ ok:true, id });
   });
