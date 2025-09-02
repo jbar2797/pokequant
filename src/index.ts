@@ -15,7 +15,7 @@ import { runMigrations, listMigrations } from './migrations';
 // Modularized helpers
 import type { Env } from './lib/types';
 import { log, setRequestContext } from './lib/log';
-import { json, err, CORS } from './lib/http';
+import { json, err, CORS, SECURITY_HEADERS } from './lib/http';
 import { ErrorCodes } from './lib/errors';
 import { isoDaysAgo } from './lib/date';
 import { sha256Hex } from './lib/crypto';
@@ -33,6 +33,7 @@ import { runAlerts } from './lib/alerts_run';
 import { computeAndStoreSignals } from './lib/signals';
 import { setSignalsProvider } from './signals';
 import { DefaultSignalsProvider } from './signals/default_provider';
+import { getProviderFromRegistry } from './signals/registry';
 import { baseDataSignature } from './lib/base_data';
 // Eagerly import all route modules at module load so the first request in CI does not spend
 // significant time performing many dynamic imports under the test timeout clock. This mitigates
@@ -62,29 +63,25 @@ import './routes/test_helpers';
 import './routes/dashboard';
 import { router } from './router';
 let INDICES_DONE = false;
-// Initialize signals provider (supports selection via env.SIGNALS_PROVIDER)
+// Initialize signals provider (static registry selection via env.SIGNALS_PROVIDER)
 try {
   const sp = (globalThis as any).__SIGNALS_PROVIDER_INITED;
   if (!sp) {
     const provName = (globalThis as any).__SIGNALS_PROVIDER_NAME || (typeof (globalThis as any).SIGNALS_PROVIDER === 'string' ? (globalThis as any).SIGNALS_PROVIDER : undefined);
-    // Default registry just has built-in provider for now.
-    let provider = DefaultSignalsProvider;
-    if (provName && provName !== DefaultSignalsProvider.name) {
-      // Attempt dynamic import pattern: ./signals/providers/<name>.ts exporting provider instance as default.
-      // This is best-effort; if it fails we fall back silently to default (observability via log).
-      try {
-        const slug = provName.toLowerCase().replace(/[^a-z0-9_\-]+/g,'');
-        const mod = await import(`./signals/providers/${slug}`);
-        if (mod && (mod.default || mod.provider)) {
-          provider = (mod.default || mod.provider);
-        }
-      } catch (e) {
-        try { console.warn('dynamic_signals_provider_load_failed', provName, e); } catch {/* ignore */}
-      }
-    }
+    const provider = getProviderFromRegistry(provName);
     setSignalsProvider(provider);
+    try {
+      const envForMetric = (globalThis as any).__ENV_FOR_INIT;
+      if (envForMetric && typeof envForMetric === 'object' && 'DB' in envForMetric) {
+        await incMetric(envForMetric, `signals.provider.init.${provider.name}`);
+      }
+    } catch {/* ignore metric early */}
     (globalThis as any).__SIGNALS_PROVIDER_INITED = true;
     (globalThis as any).__SIGNALS_PROVIDER_NAME = provider.name;
+    try { console.log('signals_provider_active', provider.name); } catch {/* ignore */}
+    if (provName && provider === DefaultSignalsProvider && provName.toLowerCase() !== 'default_v1') {
+      try { console.warn('signals_provider_not_found_fallback', provName); } catch {/* ignore */}
+    }
   }
 } catch {/* ignore */}
 async function ensureIndices(env: Env) {
@@ -199,6 +196,10 @@ export default {
   async fetch(req: Request, env: Env) {
     const url = new URL(req.url);
     const t0 = Date.now();
+    // Allow test overrides via globalThis.ENV (pattern used in other tests) before any route logic.
+    if ((globalThis as any).ENV && typeof (globalThis as any).ENV === 'object') {
+      Object.assign(env, (globalThis as any).ENV);
+    }
   // Correlation ID (reuse incoming or generate) and set request context for structured logs.
   const corrId = req.headers.get('x-request-id') || crypto.randomUUID();
   setRequestContext(corrId, env);
@@ -369,12 +370,12 @@ export default {
 
     // Root
     if (url.pathname === '/' && req.method === 'GET') {
-      return new Response('PokeQuant API is running. See /api/cards', { headers: CORS });
+      return new Response('PokeQuant API is running. See /api/cards', { headers: { ...CORS, ...SECURITY_HEADERS } });
     }
 
   // Fallback 404
   log('http_404', { path: url.pathname, method: req.method });
-  return new Response('Not found', { status: 404, headers: CORS });
+  return new Response('Not found', { status: 404, headers: { ...CORS, ...SECURITY_HEADERS } });
   },
 
   async scheduled(_ev: ScheduledEvent, env: Env) {

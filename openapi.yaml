@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: PokeQuant API
-  version: 0.8.5
+  version: 0.8.9
   description: |
     MVP API. Fields may add over time; removals are breaking. Use schema components.
     Public read endpoints include short-lived Cache-Control and ETag (conditional GET).
@@ -9,6 +9,43 @@ info:
 servers:
   - url: https://pokequant.jonathanbarreneche.workers.dev
 paths:
+  /admin/diagnostics/integrations:
+    get:
+      summary: Integrations diagnostics (feature flags & active providers)
+      security:
+        - AdminToken: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  email:
+                    type: object
+                    properties:
+                      provider: { type: string }
+                      real_send: { type: boolean }
+                      simulation: { type: boolean }
+                      test_key: { type: boolean }
+                  webhook:
+                    type: object
+                    properties:
+                      real_send: { type: boolean }
+                  signals:
+                    type: object
+                    properties:
+                      active_provider: { type: string }
+              examples:
+                sample:
+                  value:
+                    ok: true
+                    email: { provider: "resend", real_send: false, simulation: true, test_key: true }
+                    webhook: { real_send: false }
+                    signals: { active_provider: "default_v1" }
   /health:
     get:
       summary: Health and latest dates
@@ -759,6 +796,12 @@ paths:
                       - { d: 2025-08-29, metric: email.retry, count: 2 }
                       - { d: 2025-08-29, metric: email.giveup, count: 1 }
                       - { d: 2025-08-29, metric: email.sent, count: 42 }
+                      - { d: 2025-08-29, metric: email.sent.sim, count: 40 }
+                      - { d: 2025-08-29, metric: email.sent.real, count: 2 }
+                      - { d: 2025-08-29, metric: email.send_error.sim, count: 1 }
+                      - { d: 2025-08-29, metric: email.send_error.real, count: 0 }
+                      - { d: 2025-08-29, metric: email.event.bounce, count: 3 }
+                      - { d: 2025-08-29, metric: email.event.complaint, count: 1 }
                     webhook_metrics:
                       - { d: 2025-08-29, metric: webhook.sent, count: 5 }
                       - { d: 2025-08-29, metric: webhook.retry_success, count: 2 }
@@ -766,6 +809,9 @@ paths:
                     additional_new_metrics:
                       - { d: 2025-08-29, metric: alert.escalation, count: 1 }
                       - { d: 2025-08-29, metric: ingest.scheduled_run, count: 3 }
+                    aggregated:
+                      webhook_success_ratio: 0.92
+                      email_success_ratio: 0.985
   /admin/latency:
     get:
       summary: Latest latency snapshot (admin)
@@ -918,8 +964,78 @@ paths:
         Returns registered webhook endpoints for alert firing. Optional query params: active (0|1).
         Webhook signing: when secret set, requests include headers x-signature (hex HMAC SHA256), x-signature-ts (unix seconds), x-signature-nonce (uuid). Signature input format: `${ts}.${nonce}.${JSON payload}`.
   Backoff: exponential (base 250ms) with jitter recorded per attempt in planned_backoff_ms (metadata only in current worker runtime; attempts occur synchronously for test determinism).
-      security: [ { AdminToken: [] } ]
-      responses: { '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/WebhookEndpointsResponse' } } } } }
+  Real delivery: set env `WEBHOOK_REAL_SEND=1` to enable actual outbound fetch with signing (simulation controls ?fail=N / ?always_fail=1 ignored in real mode). Metrics split into `.real` variants (webhook.sent.real, webhook.retry_success.real, webhook.error.real, webhook.redeliver.sent.real, webhook.redeliver.error.real) when enabled; otherwise base metrics without `.real` suffix.
+  /webhooks/email/bounce:
+    post:
+      summary: Email provider bounce/complaint webhook
+      description: |
+        Accepts provider callback (simulated) storing bounce or complaint event.
+        Emits normalized metrics `email.event.bounce` or `email.event.complaint` plus legacy `email.bounced` / `email.complaint` for back-compat.
+        Authentication TBD (future: shared secret header, currently open in simulation environment only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ provider, message_id, type ]
+              properties:
+                provider: { type: string, description: Email provider identifier (ex: resend) }
+                message_id: { type: string }
+                type: { type: string, enum: [ bounce, complaint ] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+                required: [ ok, id ]
+              examples:
+                bounce_sample:
+                  value: { ok: true, id: 'bounce-row-uuid' }
+  /webhooks/email/delivered:
+    post:
+      summary: Email provider delivered event
+      description: |
+        Provider callback indicating successful hand-off to recipient server.
+        Increments `email.delivered` metric and stores raw JSON for audit.
+        Authentication: if environment variable EMAIL_WEBHOOK_SECRET is set, request MUST include header `x-email-webhook-secret` with matching value or 401 is returned.
+        Body is provider-specific; minimally accepts `id` or `message_id`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider: { type: string, description: Email provider id (resend) }
+                id: { type: string, description: Provider event id }
+                message_id: { type: string, description: Original send message id }
+                type: { type: string }
+            examples:
+              resend_sample:
+                value: { provider: resend, type: delivered, id: evt_123, message_id: msg_abc }
+      responses:
+        '200':
+          description: Recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+                  delivered: { type: boolean }
+                required: [ ok, id, delivered ]
+              examples:
+                sample:
+                  value: { ok: true, id: uuid, delivered: true }
+        '401':
+          description: Unauthorized (missing or invalid secret when enabled)
     post:
       summary: Upsert webhook endpoint (admin)
       description: Body: { url, active? } — inserts new or updates existing by URL.

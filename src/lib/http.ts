@@ -12,10 +12,21 @@ export const CORS = {
 	'Access-Control-Allow-Methods': 'GET, POST, OPTIONS'
 };
 
+// Baseline security headers (defense-in-depth). Applied to all JSON responses and common plain responses.
+// CSP kept restrictive for API (no body scripts). Adjust if embedding HTML UI responses later.
+export const SECURITY_HEADERS: Record<string,string> = {
+	'X-Content-Type-Options': 'nosniff',
+	'X-Frame-Options': 'DENY',
+	'Referrer-Policy': 'no-referrer',
+	'Strict-Transport-Security': 'max-age=31536000; includeSubDomains; preload',
+	// Minimal CSP: disallow everything by default (APIs return JSON). If HTML endpoints added, refine.
+	'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+};
+
 export function json(data: unknown, status = 200, opts?: JsonResponseOptions) {
 	const ctx = currentCtx();
 	const rid = ctx?.corrId;
-	const headers = { 'content-type': 'application/json; charset=utf-8', ...CORS, ...(opts?.headers||{}) } as Record<string,string>;
+	const headers = { 'content-type': 'application/json; charset=utf-8', ...CORS, ...SECURITY_HEADERS, ...(opts?.headers||{}) } as Record<string,string>;
 	if (rid && !headers['x-request-id']) headers['x-request-id'] = rid;
 	return new Response(JSON.stringify(data), { status, headers });
 }

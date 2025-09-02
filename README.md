@@ -26,7 +26,10 @@ make deploy
 Set via Wrangler secrets / vars:
 - ADMIN_TOKEN, ADMIN_TOKEN_2 (dual admin auth)
 - INGEST_TOKEN (GitHub Actions trends ingest)
-- EMAIL_PROVIDER_API_KEY (planned – not yet required)
+- RESEND_API_KEY (set to 'test' for deterministic simulated sends)
+- EMAIL_REAL_SEND=1 (opt-in real provider send; without this, all sends simulate even with real key)
+- EMAIL_WEBHOOK_SECRET (shared secret header protecting /webhooks/email/delivered)
+- WEBHOOK_REAL_SEND=1 (opt-in real outbound webhook dispatch; default simulation/no network)
 - WEBHOOK_SIGNING_SECRET (planned – for signed deliveries)
 
 Rate limit overrides:
@@ -52,9 +55,10 @@ See `docs/ARCHITECTURE.md` for diagram & deeper notes.
 Core ingestion (universe, prices, SVI) ✔
 Signals & factor analytics (IC, returns, risk, explainability) ✔
 Portfolio lots, PnL, exposure, attribution, scenario ✔
-Alerts creation, evaluation, email/webhook simulation ✔ (real provider pending)
+Alerts creation, evaluation, email/webhook simulation ✔ (real email provider gated by EMAIL_REAL_SEND)
 Webhooks (signed simulation, replay verify) ✔ (real dispatch off by default)
-Email logging simulated ✔ (real provider pending)
+Email logging simulated ✔ (real provider behind opt-in flag)
+Integrations diagnostics endpoint ✔ (`/admin/diagnostics/integrations` summarizing email/webhook/signals modes)
 Search + metadata (sets, rarities, types) ✔
 Caching (ETag + short TTL cache-control) ✔
 Rate limiting (search, subscribe, alert create) ✔ (expansion planned)
@@ -65,7 +69,8 @@ Frontend: basic static pages (to be replaced) ✖ (rewrite in progress – see `
 Frontend UX overhaul
 Real email provider integration & bounce webhook
 Webhook real delivery + HMAC signature + replay guard hardening
-Structured logging & per-route error/latency dashboards
+Baseline security headers (CSP, HSTS, frame, nosniff) ✔ (added)
+Structured logging & per-route error/latency dashboards (export formatting TBD)
 Granular error dashboards (aggregation & alert thresholds) – base error/status metrics implemented (`error.*`, `error_status.*`)
 Coverage badge & ratchet (CI gate) ✔
 Architecture + Runbook docs finalization
@@ -73,6 +78,10 @@ Security review (headers, secrets rotation automation)
 Discord alert delivery (stub present, real webhook configurable)
 Signals provider dynamic selection (scaffolded)
 Dashboard snapshot & watchlist (public): `/api/dashboard`, `/api/watchlist` (add/remove via POST/DELETE). Seed demo data then hit these endpoints for quick UI prototyping.
+
+Additions:
+- Domain email authentication steps documented in `docs/EMAIL_DOMAIN_AUTH.md`.
+- Delivered webhook secured (shared secret) – metric now event-sourced.
 
 ### Coverage Ratchet
 `npm run coverage:ratchet` will auto-bump coverage thresholds by +1 (lines/functions/statements/branches) when the current coverage exceeds the existing threshold by >=2 percentage points. This should run after meaningful test additions (can be integrated as an optional CI step that only commits when bumps occur).
@@ -107,8 +116,15 @@ Planned: automatic key rotation guidelines + optional KMS-backed secret fetch.
 Pending rewrite (framework evaluation: SvelteKit vs Next.js static export). See `docs/FRONTEND_PLAN.md` for acceptance criteria & component spec.
 
 ## 13. Signals Provider
-Pluggable interface in `src/signals/` with `default_v1`. Set future provider via `SIGNALS_PROVIDER` (dynamic import planned).
-Example (future proprietary provider): set env var `SIGNALS_PROVIDER=pro_v2` and deploy a module at `src/signals/providers/pro_v2.ts` exporting a default provider instance implementing `SignalsProvider`.
+Pluggable interface in `src/signals/` with `default_v1`. Selection now uses a static registry (no dynamic import) keyed by lowercase provider name.
+
+Set future provider by:
+1. Adding its implementation file (e.g. `src/signals/pro_provider.ts`).
+2. Importing and registering it in `src/signals/registry.ts` (add to `add()` call or expose a new `registerProvider` invocation).
+3. Deploy with env var `SIGNALS_PROVIDER=pro_provider` to activate at startup (falls back to default if not found, logging `signals_provider_not_found_fallback`).
+4. (Operational) You can POST to `/admin/signals/provider` (admin token) with `{ "name": "default_v1" }` to swap at runtime for testing.
+
+This avoids bundler warnings from wildcard dynamic imports and keeps the supply chain explicit.
 
 ## 11. Contributing (Internal Alpha)
 Update `docs/ENGINEERING_SNAPSHOT.md` before merging.

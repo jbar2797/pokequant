@@ -3,20 +3,20 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>PokeQuant v0.7.4</title>
+  <title>PokeQuant v0.8.9</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css?v=0.7.4" />
+  <link rel="stylesheet" href="/styles.css?v=0.8.9" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
         <div class="brand"><div class="brand-badge"></div> PokeQuant <span style="font-size:10px;opacity:.55" id="appVersion"></span></div>
         <nav class="nav" aria-label="Primary">
-          <button data-view="overview" class="active" aria-current="page">Overview</button>
-          <button data-view="cards">Cards</button>
-          <button data-view="portfolio">Portfolio</button>
+          <a href="#/overview" data-link="overview" class="active" aria-current="page">Overview</a>
+          <a href="#/cards" data-link="cards">Cards</a>
+          <a href="#/portfolio" data-link="portfolio">Portfolio</a>
         </nav>
         <div style="margin-top:auto;font-size:10px;opacity:.55;line-height:1.4">Prototype UI. Not investment advice.</div>
       </aside>
@@ -73,9 +73,10 @@
         <div id="cardModalBodyNew"></div>
       </div>
     </div>
-    <script type="module" src="/core.js?v=0.7.4"></script>
-  <script type="module" src="/movers.js?v=0.7.4"></script>
-  <script type="module" src="/portfolio.js?v=0.7.4"></script>
-  <script type="module" src="/app-new.js?v=0.7.4"></script>
+    <script type="module" src="/core.js?v=0.8.9"></script>
+  <script type="module" src="/router.js?v=0.8.9"></script>
+  <script type="module" src="/movers.js?v=0.8.9"></script>
+  <script type="module" src="/portfolio.js?v=0.8.9"></script>
+  <script type="module" src="/app-new.js?v=0.8.9"></script>
   </body>
 </html>

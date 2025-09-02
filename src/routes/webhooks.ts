@@ -41,6 +41,24 @@ export function registerWebhookRoutes() {
   try { await incMetric(env, type === 'complaint' ? 'email.event.complaint' : 'email.event.bounce'); } catch {/* ignore */}
       return json({ ok:true, id });
     })
+  .add('POST','/webhooks/email/delivered', async ({ env, req }) => {
+  // Real delivered event ingestion (Resend or other provider). Enforce shared secret if configured.
+  if (env.EMAIL_WEBHOOK_SECRET || env.EMAIL_WEBHOOK_SECRET_NEXT) {
+    const provided = req.headers.get('x-email-webhook-secret');
+    if (!provided || (provided !== env.EMAIL_WEBHOOK_SECRET && provided !== env.EMAIL_WEBHOOK_SECRET_NEXT)) {
+      return json({ ok:false, error:'unauthorized' }, 401);
+    }
+  }
+  let body: any = await req.json().catch(()=>({}));
+  const provider = String(body.provider||'resend');
+  const messageId = String(body.message_id||body.id||'');
+  if (!messageId) return json({ ok:false, error:'missing_message_id' },400);
+  try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_delivered_events (id TEXT PRIMARY KEY, provider TEXT, message_id TEXT, raw TEXT, created_at TEXT);`).run(); } catch {}
+  const id = crypto.randomUUID();
+  try { await env.DB.prepare(`INSERT INTO email_delivered_events (id, provider, message_id, raw, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(id, provider, messageId||null, JSON.stringify(body)).run(); } catch {}
+  try { await incMetric(env, 'email.delivered'); } catch {/* ignore */}
+  return json({ ok:true, id, delivered:true });
+    })
   .add('GET','/admin/email/bounces', async ({ env, req }) => { if (!admin(env, req)) return json({ ok:false, error:ErrorCodes.Forbidden },403); try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_bounces (id TEXT PRIMARY KEY, provider TEXT, message_id TEXT, type TEXT, raw TEXT, created_at TEXT);`).run(); } catch {} const rs = await env.DB.prepare(`SELECT id, provider, message_id, type, created_at FROM email_bounces ORDER BY created_at DESC LIMIT 200`).all(); return json({ ok:true, rows: rs.results||[] }); })
   .add('GET','/admin/webhooks/verify', async ({ env, req, url }) => { if (!admin(env, req)) return err(ErrorCodes.Forbidden,403); const nonce = (url.searchParams.get('nonce')||'').trim(); if (!nonce) return err(ErrorCodes.NonceRequired,400); try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS webhook_deliveries (id TEXT PRIMARY KEY, webhook_id TEXT, event TEXT, payload TEXT, ok INTEGER, status INTEGER, error TEXT, created_at TEXT, attempt INTEGER, duration_ms INTEGER, nonce TEXT);`).run(); } catch {} let seen = false; try { const rs = await env.DB.prepare(`SELECT 1 FROM webhook_deliveries WHERE nonce=? LIMIT 1`).bind(nonce).all(); seen = !!(rs.results && rs.results.length); } catch {} return json({ ok:true, nonce, seen }); });
 

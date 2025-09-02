@@ -1,5 +1,6 @@
-// Portfolio module (v0.7.4) - minimal scaffold
+// Portfolio module (v0.8.9) - minimal scaffold
 import { fetchJSON, fmtUSD } from './core.js';
+import { setSlice } from './store.js';
 
 export async function loadPortfolio(){
   const sumEl = document.getElementById('portfolioSummary');
@@ -8,11 +9,12 @@ export async function loadPortfolio(){
   try {
     // Attempt summary endpoints; fallback sequence
     let lots = [];
-    try { lots = await fetchJSON('/portfolio/lots'); } catch {}
+  try { lots = await fetchJSON('/portfolio/lots', { ttlMs: 60_000 }); } catch {}
     // Derive simple aggregates
     const totalLots = lots.length;
     const totalValue = lots.reduce((a,l)=> a + (Number(l.value_usd)||0),0);
-    if(sumEl) sumEl.innerHTML = `<strong>${totalLots}</strong> lots • <strong>${fmtUSD(totalValue)}</strong> total value`;
+  if(sumEl) sumEl.innerHTML = `<strong>${totalLots}</strong> lots • <strong>${fmtUSD(totalValue)}</strong> total value`;
+  try { setSlice('portfolioLots', lots); } catch {}
     if(lotsEl){
       if(!lots.length){ lotsEl.innerHTML = '<div style="opacity:.6">No lots found.</div>'; }
       else {

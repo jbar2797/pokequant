@@ -228,6 +228,14 @@ export function registerAdminRoutes() {
       const dayRs = await env.DB.prepare(`SELECT metric, count FROM metrics_daily WHERE d = date('now') ORDER BY metric ASC`).all();
       const metrics: { metric:string; count:number }[] = (dayRs.results||[]) as any;
   const distinctErrorCodes = metrics.filter(m=> m.metric.startsWith('error.')).length;
+      // Domain auth verification single-row table check (adds pq_email_domain_auth_verified gauge)
+      let domainAuthVerified = 0;
+      try {
+        await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_domain_auth (id INTEGER PRIMARY KEY CHECK (id=1), spf_verified INTEGER, dkim_verified INTEGER, dmarc_verified INTEGER, updated_at TEXT);`).run();
+        const drs = await env.DB.prepare(`SELECT spf_verified, dkim_verified, dmarc_verified FROM email_domain_auth WHERE id=1`).all();
+        const drow:any = drs.results?.[0];
+        if (drow && drow.spf_verified && drow.dkim_verified && drow.dmarc_verified) domainAuthVerified = 1;
+      } catch {/* ignore */}
       // Pre-compute SLO burn ratios from good/breach counters
       const sloMap: Record<string, { good:number; breach:number }> = {};
       for (const m of metrics) {
@@ -248,6 +256,13 @@ export function registerAdminRoutes() {
       // Counters
       lines.push('# HELP pq_metric Daily counter metrics');
       lines.push('# TYPE pq_metric counter');
+      // Compute aggregated webhook success ratio from daily counters if present.
+      const webhookSent = (metrics.find(m=> m.metric==='webhook.sent')?.count||0) + (metrics.find(m=> m.metric==='webhook.sent.real')?.count||0);
+      const webhookRetrySuccess = (metrics.find(m=> m.metric==='webhook.retry_success')?.count||0) + (metrics.find(m=> m.metric==='webhook.retry_success.real')?.count||0);
+      const webhookError = (metrics.find(m=> m.metric==='webhook.error')?.count||0) + (metrics.find(m=> m.metric==='webhook.error.real')?.count||0);
+      const webhookTotalAttempts = webhookSent + webhookRetrySuccess + webhookError;
+      let webhookSuccessRatio = webhookTotalAttempts ? (webhookSent + webhookRetrySuccess) / webhookTotalAttempts : null;
+      // Emit as separate gauge (pq_webhook_success_ratio) if computable
       for (const m of metrics) {
         if (!m || typeof m.metric !== 'string') continue;
         // Skip latency bucket + status here; expose separately in families
@@ -258,10 +273,38 @@ export function registerAdminRoutes() {
   const name = m.metric.replace(/"/g,'').replace(/[^A-Za-z0-9_:]/g,'_');
   lines.push('pq_metric{name="'+name+'"} '+(Number(m.count)||0));
       }
+      // Email success ratio (delivered / (sent + send_error + bounce + complaint)) heuristic until delivered webhook implemented
+      const emailSent = (metrics.find(m=> m.metric==='email.sent')?.count||0) + (metrics.find(m=> m.metric==='email.sent.real')?.count||0);
+      const emailDelivered = (metrics.find(m=> m.metric==='email.delivered')?.count||0); // may equal sent until real provider events
+      const emailErrors = (metrics.find(m=> m.metric==='email.send_error')?.count||0) + (metrics.find(m=> m.metric==='email.send_error.real')?.count||0);
+      const emailBounces = (metrics.find(m=> m.metric==='email.bounced')?.count||0) + (metrics.find(m=> m.metric==='email.event.bounce')?.count||0);
+      const emailComplaints = (metrics.find(m=> m.metric==='email.complaint')?.count||0) + (metrics.find(m=> m.metric==='email.event.complaint')?.count||0);
+      const emailTotal = emailSent + emailErrors + emailBounces + emailComplaints;
+      const emailSuccessRatio = emailTotal ? emailDelivered / emailTotal : null;
+  // Distinct normalized email error codes (email.error_code.<code>) for taxonomy coverage
+  const emailCodeMetrics = metrics.filter(m=> m.metric.startsWith('email.error_code.'));
+  const distinctEmailCodes = new Set(emailCodeMetrics.map(m=> m.metric.substring('email.error_code.'.length))).size;
+      if (webhookSuccessRatio !== null) {
+        lines.push('# HELP pq_webhook_success_ratio Daily webhook delivery success ratio (successful attempts / total attempts)');
+        lines.push('# TYPE pq_webhook_success_ratio gauge');
+        lines.push(`pq_webhook_success_ratio ${webhookSuccessRatio.toFixed(6)}`);
+      }
+      if (emailSuccessRatio !== null) {
+        lines.push('# HELP pq_email_success_ratio Daily email success ratio (delivered / total attempts including errors & bounces)');
+        lines.push('# TYPE pq_email_success_ratio gauge');
+        lines.push(`pq_email_success_ratio ${emailSuccessRatio.toFixed(6)}`);
+      }
+  lines.push('# HELP pq_email_error_codes Distinct normalized internal email error codes observed today');
+  lines.push('# TYPE pq_email_error_codes gauge');
+  lines.push(`pq_email_error_codes ${distinctEmailCodes}`);
   // Distinct error code gauge for external alerting (mirrors pq_error_codes in consolidated exporter)
   lines.push('# HELP pq_error_codes Distinct error codes observed today');
   lines.push('# TYPE pq_error_codes gauge');
   lines.push(`pq_error_codes ${distinctErrorCodes}`);
+  // Domain auth verified gauge
+  lines.push('# HELP pq_email_domain_auth_verified Email domain authentication fully verified (SPF+DKIM+DMARC)');
+  lines.push('# TYPE pq_email_domain_auth_verified gauge');
+  lines.push(`pq_email_domain_auth_verified ${domainAuthVerified}`);
       // Latency buckets (histogram-ish)
       let bucketMetrics = metrics.filter(m=> typeof m.metric === 'string' && m.metric.startsWith('latbucket.'));
       const allowSynthetic = (env as any).METRICS_EXPORT_SYNTHETIC !== '0';

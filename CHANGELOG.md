@@ -1,4 +1,30 @@
-## [0.8.4] - 2025-09-01
+## [0.8.9] - 2025-09-01
+### Added
+- Webhooks: Implemented real `/webhooks/email/delivered` ingestion (stores raw event, increments `email.delivered`).
+### Removed
+- Email: Dropped optimistic `email.delivered` increment on real send path (now sourced solely from delivered webhook events).
+### Changed
+- Version bump to 0.8.9 (spec/frontend/package/version.ts) to reflect delivered webhook activation.
+
+## [0.8.8] - 2025-09-01
+### Added
+- OpenAPI: Documented `/webhooks/email/bounce` provider callback (normalized + legacy email bounce metrics).
+- OpenAPI: Expanded email metrics example with split sim/real + normalized bounce/complaint counters.
+- OpenAPI: Documented `WEBHOOK_REAL_SEND` behavior and `.real` metric suffixes.
+- Tests: Added coverage for bounce webhook metrics, real email split metrics, and webhook real-mode metric variants.
+- Metrics: Aggregated webhook success ratio gauge (`pq_webhook_success_ratio`) exported and documented.
+- Metrics: Email success ratio gauge (`pq_email_success_ratio`) exported and documented.
+- Webhooks: Placeholder `/webhooks/email/delivered` endpoint (returns 202) documented for future provider delivered events.
+- Decisions: Added decision record 0005 (Email provider selection: Resend).
+- Frontend: Phase 2 SPA scaffold begun (hash router, deep-linkable card modals, anchor navigation).
+- Frontend: Added in-memory fetch cache with ETag conditional requests + TTL support (cards list).
+- Frontend: Central store module (`store.js`) introduced; movers, cards, portfolio lots populate shared state.
+- Frontend: Movers tiles accessibility (keyboard navigation, ARIA labels) + performance mark/measure instrumentation.
+
+### Changed
+- Version bump for documentation parity (no runtime behavior change except spec visibility).
+
+## [0.8.7] - 2025-09-01
 ### Added
 - Per-minute SLO breach persistence (`slo_breach_minute`) and inclusion in `/admin/slo/windows` (`persisted_60m`).
 - Signed `slo_burn.alert` webhook dispatch (HMAC ts.nonce.sha256(body)) with retries and legacy header compatibility.
@@ -26,7 +52,13 @@ All notable changes to this project will be documented here.
 - Structured logging correlation IDs (`x-request-id`) propagation across responses & logs.
 - Centralized error metrics: per-error code (`error.<code>`) and HTTP status (`error_status.<status>`) counters emitted via HTTP helper.
  - Public dashboard snapshot endpoint `/api/dashboard` (top signals, movers, aggregate counts) and watchlist CRUD endpoints (`GET/POST/DELETE /api/watchlist`).
- - Dynamic signals provider selection scaffold via `SIGNALS_PROVIDER` env (dynamic import fallback) with graceful default.
+ - Static signals provider registry selection via `SIGNALS_PROVIDER` env (no dynamic import) with graceful default & runtime swap endpoint `/admin/signals/provider`.
+ - Baseline security headers (CSP, HSTS, frame, nosniff) applied to all responses.
+ - Metric & log emission on signals provider initialization (`signals.provider.init.<name>`).
+ - Email provider real-send feature flag `EMAIL_REAL_SEND=1` (default simulation) with split metrics (`email.sent.{sim,real}`, `email.send_error.{sim,real}`) and forced fail pattern support.
+ - Integrations diagnostics endpoint `/admin/diagnostics/integrations` reporting email/webhook/signals feature flag + provider state.
+ - Normalized bounce simulation now also increments `email.event.bounce` for parity with provider webhook ingestion.
+ - Documented `WEBHOOK_REAL_SEND` flag (opt-in real dispatch) in README; metrics unaffected.
 
 ## [0.8.0] - 2025-08-30
 ### Added

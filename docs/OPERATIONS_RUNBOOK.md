@@ -22,6 +22,14 @@ Actions:
 2. Examine retry counts & terminal error reasons.
 3. For provider outage: queue persists; communicate partial degradation.
 
+### Email Domain / Webhook Rotation
+Refer to `docs/EMAIL_DOMAIN_AUTH.md` for DNS verification steps. For webhook secret rotation:
+1. Generate new secret.
+2. Add as `EMAIL_WEBHOOK_SECRET_NEXT` (future enhancement) or temporarily schedule maintenance window.
+3. Update provider webhook header to new secret.
+4. Redeploy worker with updated `EMAIL_WEBHOOK_SECRET`.
+5. Confirm delivered events still increment `email.delivered`.
+
 ## 4. Performance Regression
 Symptoms: Latency p95 spikes.
 Actions:

@@ -1,4 +1,4 @@
-Last Updated: 2025-09-01T08:15:00Z (cache headers test flake mitigation + production readiness scorecard added)
+Last Updated: 2025-09-01T23:45:00Z (bounce webhook documented, email/webhook split metrics, webhook success ratio gauge, readiness score update)
 # Engineering Snapshot (Rolling)
 
 > Single source of truth for current state, active goals, and next actions. Update this file *with every meaningful refactor or feature batch* before committing.
@@ -22,8 +22,8 @@ Last Updated: 2025-08-31T23:40:00Z (rolling SLO breach ratio gauge + public rate
 | Backfill | routes/backfill.ts | NEW modularized | Supports synthetic price backfill w/ cursor pagination. |
 | Anomalies | routes/anomalies.ts | NEW modularized | Resolution + status filter + cursor pagination. |
 | Factors & Analytics | routes/factors.ts, lib/factors/* | Stable | Includes returns, risk, smoothing, IC, quality. |
-| Alerts | routes/alerts.ts, email_adapter.ts | Improved | Provider message id persistence + retry metrics; real external provider path in place (Resend) pending prod key. |
-| Metrics & Latency | lib/metrics.ts, /admin/metrics, /admin/errors, routes/admin.ts | Stable | Route SLO classification, per-minute breach aggregation, short-window in-memory ratios, buckets, percentiles, per-error counters. |
+| Alerts | routes/alerts.ts, email_adapter.ts | Improved | Provider message id persistence + retry metrics; split sim/real metrics; bounce normalized events; real provider path pending prod key. |
+| Metrics & Latency | lib/metrics.ts, /admin/metrics, /admin/errors, routes/admin.ts | Stable+ | Added webhook success ratio gauge, split email/webhook real-mode metrics, normalized bounce events. |
 | Integrity & Retention | lib/integrity.ts, lib/retention.ts, routes/admin.ts, routes/admin_security.ts | Improved | Retention config CRUD + automated purge + age gauges + health endpoint. |
 | Ingestion & Provenance | lib/ingestion.ts, routes/admin.ts | Stable | Incremental run + provenance listing. |
 | Audit | lib/audit.ts, routes/admin.ts | Stable | Pagination + stats endpoints exist. |
@@ -56,15 +56,14 @@ Operational notes: append new migrations with monotonic ids; prefer additive, id
 - [x] Latency ensure missing-table noise suppression (silent first retry)
 - [x] Log capture test utilities & assertion of zero `metric_latency_error` on cold start
 
-## 3a. Production Hardening Sprint (Beta Gate) – Proposed Major Feature Focus
+## 3a. Production Hardening Sprint (Beta Gate) – Proposed Major Feature Focus (Revised)
 Focus only on high-leverage features; defer cosmetic/detail polish:
-- [ ] Real email provider (Resend or Postmark) selection & abstraction finalize
-   - Adapter interface hardened; add bounce webhook ingestion + status update (delivered, bounced, complaint)
-   - Delivery metrics: `email.delivered`, `email.bounced`, `email.complaint`
-- [ ] Real webhook dispatch toggle (feature flag) + HMAC signature (payload + nonce + timestamp) + secret rotation flow
+ - [ ] Real email provider (Resend or Postmark) activation (domain auth, DKIM/SPF) + delivered metric
+- [ ] Real webhook dispatch rollout (flag→staging→prod) + finalize secret rotation doc
    - Delivery success/error SLIs + retry budget metrics
 - [x] Error taxonomy consolidation: stable codes enumerated + `/admin/errors` listing endpoint
-- [ ] Coverage ratchet automation wired into CI (already script; add safeguarded auto-commit) + badge update step (DONE for badge asset, not automated commit gate)
+- [x] Coverage ratchet script (hybrid mode) present; CI gate active (regressions fail)
+ - [ ] Decide mutation testing (optional) or raise branch/function ceilings by +5pp post-provider integrations
 - [ ] Structured log shipping plan (even if manual) + minimal redaction policy (confirm no secrets in logs)
 - [ ] Rate limit expansion to remaining public endpoints (cards, movers, sets, rarities) with adaptive defaults
 - [ ] Frontend core SPA (minimal) delivering: Cards list, Card detail, Movers, Portfolio lots+PnL read-only
@@ -111,8 +110,9 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 14. Retention config table + CRUD endpoints — 2025-08-30
 
 ## 7. Quality Gates Snapshot
-- Tests: 117 passing (full suite) (cache headers flake stabilized locally)
-- Coverage: thresholds enforced (lines 67%, functions 59%, branches 48%, statements 59%) – ratchet script present; `npm run coverage` alias added for CI summary step
+// NOTE: update counts post-merge if CI diverges.
+ - Tests: 142 passing (full suite) (includes new metrics + webhook success ratio specs)
+ - Coverage: baseline (lines 67%, functions 59%, branches 48%, statements 59%) – ratchet auto-updates improvements via coverage workflow
 - Contract Check: Passing (`scripts/contract-check.js`)
 - Version Sync: Passing (`scripts/version-check.js`)
 
@@ -141,7 +141,7 @@ Definition of Done (Sprint): All above either shipped or time-boxed decisions re
 4. Reference this file in commit messages when completing checklist items (e.g., "feat(metrics): add error counters (snapshot #Active Sprint Goals)").
 
 ## 10. Open Questions (Capture & Resolve)
-- Email provider decision (Resend vs Postmark) – target decision early Sprint
+- Email provider decision (Resolved: Resend) – see `docs/DECISIONS/0005-email-provider.md`
 - Bounce / complaint schema (single table vs normalized events) – decide with provider choice
 - Webhook signing canonical string (payload JSON + timestamp + nonce?) – finalize before enabling real dispatch
 - Coverage ratchet gating strategy (auto commit vs fail-only) – decide with CI update

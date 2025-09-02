@@ -1,29 +1,29 @@
 # Production Readiness Assessment
 
-Last Evaluated: 2025-09-01T08:15:00Z
-Overall Score: **64%** (Target for Beta: 75–80%)
+Last Evaluated: 2025-09-02T12:05:00Z
+Overall Score: **73%** (Target for Beta: 75–80%)
 
 ## Dimension Breakdown
 | Dimension | Score | Rationale | Key Gaps |
 |-----------|-------|-----------|----------|
-| Functional Coverage | 80% | All MVP + analytics endpoints live; alerts/email/webhooks simulated for real delivery | Real email provider + real webhook dispatch |
-| Observability & Telemetry | 70% | Latency (p50/p95), buckets, SLO breach metrics, per-error codes, retention health, signed burn alerts | External log sink, richer tracing/export, dashboard doc |
-| Reliability / Resilience | 60% | Idempotent migrations, retry/backoff for webhooks, anomaly detection, retention purges | Single-region DB, no failover, limited circuit breaking |
-| Delivery Integrations | 30% | Simulation + signing spec only | Real provider integration, bounce/complaint ingestion, secret rotation flow |
-| Security & Guardrails | 65% | Hashed secrets, dual admin tokens, basic log redaction, rate limiting | No RBAC tiers, no secrets rotation automation, limited audit depth for auth changes |
-| Test & Quality Gates | 75% | 117 tests, coverage thresholds, flake mitigated | Coverage ratchet enforcement, mutation test (optional) |
-| Frontend UX | 40% | Static pages only | SPA scaffold + accessibility & performance budgets |
+| Functional Coverage | 82% | All MVP + analytics endpoints; delivered metric now event‑sourced | Real webhook outbound dispatch (real mode), provider error taxonomy |
+| Observability & Telemetry | 75% | Latency (p50/p95), buckets, SLO breach metrics, per-error codes, retention health, success ratios, split email metrics, taxonomy gauges, external log sink scaffold + flush endpoint | External log sink retries/backoff, richer tracing/export, dashboard doc |
+| Reliability / Resilience | 60% | Idempotent migrations, webhook retry/backoff, anomaly detection, retention purges | Single-region DB, no failover, limited circuit breaking |
+| Delivery Integrations | 70% | Delivered webhook secured + rotation (NEXT secret) support, diagnostics rotation state, provider error taxonomy emitted via metrics (pq_email_error_codes) | Domain auth DNS (SPF/DKIM/DMARC) rollout, real outbound webhook enablement, provider bounce classification expansion |
+| Security & Guardrails | 71% | As before + webhook secret rotation dual-secret acceptance, external log sink scaffold (R2 mode) | No RBAC tiers, no automated rotation tooling, deeper audit coverage |
+| Test & Quality Gates | 80% | 146 tests, coverage ratchet enforced in CI workflow, badge generation | Mutation testing (optional), flaky test sentinel, baseline coverage trending doc |
+| Frontend UX | 45% | SPA Phase 2 (hash router, cards/movers panels, modal detail, initial a11y focus) | SWR revalidation layer, portfolio & alerts UI, perf budget & accessibility audit |
 
 ## Immediate Priority Actions (Raise Score Fast)
-1. Integrate real email provider (send + bounce/complaint ingest) behind feature flag.
-2. Enable real webhook dispatch with secret rotation endpoint & metrics namespace split.
-3. Enforce coverage ratchet in CI (fail on regression; optional auto-update path).
-4. Scaffold SvelteKit frontend (cards + movers + card detail + portfolio lots).
+1. Real webhook outbound (enable flag in staging → prod) + finalize signing verification docs & add metrics split validation.
+2. External log sink harden (flush tests, retry/backoff, failure counters) & redaction tests expansion.
+3. Domain email auth (SPF, DKIM, DMARC) execution + verification endpoints/metrics.
+4. SPA Phase 3: portfolio lots read UI completion, alerts create UI, global SWR adoption, performance budgets, a11y audit.
+5. Taxonomy anomaly alerts (threshold on email_provider_rate_limited & email_invalid_recipient) + expand provider mapping with live samples.
 
 ## Secondary Actions
-- External logs shipping (R2 or third-party) + expanded redaction test.
-- Automated backup verification & restore drill doc.
-- Add `/admin/slo/recommend` endpoint for adaptive threshold suggestions.
+ External logs shipping (R2 or third-party) + expanded redaction test.
+ Architecture diagram refresh & README alignment.
 
 ## Risk Register (Top 5)
 | Risk | Impact | Likelihood | Mitigation |
@@ -40,8 +40,10 @@ Overall Score: **64%** (Target for Beta: 75–80%)
 - Daily pipeline success (target 30/30 pre-GA).
 
 ## Decision Follow-Ups
-- Email provider decision record pending (Resend vs Postmark) — deadline: 2025-09-03.
-- Coverage ratchet strategy (auto-commit vs fail-only) — decide before enabling gate.
+- Email provider decision record (Resolved: Resend, Decision 0005).
+- Webhook signing spec decision (documented) – next enable real mode & rotation runbook.
+- Coverage ratchet strategy locked (fail regressions, update baseline on improvements).
+- SWR caching strategy (pending) – adopt stale-while-revalidate layer client‑side.
 
 ## Exit Criteria Toward Beta (Delta)
 - [+] Real delivery integrations active.

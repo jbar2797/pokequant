@@ -2,6 +2,30 @@
 // Automatically attaches correlation/request id when present (set in request handler).
 const RING_MAX = 200; // lightweight in-memory ring for recent logs (admin diagnostics/export)
 let ring: any[] = [];
+let pendingExternal: any[] = []; // buffer for external sink (flush best-effort)
+let sinkStats = { flushes:0, errors:0, retries:0 };
+async function flushExternal(env: any){
+	if(!pendingExternal.length) return;
+	const batch = pendingExternal.splice(0, pendingExternal.length);
+	if(!(env && env.LOG_SINK_MODE === 'r2' && (env as any).LOGS_R2)) { return; }
+	const key = `logs/${new Date().toISOString().replace(/[:T]/g,'_').slice(0,19)}_${crypto.randomUUID()}.ndjson`;
+	const body = batch.map(e=> JSON.stringify(e)).join('\n');
+	let attempt = 0; const maxAttempts = 3;
+	for (;;){
+		try {
+			await (env as any).LOGS_R2.put(key, body, { httpMetadata:{ contentType:'application/x-ndjson' } });
+			sinkStats.flushes++;
+			break;
+		} catch (e){
+			sinkStats.errors++;
+			if (++attempt >= maxAttempts) { break; }
+			sinkStats.retries++;
+			// Exponential backoff with jitter (non-blocking via setTimeout + await)
+			const base = 50 * Math.pow(2, attempt-1) + Math.random()*25;
+			await new Promise(r=> setTimeout(r, base));
+		}
+	}
+}
 
 export function log(event: string, fields: Record<string, unknown> = {}) {
 	if ((globalThis as any).__LOG_DISABLED) return;
@@ -38,6 +62,14 @@ export function log(event: string, fields: Record<string, unknown> = {}) {
 		try {
 			if (ring.length >= RING_MAX) ring.shift();
 			ring.push(entry);
+			// External sink staging: keep small buffer (<=100) then flush
+			const env = (globalThis as any).__REQ_CTX?.env;
+			if(env && env.LOG_SINK_MODE){
+				pendingExternal.push(entry);
+				if(pendingExternal.length >= 50){
+					flushExternal(env); // fire and forget
+				}
+			}
 		} catch { /* ignore ring errors */ }
 	} catch {/* noop */}
 }
@@ -81,4 +113,10 @@ export function stopLogCapture(): any[] {
 export function recentLogs(limit = 100): any[] {
 	try { return ring.slice(-Math.min(limit, RING_MAX)); } catch { return []; }
 }
+
+// Force flush (admin/test) for external sink
+export async function flushLogsExternal(env:any){ await flushExternal(env); }
+
+// Expose sink stats for diagnostics
+export function logSinkStats(){ return { ...sinkStats, pending: pendingExternal.length }; }
 

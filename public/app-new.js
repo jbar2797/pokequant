@@ -1,6 +1,8 @@
-// New application entry (v0.7.4)
-import { VERSION, fetchJSON, PLACEHOLDER, signalBadge, fmtUSD, abbreviateSet } from './core.js';
+// New application entry (v0.8.9)
+import { VERSION, fetchJSON, swr, PLACEHOLDER, signalBadge, fmtUSD, abbreviateSet } from './core.js';
 import { loadMovers, wireMoversClicks } from './movers.js';
+import { onRoute, navigate, currentRoute } from './router.js';
+import { setSlice, getState } from './store.js';
 
 const rootVersionEl = document.getElementById('appVersion');
 if(rootVersionEl) rootVersionEl.textContent = VERSION;
@@ -8,27 +10,39 @@ if(rootVersionEl) rootVersionEl.textContent = VERSION;
 // Simple state
 const state = { cards: [], view: 'overview' };
 
-// Navigation
-function switchView(v){
-  state.view = v;
-  document.querySelectorAll('[data-view]').forEach(el=> el.classList.toggle('active', el.dataset.view===v));
-  document.querySelectorAll('[data-panel]').forEach(p=> { p.hidden = p.dataset.panel !== v; });
-  if(v==='cards' && !state.cards.length) loadCards();
+// Navigation via hash router
+function applyRoute(r){
+  let view = r.name;
+  if (r.name === 'card' && r.id) {
+    // Show card modal overlay while keeping current underlying view (default overview)
+    if (modal.hidden) openCard(r.id); else if (modalBody && !modal.hidden) { /* already open */ }
+    view = state.view || 'overview';
+  }
+  state.view = view;
+  document.querySelectorAll('nav .active').forEach(a=> a.classList.remove('active'));
+  const activeLink = document.querySelector(`[data-link="${view}"]`);
+  if (activeLink) activeLink.classList.add('active');
+  document.querySelectorAll('[data-panel]').forEach(p=> { p.hidden = p.dataset.panel !== view; });
+  const label = document.getElementById('currentViewLabel');
+  if(label){
+    const pretty = view.charAt(0).toUpperCase()+view.slice(1);
+    label.textContent = pretty;
+    document.title = `PokeQuant – ${pretty}`;
+  }
+  if(view==='cards' && !state.cards.length) loadCards();
 }
-
-document.addEventListener('click', e=> {
-  const navBtn = e.target.closest('[data-view]');
-  if(navBtn){ switchView(navBtn.dataset.view); }
-});
+onRoute(applyRoute);
 
 // Cards load
 async function loadCards(){
   const host = document.getElementById('cardsTableBody');
   if(host) host.innerHTML = '<tr><td colspan="6">Loading…</td></tr>';
   try {
-    let data = await fetchJSON('/api/cards');
-    if(!data.length) data = await fetchJSON('/api/universe');
+    // Prefer SWR (instant cached data, background refresh) then fall back to universe
+    let data = await swr('/api/cards', { ttlMs: 300_000 });
+    if(!data.length) data = await swr('/api/universe', { ttlMs: 300_000 });
     state.cards = data.map(c=> ({ ...c, number: c.number || c.card_number || '' }));
+    try { setSlice('cards', state.cards); } catch {}
     renderCards();
   } catch(e){ if(host) host.innerHTML = '<tr><td colspan="6">Error loading cards</td></tr>'; }
 }
@@ -73,6 +87,9 @@ function closeModal(){
   if(!modal) return;
   modal.hidden = true;
   if(lastFocus && typeof lastFocus.focus === 'function') setTimeout(()=> lastFocus.focus(), 30);
+  // If route is a card route, navigate back to prior view
+  const r = currentRoute();
+  if (r.name==='card') navigate('#/'+(state.view||'overview'));
 }
 async function loadCardDetail(id){
   try {
@@ -94,7 +111,7 @@ document.addEventListener('click', e=> {
   const tile = e.target.closest('.tile[data-card-id]');
   if(tile) openCard(tile.dataset.cardId);
   const row = e.target.closest('tr[data-card-id]');
-  if(row) openCard(row.dataset.cardId);
+  if(row) { navigate('#/card/'+encodeURIComponent(row.dataset.cardId)); }
   if(e.target.id==='cardModalCloseNew'){ closeModal(); }
   if(e.target === modal){ closeModal(); }
 });
@@ -104,10 +121,10 @@ document.addEventListener('keydown', e=> {
 });
 
 // Movers wiring
-wireMoversClicks(openCard);
+wireMoversClicks((id)=> navigate('#/card/'+encodeURIComponent(id)) );
 loadMovers();
 
 // Expose basic debug
-window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard };
+window.PQv2 = { state, reloadMovers: loadMovers, loadCards, openCard, navigate };
 
 console.log('%cPokeQuant v'+VERSION,'background:#6366f1;color:#fff;padding:2px 6px;border-radius:4px');

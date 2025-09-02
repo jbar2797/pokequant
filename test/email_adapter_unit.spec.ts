@@ -44,8 +44,15 @@ describe('email_adapter sendEmail', () => {
     expect(r.provider_error_code).toBe('bounce');
   });
 
-  it('handles network exception path', async () => {
+  it('simulation mode (no EMAIL_REAL_SEND) returns simulated id even with prod key', async () => {
     env.RESEND_API_KEY = 'prodkey';
+    const r = await sendEmail(env as any, 'user@test.dev', 'Subj', 'x');
+    expect(r.ok).toBe(true);
+    expect(r.id).toMatch(/^sim-/);
+  });
+
+  it('real mode network exception path', async () => {
+    env.RESEND_API_KEY = 'prodkey'; (env as any).EMAIL_REAL_SEND = '1';
     const originalFetch = globalThis.fetch;
     (globalThis as any).fetch = async () => { throw new Error('network down'); };
     const r = await sendEmail(env as any, 'user@test.dev', 'Subj', 'x');
@@ -55,8 +62,8 @@ describe('email_adapter sendEmail', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('handles resend non-ok fetch path extracting provider_error_code', async () => {
-    env.RESEND_API_KEY = 'prodkey';
+  it('real mode non-ok fetch extracts provider_error_code', async () => {
+    env.RESEND_API_KEY = 'prodkey'; (env as any).EMAIL_REAL_SEND = '1';
     const originalFetch = globalThis.fetch;
     (globalThis as any).fetch = async () => ({ ok: false, status: 500, json: async () => ({ error: { code: 'rate_limit' } }) });
     const r = await sendEmail(env as any, 'user@test.dev', 'Subj', 'x');
@@ -66,8 +73,8 @@ describe('email_adapter sendEmail', () => {
     globalThis.fetch = originalFetch;
   });
 
-  it('handles resend successful fetch path returning id', async () => {
-    env.RESEND_API_KEY = 'prodkey';
+  it('real mode successful fetch returns provider id', async () => {
+    env.RESEND_API_KEY = 'prodkey'; (env as any).EMAIL_REAL_SEND = '1';
     const originalFetch = globalThis.fetch;
     (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ id: 'abc123' }) });
     const r = await sendEmail(env as any, 'user@test.dev', 'Subj', 'x');

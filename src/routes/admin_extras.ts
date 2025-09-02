@@ -4,8 +4,11 @@ import { ErrorCodes } from '../lib/errors';
 import type { Env } from '../lib/types';
 import { audit } from '../lib/audit';
 import { computeAndStoreSignals } from '../lib/signals';
+import { getProviderFromRegistry, listRegisteredProviders } from '../signals/registry';
+import { setSignalsProvider } from '../signals';
 import { computeIntegritySnapshot, updateDataCompleteness } from '../lib/integrity';
 import { log } from '../lib/log';
+import { flushLogsExternal, logSinkStats } from '../lib/log';
 import { runAlerts } from '../lib/alerts_run';
 import { computeFactorIC, computeFactorReturns, computeFactorRiskModel, smoothFactorReturns, computeSignalQuality } from '../lib/factors';
 import { detectAnomalies } from '../lib/anomalies';
@@ -25,6 +28,23 @@ router
     if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
     const rs = await env.DB.prepare(`SELECT id, created_at, dataset, from_date, to_date, days, status, processed, total, error FROM backfill_jobs ORDER BY created_at DESC LIMIT 50`).all();
     return json({ ok:true, rows: rs.results||[] });
+  })
+  // Integrations diagnostics (feature flags & active providers)
+  .add('GET','/admin/diagnostics/integrations', async ({ env, req }) => {
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+    // Email status
+    const emailProvider = env.RESEND_API_KEY ? 'resend' : 'none';
+    const emailTestKey = env.RESEND_API_KEY === 'test';
+    const emailReal = env.EMAIL_REAL_SEND === '1' && !emailTestKey && !!env.RESEND_API_KEY;
+    // Webhook status
+    const webhookReal = env.WEBHOOK_REAL_SEND === '1';
+    // Signals provider (registry active)
+    let signalsProvider = 'unknown';
+    try {
+      const { getSignalsProvider } = await import('../signals');
+      signalsProvider = getSignalsProvider().name;
+    } catch {/* ignore */ }
+  return json({ ok:true, email:{ provider: emailProvider, real_send: emailReal, simulation: !emailReal, test_key: emailTestKey, webhook_secret_rotating: !!env.EMAIL_WEBHOOK_SECRET_NEXT }, webhook:{ real_send: webhookReal }, signals:{ active_provider: signalsProvider }, logs:{ sink_mode: env.LOG_SINK_MODE||null, sink_stats: logSinkStats() } });
   })
   // Diag snapshot
   .add('GET','/admin/diag', async ({ env, req }) => {
@@ -97,6 +117,16 @@ router
       return json({ ok:true, ...out });
     } catch (e:any) { log('admin_run_fast_error', { error:String(e) }); return json({ ok:false, error:String(e) },500); }
   })
+  // Signals provider selection (testing / operational) – swaps active provider from static registry.
+  .add('POST','/admin/signals/provider', async ({ env, req }) => {
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+    const body:any = await req.json().catch(()=>({}));
+    const name = (body.name||'').toString() || null;
+    const provider = getProviderFromRegistry(name);
+    const found = !!name && (provider.name.toLowerCase() === name.toLowerCase() || name.toLowerCase() === 'default_v1');
+    setSignalsProvider(provider);
+    return json({ ok:true, active: provider.name, requested: name, found, registry: listRegisteredProviders() });
+  })
   // Full pipeline (lightweight placeholder uses integrity snapshot only for now)
   .add('POST','/admin/run-now', async ({ env, req }) => {
     if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
@@ -148,5 +178,38 @@ router
       return json({ ok:true, factors, days:n, matrix, stats:{ avg_abs_corr: avgAbs } });
     } catch (e:any) { return json({ ok:false, error:String(e) },500); }
   });
+
+// Domain auth status (email) – simple persisted flags set manually after DNS verification
+router.add('GET','/admin/email/domain-auth/status', async ({ env, req }) => {
+  if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_domain_auth (id INTEGER PRIMARY KEY CHECK (id=1), spf_verified INTEGER, dkim_verified INTEGER, dmarc_verified INTEGER, updated_at TEXT);`).run();
+    const rs = await env.DB.prepare(`SELECT spf_verified, dkim_verified, dmarc_verified, updated_at FROM email_domain_auth WHERE id=1`).all();
+    const row:any = rs.results?.[0] || null;
+    const verified = !!(row && row.spf_verified && row.dkim_verified && row.dmarc_verified);
+    return json({ ok:true, status: row || { spf_verified:0, dkim_verified:0, dmarc_verified:0, updated_at:null }, verified });
+  } catch (e:any) { return json({ ok:false, error:String(e) },500); }
+});
+router.add('POST','/admin/email/domain-auth/verify', async ({ env, req }) => {
+  if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+  try {
+    const body:any = await req.json().catch(()=>({}));
+    const spf = body.spf_verified?1:0; const dkim = body.dkim_verified?1:0; const dmarc = body.dmarc_verified?1:0;
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS email_domain_auth (id INTEGER PRIMARY KEY CHECK (id=1), spf_verified INTEGER, dkim_verified INTEGER, dmarc_verified INTEGER, updated_at TEXT);`).run();
+    await env.DB.prepare(`INSERT INTO email_domain_auth (id, spf_verified, dkim_verified, dmarc_verified, updated_at) VALUES (1,?,?,?,datetime('now')) ON CONFLICT(id) DO UPDATE SET spf_verified=excluded.spf_verified, dkim_verified=excluded.dkim_verified, dmarc_verified=excluded.dmarc_verified, updated_at=datetime('now')`).bind(spf, dkim, dmarc).run();
+    const rs = await env.DB.prepare(`SELECT spf_verified, dkim_verified, dmarc_verified FROM email_domain_auth WHERE id=1`).all();
+    const row:any = rs.results?.[0];
+    const verified = !!(row && row.spf_verified && row.dkim_verified && row.dmarc_verified);
+    if (verified) { try { const { incMetric } = await import('../lib/metrics'); await incMetric(env, 'email.domain_auth.verified'); } catch {/* ignore */} }
+    return json({ ok:true, verified, status: row });
+  } catch (e:any) { return json({ ok:false, error:String(e) },500); }
+});
+
+// Manual flush of external log sink (best-effort)
+router.add('POST','/admin/logs/flush', async ({ env, req }) => {
+  if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+  try { await flushLogsExternal(env); } catch {/* ignore */}
+  return json({ ok:true, flushed:true });
+});
 
 // File has no explicit export; importing it registers routes.

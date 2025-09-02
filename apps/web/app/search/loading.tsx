@@ -1,0 +1,1 @@
+export default function LoadingSearch() { return <div className="p-6 text-sm">Loading search results…</div>; }
