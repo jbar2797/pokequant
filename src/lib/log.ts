@@ -3,26 +3,62 @@
 const RING_MAX = 200; // lightweight in-memory ring for recent logs (admin diagnostics/export)
 let ring: any[] = [];
 let pendingExternal: any[] = []; // buffer for external sink (flush best-effort)
-let sinkStats = { flushes:0, errors:0, retries:0 };
+let sinkStats = { flushes:0, errors:0, retries:0, last_flush_bytes:0 };
+let memoryFlushes: any[][] = []; // test-only memory sink batches
+
+async function logMetric(env:any, metric:string, delta=1){
+  try {
+    if(!env || !env.DB) return;
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run();
+    const d = new Date().toISOString().slice(0,10);
+    await env.DB.prepare(`INSERT INTO metrics_daily (d,metric,count) VALUES (?,?,?) ON CONFLICT(d,metric) DO UPDATE SET count = count + ${Math.max(1,delta)}`).bind(d, metric, Math.max(1,delta)).run();
+  } catch {/* ignore metric errors */}
+}
+
 async function flushExternal(env: any){
 	if(!pendingExternal.length) return;
 	const batch = pendingExternal.splice(0, pendingExternal.length);
-	if(!(env && env.LOG_SINK_MODE === 'r2' && (env as any).LOGS_R2)) { return; }
-	const key = `logs/${new Date().toISOString().replace(/[:T]/g,'_').slice(0,19)}_${crypto.randomUUID()}.ndjson`;
+	const mode = env && env.LOG_SINK_MODE;
+	if(!(env && mode)) { return; }
 	const body = batch.map(e=> JSON.stringify(e)).join('\n');
-	let attempt = 0; const maxAttempts = 3;
-	for (;;){
-		try {
-			await (env as any).LOGS_R2.put(key, body, { httpMetadata:{ contentType:'application/x-ndjson' } });
-			sinkStats.flushes++;
-			break;
-		} catch (e){
-			sinkStats.errors++;
-			if (++attempt >= maxAttempts) { break; }
-			sinkStats.retries++;
-			// Exponential backoff with jitter (non-blocking via setTimeout + await)
-			const base = 50 * Math.pow(2, attempt-1) + Math.random()*25;
-			await new Promise(r=> setTimeout(r, base));
+	if (mode === 'memory') {
+		memoryFlushes.push(batch);
+		sinkStats.flushes++; sinkStats.last_flush_bytes = body.length;
+		await logMetric(env,'log.flush');
+		return;
+	}
+	if (mode === 'r2' && (env as any).LOGS_R2) {
+		const key = `logs/${new Date().toISOString().replace(/[:T]/g,'_').slice(0,19)}_${crypto.randomUUID()}.ndjson`;
+		let attempt = 0; const maxAttempts = 3;
+		for(;;){
+			try {
+				await (env as any).LOGS_R2.put(key, body, { httpMetadata:{ contentType:'application/x-ndjson' } });
+				sinkStats.flushes++; sinkStats.last_flush_bytes = body.length; await logMetric(env,'log.flush');
+				break;
+			} catch(e){
+				sinkStats.errors++; await logMetric(env,'log.flush_error');
+				if(++attempt>=maxAttempts){ break; }
+				sinkStats.retries++; await logMetric(env,'log.flush_retry');
+				const base = 50 * Math.pow(2, attempt-1) + Math.random()*25; await new Promise(r=> setTimeout(r, base));
+			}
+		}
+		return;
+	}
+	if (mode === 'http' && env.LOG_SINK_ENDPOINT) {
+		let attempt=0; const maxAttempts=3; const url=env.LOG_SINK_ENDPOINT; const auth=env.LOG_SINK_AUTH;
+		for(;;){
+			try {
+				const headers: Record<string,string> = { 'content-type':'application/x-ndjson' };
+				if (auth) headers['authorization'] = auth.startsWith('Bearer ')? auth : `Bearer ${auth}`;
+				const resp = await fetch(url, { method:'POST', headers, body });
+				if (!resp.ok) throw new Error('http_sink_status_'+resp.status);
+				sinkStats.flushes++; sinkStats.last_flush_bytes = body.length; await logMetric(env,'log.flush'); break;
+			} catch(e){
+				sinkStats.errors++; await logMetric(env,'log.flush_error');
+				if(++attempt>=maxAttempts) break;
+				sinkStats.retries++; await logMetric(env,'log.flush_retry');
+				const base = 50 * Math.pow(2, attempt-1) + Math.random()*25; await new Promise(r=> setTimeout(r, base));
+			}
 		}
 	}
 }
@@ -118,5 +154,6 @@ export function recentLogs(limit = 100): any[] {
 export async function flushLogsExternal(env:any){ await flushExternal(env); }
 
 // Expose sink stats for diagnostics
-export function logSinkStats(){ return { ...sinkStats, pending: pendingExternal.length }; }
+export function logSinkStats(){ return { ...sinkStats, pending: pendingExternal.length, memory_flushes: memoryFlushes.length }; }
+export function _testMemoryFlushes(){ return memoryFlushes; }
 

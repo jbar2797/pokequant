@@ -3,6 +3,7 @@
 
 import type { Env } from './lib/types';
 import { incMetric } from './lib/metrics';
+import { beforeCall as breakerBefore, afterCall as breakerAfter } from './lib/circuit_breaker';
 export const EMAIL_RETRY_MAX = 3;
 
 export interface EmailSendResult {
@@ -48,36 +49,41 @@ export async function sendEmail(env: Env, to: string, subject: string, html: str
       await inc(env,'email.sent'); await inc(env,'email.sent.sim');
       return { ok:true, id:`sim-${crypto.randomUUID()}`, provider:'resend' };
     }
-    // Real network dispatch
+    // Real network dispatch with circuit breaker (keyed by provider host)
+    const breakerKey = 'email:resend';
+    const gate = breakerBefore(breakerKey);
+    if (!gate.allow) { await inc(env, 'email.breaker.blocked'); return { ok:false, error:'circuit_open', provider:'resend', provider_error_code:'circuit_open', internal_code:'circuit_open' }; }
     if (/fail/i.test(to)) { // allow forced failure in real mode for testing
       await inc(env, 'email.send_error'); await inc(env,'email.send_error.real');
+  breakerAfter(breakerKey, false, undefined, env);
       return { ok:false, error:'Forced failure (pattern)', provider_error_code:'forced_fail', internal_code:'forced_fail', provider:'resend' };
     }
+    let ok=true;
     try {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST', headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: 'alerts@pokequant.io', to:[to], subject, html })
       });
       let provider_error_code: string | undefined; if (!resp.ok) {
+        ok=false;
         let text:any; try { text = await resp.json(); } catch { try { text = await resp.text(); } catch { text=''; } }
         if (text && typeof text === 'object') provider_error_code = (text.error && (text.error.code || text.error.type)) || undefined;
         await inc(env, 'email.send_error'); await inc(env,'email.send_error.real');
         const internal = mapProviderError(provider_error_code, resp.status);
-        // Increment taxonomy metrics if mapped
-        if (internal) {
-          const safe = internal.replace(/[^a-z0-9_]/gi,'_');
-          await inc(env, `email.error_code.${safe}`);
-        }
-        if (provider_error_code) {
-          const pSafe = provider_error_code.toLowerCase().replace(/[^a-z0-9_]/g,'_');
-          await inc(env, `email.provider_error.${pSafe}`);
-        }
+        if (internal) { const safe = internal.replace(/[^a-z0-9_]/gi,'_'); await inc(env, `email.error_code.${safe}`); }
+        if (provider_error_code) { const pSafe = provider_error_code.toLowerCase().replace(/[^a-z0-9_]/g,'_'); await inc(env, `email.provider_error.${pSafe}`); }
+  breakerAfter(breakerKey, false, undefined, env);
         return { ok:false, error:`resend_status_${resp.status}`, provider:'resend', provider_error_code, internal_code: internal };
       }
       const data:any = await resp.json().catch(()=>({}));
-  await inc(env, 'email.sent'); await inc(env,'email.sent.real');
-  // Delivered no longer incremented optimistically; real delivered webhook now handles `email.delivered` metric.
+	await inc(env, 'email.sent'); await inc(env,'email.sent.real');
+  breakerAfter(breakerKey, true, undefined, env);
       return { ok:true, id:data?.id, provider:'resend', provider_error_code };
-    } catch (e:any) { await inc(env, 'email.send_error'); await inc(env,'email.send_error.real'); await inc(env,'email.error_code.exception'); await inc(env,'email.provider_error.exception'); return { ok:false, error:String(e), provider:'resend', provider_error_code:'exception', internal_code:'exception' }; }
+    } catch (e:any) {
+      ok=false;
+      await inc(env, 'email.send_error'); await inc(env,'email.send_error.real'); await inc(env,'email.error_code.exception'); await inc(env,'email.provider_error.exception');
+  breakerAfter(breakerKey, false, undefined, env);
+      return { ok:false, error:String(e), provider:'resend', provider_error_code:'exception', internal_code:'exception' };
+    }
   }
   if (provider === 'postmark') {
     // Placeholder implementation; will flesh out after provider decision.

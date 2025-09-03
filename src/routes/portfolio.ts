@@ -1,5 +1,6 @@
 import { json, err } from '../lib/http';
 import { ErrorCodes } from '../lib/errors';
+import { beginIdempotent, finalizeIdempotent } from '../lib/idempotency';
 import { sha256Hex } from '../lib/crypto';
 import { audit } from '../lib/audit';
 import { portfolioAuth } from '../lib/portfolio_auth';
@@ -29,29 +30,50 @@ export function registerPortfolioRoutes(){
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
     const body = await req.json().catch(()=>({}));
+    const idemKey = req.headers.get('idempotency-key') || '';
   const parsed = validate(PortfolioLotSchema, body);
   if (!parsed.ok) return err(ErrorCodes.InvalidBody,400,{ details: parsed.errors });
   const auth = await portfolioAuth(env, pid, psec);
   if (!auth.ok) return err(ErrorCodes.Forbidden,403);
+    // Idempotency pre-check (after validation like alerts route)
+    if (idemKey){
+      const bodyText = JSON.stringify(body||{});
+      const pre = await beginIdempotent(env, '/portfolio/add-lot', idemKey, bodyText);
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS lots (id TEXT PRIMARY KEY, portfolio_id TEXT, card_id TEXT, qty REAL, cost_usd REAL, acquired_at TEXT, note TEXT);`).run();
     const lotId = crypto.randomUUID();
     await env.DB.prepare(`INSERT INTO lots (id, portfolio_id, card_id, qty, cost_usd, acquired_at) VALUES (?,?,?,?,?,?)`).bind(lotId, pid, parsed.data.card_id, parsed.data.qty, parsed.data.cost_usd, parsed.data.acquired_at || null).run();
     await audit(env, { actor_type:'portfolio', actor_id:pid, action:'add_lot', resource:'lot', resource_id:lotId, details:{ card_id: parsed.data.card_id, qty: parsed.data.qty } });
-    return json({ ok:true, lot_id: lotId });
+    const respObj = { ok:true, lot_id: lotId };
+    const respJson = JSON.stringify(respObj);
+    if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+    return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
   })
   // Rotate secret
   .add('POST','/portfolio/rotate-secret', async ({ env, req }) => {
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
+    const idemKey = req.headers.get('idempotency-key') || '';
   const auth = await portfolioAuth(env, pid, psec);
   if (!auth.ok) return err(ErrorCodes.Forbidden,403);
+    if (idemKey){
+      // Empty body for hashing
+      const pre = await beginIdempotent(env, '/portfolio/rotate-secret', idemKey, '');
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     const newBytes = new Uint8Array(16); crypto.getRandomValues(newBytes);
     const newSecret = Array.from(newBytes).map(b=> b.toString(16).padStart(2,'0')).join('');
     const newHash = await sha256Hex(newSecret);
     await env.DB.prepare(`UPDATE portfolios SET secret=?, secret_hash=? WHERE id=?`).bind(newSecret, newHash, pid).run();
     await audit(env, { actor_type:'portfolio', actor_id:pid, action:'rotate_secret', resource:'portfolio', resource_id:pid });
-    return json({ ok:true, id: pid, secret: newSecret });
+    const respObj = { ok:true, id: pid, secret: newSecret };
+    const respJson = JSON.stringify(respObj);
+    if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+    return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
   })
   // Portfolio summary
   .add('GET','/portfolio', async ({ env, req }) => {
@@ -77,20 +99,31 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
+    const idemKey = req.headers.get('idempotency-key') || '';
     const auth = await portfolioAuth(env, pid, psec);
   if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const lotId = body && typeof body.lot_id === 'string' ? body.lot_id : '';
   if (!lotId) return err(ErrorCodes.LotIdRequired,400);
+    if (idemKey){
+      const bodyText = JSON.stringify({ lot_id: lotId });
+      const pre = await beginIdempotent(env, '/portfolio/delete-lot', idemKey, bodyText);
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     const del = await env.DB.prepare(`DELETE FROM lots WHERE id=? AND portfolio_id=?`).bind(lotId, pid).run();
     const changes = (del as any).meta?.changes ?? 0;
     if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'delete_lot', resource:'lot', resource_id:lotId });
-    return json({ ok:true, deleted: changes });
+    const respObj = { ok:true, deleted: changes };
+    const respJson = JSON.stringify(respObj);
+    if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+    return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
   })
   .add('POST','/portfolio/update-lot', async ({ env, req }) => {
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
+    const idemKey = req.headers.get('idempotency-key') || '';
   const auth = await portfolioAuth(env, pid, psec);
   if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
@@ -100,6 +133,12 @@ export function registerPortfolioRoutes(){
   if (!lotId) return err(ErrorCodes.LotIdRequired,400);
   if (qty !== undefined && (!Number.isFinite(qty) || qty <= 0)) return err(ErrorCodes.InvalidQty,400);
   if (cost !== undefined && (!Number.isFinite(cost) || cost < 0)) return err(ErrorCodes.InvalidCost,400);
+    if (idemKey){
+      const bodyText = JSON.stringify({ lot_id: lotId, qty, cost_usd: cost });
+      const pre = await beginIdempotent(env, '/portfolio/update-lot', idemKey, bodyText);
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     const sets:string[] = []; const binds:any[] = [];
     if (qty !== undefined) { sets.push('qty=?'); binds.push(qty); }
     if (cost !== undefined) { sets.push('cost_usd=?'); binds.push(cost); }
@@ -108,7 +147,10 @@ export function registerPortfolioRoutes(){
     const res = await env.DB.prepare(`UPDATE lots SET ${sets.join(', ')} WHERE id=? AND portfolio_id=?`).bind(...binds).run();
     const changes = (res as any).meta?.changes ?? 0;
     if (changes) await audit(env, { actor_type:'portfolio', actor_id:pid, action:'update_lot', resource:'lot', resource_id:lotId, details:{ qty, cost_usd: cost } });
-    return json({ ok:true, updated: changes });
+    const respObj = { ok:true, updated: changes };
+    const respJson = JSON.stringify(respObj);
+    if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+    return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
   })
   // Factor exposure (latest)
   .add('GET','/portfolio/exposure', async ({ env, req }) => {
@@ -206,22 +248,33 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
+  const idemKey = req.headers.get('idempotency-key') || '';
   const auth = await portfolioAuth(env, pid, psec);
   if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
     const parsed = validate(PortfolioTargetsSchema, body);
   if(!parsed.ok) return err(ErrorCodes.InvalidBody,400,{ details: parsed.errors });
+    if (idemKey){
+      const bodyText = JSON.stringify(body||{});
+      const pre = await beginIdempotent(env, '/portfolio/targets', idemKey, bodyText);
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     const factorTargets = parsed.data.factors || {};
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_targets (portfolio_id TEXT, kind TEXT, target_key TEXT, target_value REAL, created_at TEXT, PRIMARY KEY(portfolio_id, kind, target_key));`).run();
     let updated=0; for (const [k,v] of Object.entries(factorTargets)){ const val=Number(v); if(!Number.isFinite(val)) continue; await env.DB.prepare(`INSERT OR REPLACE INTO portfolio_targets (portfolio_id, kind, target_key, target_value, created_at) VALUES (?,?,?,?,datetime('now'))`).bind(pid,'factor',k,val).run(); updated++; }
     await audit(env, { actor_type:'portfolio', actor_id:pid, action:'set_targets', resource:'portfolio_targets', resource_id:pid, details:{ factors: updated } });
-    return json({ ok:true, updated });
+    const respObj = { ok:true, updated };
+    const respJson = JSON.stringify(respObj);
+    if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+    return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
   })
   // Orders
   .add('POST','/portfolio/orders', async ({ env, req }) => {
     await ensureTestSeed(env);
     const pid = req.headers.get('x-portfolio-id')||'';
     const psec = req.headers.get('x-portfolio-secret')||'';
+    const idemKey = req.headers.get('idempotency-key') || '';
   const auth = await portfolioAuth(env, pid, psec);
   if (!auth.ok) return err(ErrorCodes.Forbidden,403);
     await env.DB.prepare(`CREATE TABLE IF NOT EXISTS portfolio_orders (id TEXT PRIMARY KEY, portfolio_id TEXT, created_at TEXT, status TEXT, objective TEXT, params TEXT, suggestions JSON, executed_at TEXT);`).run();
@@ -233,9 +286,17 @@ export function registerPortfolioRoutes(){
     const factor_deltas:Record<string,number>={}; for(const [k,tv] of Object.entries(targets)){ const cur=Number(exposures[k]??0); factor_deltas[k]=+(tv-cur).toFixed(6); }
     const suggestions={ factor_deltas, generated_at:new Date().toISOString(), trades: [] as any[] };
     const id=crypto.randomUUID(); const objective='align_targets';
+    if (idemKey){
+      const pre = await beginIdempotent(env, '/portfolio/orders', idemKey, JSON.stringify({ objective }));
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     await env.DB.prepare(`INSERT INTO portfolio_orders (id, portfolio_id, created_at, status, objective, params, suggestions) VALUES (?,?,?,?,?,?,?)`).bind(id,pid,new Date().toISOString(),'open',objective,JSON.stringify({}),JSON.stringify(suggestions)).run();
     await audit(env, { actor_type:'portfolio', actor_id:pid, action:'create_order', resource:'portfolio_order', resource_id:id, details:{ objective, deltas:factor_deltas } });
-    return json({ ok:true, id, objective, suggestions });
+    const respObj = { ok:true, id, objective, suggestions };
+    const respJson = JSON.stringify(respObj);
+    if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+    return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
   })
   .add('GET','/portfolio/orders', async ({ env, req }) => {
     await ensureTestSeed(env);
@@ -247,10 +308,16 @@ export function registerPortfolioRoutes(){
     await ensureTestSeed(env);
   const pid=req.headers.get('x-portfolio-id')||''; const psec=req.headers.get('x-portfolio-secret')||''; const auth=await portfolioAuth(env,pid,psec); if(!auth.ok) return err(ErrorCodes.Forbidden,403);
     const body:any = await req.json().catch(()=>({}));
+    const idemKey = req.headers.get('idempotency-key') || '';
     const parsed = validate(PortfolioOrderExecuteSchema, body);
   if(!parsed.ok) return err(ErrorCodes.InvalidBody,400,{ details: parsed.errors });
     const { id } = parsed.data;
   const orows = await env.DB.prepare(`SELECT id,status FROM portfolio_orders WHERE id=? AND portfolio_id=?`).bind(id,pid).all(); const order=(orows.results||[])[0] as any; if(!order) return err(ErrorCodes.NotFound,404); if(order.status!=='open') return err(ErrorCodes.InvalidStatus,400);
+    if (idemKey){
+      const pre = await beginIdempotent(env, '/portfolio/orders/execute', idemKey, JSON.stringify({ id }));
+      if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+      if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+    }
     await env.DB.prepare(`UPDATE portfolio_orders SET status='executed', executed_at=datetime('now'), executed_trades=json('[]') WHERE id=?`).bind(id).run(); await audit(env,{ actor_type:'portfolio', actor_id:pid, action:'execute_order', resource:'portfolio_order', resource_id:id }); return json({ ok:true, id, status:'executed' });
   })
   .add('GET','/portfolio/orders/detail', async ({ env, req, url }) => {

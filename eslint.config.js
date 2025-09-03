@@ -10,7 +10,8 @@ export default [
     rules: {
       'no-console': ['warn', { allow: ['error', 'warn', 'log'] }],
       '@typescript-eslint/consistent-type-imports': 'warn',
-      'internal/no-raw-error-literal': 'error'
+  'internal/no-raw-error-literal': 'error',
+  'internal/no-ad-hoc-network-retry': 'warn'
     }
   }
 ];

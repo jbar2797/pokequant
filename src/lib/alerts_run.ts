@@ -2,9 +2,12 @@ import { ensureAlertsTable, getAlertThresholdCol } from './data';
 import { incMetric, setMetric, recordLatency } from './metrics';
 import type { Env } from './types';
 import { log } from './log';
+import { beforeCall as breakerBefore, afterCall as breakerAfter, registerBreakerMetricEmitter } from './circuit_breaker';
 
 // Extracted from index.ts to enable modular routing.
 export async function runAlerts(env: Env) {
+  // One-time registration (cheap idempotent) of breaker metric emitter
+  registerBreakerMetricEmitter((name:string)=> { try { return incMetric(env, name); } catch {/* ignore */} });
   if ((env as any).FAST_TESTS === '1') {
     await ensureAlertsTable(env); // ensure schema for tests
     return { checked: 0, fired: 0 };
@@ -93,6 +96,12 @@ export async function runAlerts(env: Env) {
             const base = 250; const exp = Math.pow(2, attempt-1); const jitter = Math.floor(Math.random()*50);
             const plannedBackoff = attempt === 1 ? 0 : (base * exp + jitter);
             if (env.WEBHOOK_REAL_SEND === '1') {
+              // Circuit breaker gate by host
+              let hostKey = 'webhook_unknown';
+              try { const u = new URL(w.url); hostKey = 'wh_' + u.host.replace(/[^a-z0-9_.-]/ig,'_'); } catch {/* ignore */}
+              const pre = breakerBefore(hostKey);
+              if (!pre.allow) { ok = 0; status = 0; error = 'circuit_open'; }
+              else {
               const tSend = Date.now();
               try {
                 const headers: Record<string,string> = { 'content-type':'application/json' };
@@ -107,9 +116,11 @@ export async function runAlerts(env: Env) {
                   headers['x-signature-nonce'] = nonce;
                 }
                 const resp = await fetch(w.url, { method: 'POST', headers, body: payloadText });
-                status = resp.status; ok = resp.ok ? 1 : 0; if (!resp.ok) error = `status_${resp.status}`;
-              } catch (e:any) { ok=0; status=0; error=String(e); }
-              duration = Date.now() - tSend;
+                  status = resp.status; ok = resp.ok ? 1 : 0; if (!resp.ok) error = `status_${resp.status}`;
+                } catch (e:any) { ok=0; status=0; error=String(e); }
+                duration = Date.now() - tSend;
+              }
+              try { breakerAfter(hostKey, !!ok, undefined, env); } catch {/* ignore */}
             } else {
               if (alwaysFail || (failN && attempt <= failN)) { ok=0; status=0; error='sim_fail'; }
             }

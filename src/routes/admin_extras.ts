@@ -16,6 +16,7 @@ import { snapshotPortfolioNAV, computePortfolioPnL } from '../lib/portfolio_nav'
 import { snapshotPortfolioFactorExposure } from '../lib/portfolio_exposure';
 import { purgeOldData } from '../lib/retention';
 import { incMetricBy, recordLatency } from '../lib/metrics';
+import { breakerSnapshot } from '../lib/circuit_breaker';
 
 function isAdmin(env: Env, req: Request) {
   const t = req.headers.get('x-admin-token');
@@ -127,6 +128,16 @@ router
     setSignalsProvider(provider);
     return json({ ok:true, active: provider.name, requested: name, found, registry: listRegisteredProviders() });
   })
+  // Admin token rotation helper: generates ADMIN_TOKEN_NEXT and returns both tokens (write-only set)
+  .add('POST','/admin/security/rotate-admin-token', async ({ env, req }) => {
+    if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+    // Generate next token (32 hex chars)
+    const bytes = new Uint8Array(16); crypto.getRandomValues(bytes);
+    const next = Array.from(bytes).map(b=> b.toString(16).padStart(2,'0')).join('');
+    // We cannot mutate env vars at runtime (Cloudflare Workers env immutable). Document process instead.
+    // Return suggested next token; operator must set ADMIN_TOKEN_NEXT secret then later promote.
+    return json({ ok:true, current_set: !!env.ADMIN_TOKEN, next_suggested: next, instructions: 'Set secret ADMIN_TOKEN_NEXT to this value; deploy; confirm dual acceptance; then copy it into ADMIN_TOKEN and remove ADMIN_TOKEN_NEXT.' });
+  })
   // Full pipeline (lightweight placeholder uses integrity snapshot only for now)
   .add('POST','/admin/run-now', async ({ env, req }) => {
     if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
@@ -209,7 +220,29 @@ router.add('POST','/admin/email/domain-auth/verify', async ({ env, req }) => {
 router.add('POST','/admin/logs/flush', async ({ env, req }) => {
   if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
   try { await flushLogsExternal(env); } catch {/* ignore */}
-  return json({ ok:true, flushed:true });
+  return json({ ok:true, flushed:true, stats: logSinkStats() });
+});
+router.add('GET','/admin/logs/stats', async ({ env, req }) => {
+  if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+  return json({ ok:true, stats: logSinkStats() });
+});
+
+// Reliability diagnostics: circuit breakers and idempotency key counts
+router.add('GET','/admin/reliability/status', async ({ env, req }) => {
+  if (!isAdmin(env, req)) return err(ErrorCodes.Forbidden,403);
+  let idemCount = 0;
+  let persisted: any[] = [];
+  try {
+    await env.DB.prepare(`CREATE TABLE IF NOT EXISTS idempotency_keys (key TEXT PRIMARY KEY, route TEXT, body_hash TEXT, status INTEGER, response TEXT, created_at TEXT);`).run();
+    const rs = await env.DB.prepare(`SELECT COUNT(*) AS c FROM idempotency_keys WHERE created_at >= datetime('now','-1 day')`).all();
+    idemCount = Number(rs.results?.[0]?.c)||0;
+    try {
+      await env.DB.prepare(`CREATE TABLE IF NOT EXISTS circuit_breaker_state (key TEXT PRIMARY KEY, state TEXT, fails INTEGER, total INTEGER, consecutive_failures INTEGER, opened_at INTEGER, updated_at TEXT);`).run();
+      const brs = await env.DB.prepare(`SELECT key,state,fails,total,consecutive_failures,opened_at,updated_at FROM circuit_breaker_state ORDER BY key ASC`).all();
+      persisted = (brs.results||[]) as any[];
+    } catch {/* ignore */}
+  } catch {/* ignore */}
+  return json({ ok:true, circuit_breakers: breakerSnapshot(), breaker_persisted: persisted, idempotency_last_24h: idemCount });
 });
 
 // File has no explicit export; importing it registers routes.

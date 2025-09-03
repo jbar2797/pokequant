@@ -636,6 +636,20 @@ INSERT OR IGNORE INTO retention_config (table_name, days, updated_at) VALUES
  ('backups',30, datetime('now')),
  ('slo_breach_minute',2, datetime('now'));`
   }
+  ,
+  {
+    id: '0054_circuit_breaker_state',
+    description: 'Persist circuit breaker state across restarts',
+    sql: `CREATE TABLE IF NOT EXISTS circuit_breaker_state (
+  key TEXT PRIMARY KEY,
+  state TEXT,
+  fails INTEGER,
+  total INTEGER,
+  consecutive_failures INTEGER,
+  opened_at INTEGER,
+  updated_at TEXT
+);`
+  }
 ];
 
 let MIGRATIONS_PROMISE: Promise<void> | null = null;

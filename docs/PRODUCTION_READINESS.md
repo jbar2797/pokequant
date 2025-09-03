@@ -53,3 +53,10 @@ Overall Score: **73%** (Target for Beta: 75–80%)
 
 ---
 Update this file whenever readiness score changes ≥ 5% or after any major integration lands.
+
+## Recent Additions (Wave 1 Enhancements)
+- Expanded idempotency: alerts (create, deactivate, snooze) and portfolio mutations (add/update/delete lot, targets, orders create/execute).
+- Circuit breaker integrated for webhook + email outbound with transition metrics (`breaker.open`, `breaker.reopen`, `breaker.close`).
+- Structured log sink modes (`r2`, `http`, `memory`) with metrics (`log.flush`, `log.flush_error`, `log.flush_retry`) and admin endpoints (`/admin/logs/flush`, `/admin/logs/stats`).
+- Admin token rotation helper endpoint (`POST /admin/security/rotate-admin-token`).
+- Half-open breaker behavior validated via unit tests with simulated time advance.

@@ -51,6 +51,7 @@ export const ErrorCodes = {
   , InvalidStatus: 'invalid_status'
   , Unauthorized: 'unauthorized'
   , MissingMessageId: 'missing_message_id'
+  , IdempotencyConflict: 'idempotency_conflict'
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];

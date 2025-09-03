@@ -7,12 +7,14 @@ import { getRateLimits, rateLimit } from '../lib/rate_limit';
 import type { Env } from '../lib/types';
 import { ensureAlertsTable, getAlertThresholdCol, ensureTestSeed } from '../lib/data';
 import { AlertCreateSchema, validate } from '../lib/validation';
+import { beginIdempotent, finalizeIdempotent } from '../lib/idempotency';
 
 export function registerAlertRoutes(){
   router
     .add('POST','/alerts/create', async ({ env, req, url }) => {
       // Parse & validate first so missing-field errors short-circuit before any table work (reduces chance of runtime I/O issues under heavy parallel tests)
       const ip = req.headers.get('cf-connecting-ip') || 'anon';
+      const idemKey = req.headers.get('idempotency-key') || '';
       const body: any = await req.json().catch(()=>({}));
       const parsed = validate(AlertCreateSchema, body);
       if (!parsed.ok) {
@@ -23,6 +25,16 @@ export function registerAlertRoutes(){
           return err(ErrorCodes.ThresholdInvalid, 400);
         }
         return err(ErrorCodes.InvalidBody, 400, { details: parsed.errors });
+      }
+      // Idempotency pre-check (compare body hash & possible replay)
+      const bodyText = JSON.stringify(body||{});
+      if (idemKey) {
+        const pre = await beginIdempotent(env, '/alerts/create', idemKey, bodyText);
+        if (pre.conflict) return err(ErrorCodes.IdempotencyConflict, 409);
+        if (pre.replay) {
+          // Replay stored response
+          try { return new Response(pre.replay.response, { status: pre.replay.status, headers: { 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); }
+        }
       }
       // Only ensure schema after validation passes
       await ensureTestSeed(env);
@@ -52,9 +64,12 @@ export function registerAlertRoutes(){
       const manage_url = `${env.PUBLIC_BASE_URL || ''}/alerts/deactivate?id=${encodeURIComponent(id)}&token=${encodeURIComponent(manage_token)}`;
       await incMetric(env, 'alert.created');
       await audit(env, { actor_type:'public', action:'create', resource:'alert', resource_id:id, details:{ card_id, kind, threshold } });
-      const meta = await env.DB.prepare(`SELECT suppressed_until, fired_count FROM alerts_watch WHERE id=?`).bind(id).all();
+  const meta = await env.DB.prepare(`SELECT suppressed_until, fired_count FROM alerts_watch WHERE id=?`).bind(id).all();
       const row: any = meta.results?.[0] || {};
-      return json({ ok: true, id, manage_token, manage_url, suppressed_until: row.suppressed_until || null, fired_count: row.fired_count || 0 });
+  const respObj = { ok: true, id, manage_token, manage_url, suppressed_until: row.suppressed_until || null, fired_count: row.fired_count || 0 };
+  const respJson = JSON.stringify(respObj);
+  if (idemKey) { try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+  return new Response(respJson, { status:200, headers: { 'content-type':'application/json' } });
     })
     .add('GET','/alerts/deactivate', async ({ env, req, url }) => {
       const id = (url.searchParams.get('id') || '').trim();
@@ -71,12 +86,21 @@ export function registerAlertRoutes(){
       const body:any = await req.json().catch(()=>({}));
       const id = (body.id||'').toString();
       const token = (body.token||'').toString();
+      const idemKey = req.headers.get('idempotency-key') || '';
   if (!id || !token) return err(ErrorCodes.IdAndTokenRequired);
       const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
   const mt = row.results?.[0]?.manage_token as string | undefined; if (!mt || mt !== token) return err(ErrorCodes.InvalidToken, 403);
+      if (idemKey){
+        const pre = await beginIdempotent(env, '/alerts/deactivate', idemKey, JSON.stringify({ id }));
+        if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+        if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+      }
       await env.DB.prepare(`UPDATE alerts_watch SET active=0 WHERE id=?`).bind(id).run();
       await audit(env, { actor_type:'public', action:'deactivate', resource:'alert', resource_id:id, details:{} });
-      return json({ ok:true, id, deactivated:true });
+      const respObj = { ok:true, id, deactivated:true };
+      const respJson = JSON.stringify(respObj);
+      if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+      return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
     })
     .add('POST','/alerts/snooze', async ({ env, req, url }) => {
       await ensureTestSeed(env);
@@ -85,14 +109,23 @@ export function registerAlertRoutes(){
       const body: any = await req.json().catch(()=>({}));
       const minutes = Number(body.minutes);
       const token = (body.token||'').toString();
+      const idemKey = req.headers.get('idempotency-key') || '';
   if (!id || !Number.isFinite(minutes)) return err(ErrorCodes.IdAndMinutesRequired);
       const row = await env.DB.prepare(`SELECT manage_token FROM alerts_watch WHERE id=?`).bind(id).all();
       const found = (row.results||[])[0] as any;
   if (!found) return err(ErrorCodes.NotFound,404);
   if (found.manage_token !== token) return err(ErrorCodes.Forbidden,403);
+      if (idemKey){
+        const pre = await beginIdempotent(env, '/alerts/snooze', idemKey, JSON.stringify({ id, minutes }));
+        if (pre.conflict) return err(ErrorCodes.IdempotencyConflict,409);
+        if (pre.replay) { try { return new Response(pre.replay.response, { status: pre.replay.status, headers:{ 'content-type':'application/json' } }); } catch { return err(ErrorCodes.Internal,500); } }
+      }
       await env.DB.prepare(`UPDATE alerts_watch SET suppressed_until=datetime('now', ? || ' minutes') WHERE id=?`).bind(minutes.toString(), id).run();
       await audit(env, { actor_type:'public', action:'snooze', resource:'alert', resource_id:id, details:{ minutes } });
-      return json({ ok:true, id, suppressed_for_minutes: minutes });
+      const respObj = { ok:true, id, suppressed_for_minutes: minutes };
+      const respJson = JSON.stringify(respObj);
+      if (idemKey){ try { await finalizeIdempotent(env, idemKey, 200, respJson); } catch {/* ignore */} }
+      return new Response(respJson,{ status:200, headers:{ 'content-type':'application/json' } });
     });
 }
 

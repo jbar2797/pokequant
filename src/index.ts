@@ -15,6 +15,7 @@ import { runMigrations, listMigrations } from './migrations';
 // Modularized helpers
 import type { Env } from './lib/types';
 import { log, setRequestContext } from './lib/log';
+import { hydrateBreakers } from './lib/circuit_breaker';
 import { json, err, CORS, SECURITY_HEADERS } from './lib/http';
 import { ErrorCodes } from './lib/errors';
 import { isoDaysAgo } from './lib/date';
@@ -221,7 +222,8 @@ export default {
         state.promise = (async () => {
           const tInit0 = Date.now();
           try {
-      await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
+  await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
+    try { await hydrateBreakers(env); } catch {/* ignore hydrate */}
             // Ensure metrics table exists early to avoid first-request race before first metric increment
             try { await env.DB.prepare(`CREATE TABLE IF NOT EXISTS metrics_daily (d TEXT, metric TEXT, count INTEGER, PRIMARY KEY(d,metric));`).run(); } catch {}
             state.done = true;
@@ -251,7 +253,8 @@ export default {
     try {
       const anyDb: any = env.DB as any;
       if (!anyDb.__MIGRATIONS_DONE) {
-        await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
+    await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
+      try { await hydrateBreakers(env); } catch {/* ignore hydrate */}
       }
       else {
         // Integrity re-check: underlying storage may rotate while keeping same DB object; verify core tables exist.
@@ -263,6 +266,7 @@ export default {
           if (missing) {
             (anyDb.__MIGRATIONS_DONE = false); // force rerun
             await runMigrations(env.DB, { fast: (env as any).FAST_TESTS === '1' });
+            try { await hydrateBreakers(env); } catch {/* ignore hydrate */}
           }
         } catch {/* ignore */}
       }

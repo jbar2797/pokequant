@@ -25,4 +25,28 @@ export const rules = {
       };
     }
   }
+  , 'no-ad-hoc-network-retry': {
+    meta: { type: 'suggestion', docs: { description: 'Discourage custom inline retry loops for Network connection lost; rely on global patched fetch or fetchRetry helper' }, schema: [] },
+    create(context) {
+      return {
+        Literal(node) {
+          try {
+            if (typeof node.value === 'string' && /Network connection lost/.test(node.value)) {
+              // Look upward for a while to detect while/for loop presence in same function.
+              let p = node.parent;
+              let loopFound = false;
+              let depth = 0;
+              while (p && depth < 6) {
+                if (p.type === 'WhileStatement' || p.type === 'ForStatement') { loopFound = true; break; }
+                p = p.parent; depth++;
+              }
+              if (loopFound) {
+                context.report({ node, message: 'Inline retry loop on "Network connection lost" detected. Remove loop; global fetch retry is applied or use fetchRetry helper.' });
+              }
+            }
+          } catch {/* ignore */}
+        }
+      };
+    }
+  }
 };
